@@ -1,4 +1,4 @@
-yahsirc
-=======
+Amphibian
+=========
 
-Yet Another Haskell IRC
+A scriptable, pluggable IRC client written in Haskell.
