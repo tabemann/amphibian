@@ -22,7 +22,13 @@ module Network.IRC.Client.Amphibian.Monad
         unregisterUser,
         getPlugins,
         registerPlugin,
-        unregisterPlugin)
+        unregisterPlugin,
+        getInputDispatcher,
+        registerInputDispatcher,
+        unregisterInputDispatcher,
+        getPluginServer,
+        registerPluginServer,
+        unregisterPluginServer)
 
        where
 
@@ -196,3 +202,21 @@ unregisterInputDispatcher :: InputDispatcher -> AM ()
 unregisterInputDispatcher dispatcher = do
   intf <- getInterface
   liftIO . atomically $ I.unregisterInputDispatcher intf dispatcher
+
+-- | Get plugin server.
+getPluginServer :: AM (Maybe PluginServer)
+getPluginServer = do
+  intf <- getInterface
+  liftIO . atomically $ I.getPluginServer intf
+
+-- | Register plugin server.
+registerPluginServer :: PluginServer -> AM ()
+registerPluginServer dispatcher = do
+  intf <- getInterface
+  liftIO . atomically $ I.registerPluginServer intf dispatcher
+
+-- | Unregister plugin server.
+unregisterPluginServer :: PluginServer -> AM ()
+unregisterPluginServer dispatcher = do
+  intf <- getInterface
+  liftIO . atomically $ I.unregisterPluginServer intf dispatcher

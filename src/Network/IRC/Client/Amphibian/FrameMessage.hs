@@ -739,7 +739,7 @@ unknownCommandMessage frame command = do
                                      frliSource = ST.addStyle [Txst 13] $ T.singleton '*',
                                      frliBody = ST.addStyle [] formattedText }
 
--- | Display an arbitrary error message frame.
+-- | Send an arbitrary error message to a frame.
 errorMessage :: Frame -> T.Text -> Error -> AM ()
 errorMessage frame text (Error errorLines) = do
   time <- liftIO getCurrentTime

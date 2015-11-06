@@ -121,7 +121,8 @@ data Interface =
               intfUsers :: TVar [User],
               intfFrames :: TVar [Frame],
               intfPlugins :: TVar [Plugin],
-              intfInputDispatcher :: TVar (Maybe InputDispatcher)
+              intfInputDispatcher :: TVar (Maybe InputDispatcher),
+              intfPluginServer :: TVar (Maybe PluginServer),
               intfEvents :: TChan InterfaceEvent }
   deriving Eq
 
@@ -135,11 +136,13 @@ data InterfaceEvent = IntfConnectionManagerRegistered ConnectionManager
                     | IntfFrameRegistered Frame
                     | IntfPluginRegistered Plugin
                     | IntfInputDispatcherRegistered InputDispatcher
+                    | IntfPluginServerRegistered PluginServer
                     | IntfChannelUnregistered Channel
                     | IntfUserUnregistered User
                     | IntfFrameUnregistered Frame
                     | IntfPluginUnregistered Plugin
                     | IntfInputDispatcherUnregistered InputDispatcher
+                    | IntfPluginServerUnregistered PluginServer
                     | IntfConfigSet Config
                     | IntfConnectionConfigSet ConnectionManager ConnectionConfig
 
@@ -202,14 +205,51 @@ data Plugin =
            plugEntryPoint :: Maybe Text,
            plugPrecompiled :: Bool,
            plugInterface :: Interface,
-           plugActions :: TChan PluginAction,
-           plugRunning :: TVar Bool }
+           plugActions :: TQueue PluginAction,
+           plugInputEvents :: TChan PluginInputEvent,
+           plugOutputEvents :: TChan PluginOutputEvent,
+           plugRunning :: TVar Bool,
+           plugActive :: TVar Bool,
+           plugQuitting :: TVar Bool }
+  deriving Eq
 
 -- | Plugin action.
-data PluginAction = PlugStop
+data PluginAction = PlugRun PluginRunResponse
+                  | PlugStop PluginStopResponse
 
--- | Plugin subscription.
-newtype PluginSubscription = PluginSubscription (TChan PluginAction)
+-- | Plugin input event.
+data PluginInputEvent = PievQuit
+
+-- | Plugin output event.
+data PluginOutputEvent = PoevStart
+                       | PoevExit
+
+-- | Plugin run response.
+newtype PluginRunResponse = PluginRunResponse (Either Error ())
+
+-- | Plugin stop response.
+newtype PluginStopResponse = PluginStopResponse (Either Error ())
+
+-- | Plugin input subscription.
+newtype PluginInputSubscription = PluginInputSubscription (TChan PluginInputEvent)
+
+-- | Plugin output subscription.
+newtype PluginOutputSubscription = PluginOutputSubscription (TChan PluginOutputEvent)
+
+-- | Plugin server type.
+data PluginServer =
+  PluginServer { plseRunning :: TVar Bool,
+                 plseActions :: TQueue PluginServerAction }
+
+-- | Plugin server action.
+data PluginServerAction = PlsaStartPlugin Plugin PluginStartResponse
+                        | PlsaStop PluginServerStopResponse
+
+-- | Plugin start response.
+newtype PluginStartResponse = PluginStartResponse (TMVar (Either Error ()))
+
+-- | Plugin server stop response.
+newtype PluginServerStopResponse = PluginServerStopResponse (TMVar (Either Error ()))
 
 -- | Connection.
 data Connection =

@@ -28,7 +28,13 @@ module Network.IRC.Client.Amphibian.Interface
         unregisterFrame
         getPlugins,
         registerPlugin,
-        unregisterPlugin)
+        unregisterPlugin,
+        getInputDispatcher,
+        registerInputDispatcher,
+        unregisterInputDispatcher,
+        getPluginServer,
+        registerPluginServer,
+        unregisterPluginServer)
 
        where
 
@@ -278,4 +284,28 @@ unregisterInputDispatcher intf dispatcher = do
     Just currentDispatcher | currentDispatcher == dispatcher -> do
       writeTVar (intfInputDispatcher intf) Nothing
       writeTChan (intfEvents intf) (IntfInputDispatcherUnregistered dispatcher)
+    _ -> return ()
+
+-- | Get plugin server.
+getPluginServer :: Interface -> STM (Maybe PluginServer)
+getPluginServer = readTVar . intfPluginServer
+
+-- | Register plugin server.
+registerPluginServer :: Interface -> PluginServer -> STM ()
+registerPluginServer intf dispatcher = do
+  currentDispatcher <- readTVar $ intfPluginServer intf
+  case currentDispatcher of
+    Nothing -> do
+      writeTVar (intfPluginServer intf) (Just dispatcher)
+      writeTChan (intfEvents intf) (IntfPluginServerRegistered dispatcher)
+    _ -> return ()
+
+-- | Unregister plugin server.
+unregisterPluginServer :: Interface -> PluginServer -> STM ()
+unregisterPluginServer intf dispatcher = do
+  currentDispatcher <- readTVar $ intfPluginServer intf
+  case currentDispatcher of
+    Just currentDispatcher | currentDispatcher == dispatcher -> do
+      writeTVar (intfPluginServer intf) Nothing
+      writeTChan (intfEvents intf) (IntfPluginServerUnregistered dispatcher)
     _ -> return ()
