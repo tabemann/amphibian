@@ -35,11 +35,6 @@ import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Monad
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import Data.Functor ((<$>))
-import System.Eval.Haskell (eval_)
-import System.Plugins.Make (make,
-                            MakeStatus(..))
-import System.FilePath (takeDirectory,
-                        takeBaseName)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent.STM (STM,
                                TVar,

@@ -10,6 +10,18 @@ module Network.IRC.Client.Amphibian.Types
         ConnectionConfig(..),
         ServerSetup(..),
         ConnectionInfo(..),
+        Plugin(..),
+        PluginAction(..),
+        PluginInputEvent(..),
+        PluginOutputEvent(..),
+        PluginRunResponse(..),
+        PluginStopResponse(..),
+        PluginInputSubscription(..),
+        PluginOutputSubscription(..),
+        PluginServer(..),
+        PluginServerAction(..),
+        PluginStartResponse(..),
+        PluginServerStopResponse(..),
         Connection(..),
         ConnectionAction(..),
         ConnectionConnectResponse(..),
@@ -37,7 +49,11 @@ module Network.IRC.Client.Amphibian.Types
         ConnectionManagerDisconnectResponse(..),
         ConnectionManagerSendResponse(..),
         ConnectionManagerEvent(..),
-        ConnectionManagerStopResponse(..)
+        ConnectionManagerStopResponse(..),
+        ConnectionManagerServer(..),
+        ConnectionManagerServerAction(..),
+        ConnectionManagerStartResponse(..),
+        ConnectionManagerServerStopResponse(..),
         OperResponse(..),
         OperEvent(..),
         NickResponse(..),
@@ -64,6 +80,10 @@ module Network.IRC.Client.Amphibian.Types
         ChannelMessageResponse(..),
         ChannelNoticeResponse(..),
         ChannelSetTopicResponse(..),
+        ChannelServer(..),
+        ChannelServerAction(..),
+        ChannelStartResponse(..),
+        ChannelServerStopResponse(..),
         User(..),
         UserSubscription(..),
         UserAction(..),
@@ -71,6 +91,10 @@ module Network.IRC.Client.Amphibian.Types
         UserMessageResponse(..),
         UserNoticeResponse(..),
         UserStopResponse(..),
+        UserServer(..),
+        UserServerAction(..),
+        UserStartResponse(..),
+        UserServerStopResponse(..),
         StyledText(..),
         StyledTextElement(..),
         TextStyle(..),
@@ -123,6 +147,9 @@ data Interface =
               intfPlugins :: TVar [Plugin],
               intfInputDispatcher :: TVar (Maybe InputDispatcher),
               intfPluginServer :: TVar (Maybe PluginServer),
+              intfConnectionManagerServer :: TVar (Maybe ConnectionManagerServer),
+              intfChannelServer :: TVar (Maybe ChannelServer),
+              intfUserServer :: TVar (Maybe UserServer),
               intfEvents :: TChan InterfaceEvent }
   deriving Eq
 
@@ -137,12 +164,19 @@ data InterfaceEvent = IntfConnectionManagerRegistered ConnectionManager
                     | IntfPluginRegistered Plugin
                     | IntfInputDispatcherRegistered InputDispatcher
                     | IntfPluginServerRegistered PluginServer
+                    | IntfConnectionManagerServerRegistered ConnectionManagerServer
+                    | IntfChannelServerRegistered ChannelServer
+                    | IntfUserServerRegistered UserServer
+                    | IntfConnectionManagerUnregistered ConnectionManager
                     | IntfChannelUnregistered Channel
                     | IntfUserUnregistered User
                     | IntfFrameUnregistered Frame
                     | IntfPluginUnregistered Plugin
                     | IntfInputDispatcherUnregistered InputDispatcher
                     | IntfPluginServerUnregistered PluginServer
+                    | IntfConnectionManagerServerUnregistered ConnectionManagerServer
+                    | IntfChannelServerUnregistered ChannelServer
+                    | IntfUserServerUnregistered UsersServer
                     | IntfConfigSet Config
                     | IntfConnectionConfigSet ConnectionManager ConnectionConfig
 
@@ -325,8 +359,7 @@ type MessageComment = ByteString
 
 -- | Connection manager.
 data ConnectionManager =
-  ConnectionManager { comaAsync :: TVar (Maybe (Async ())),
-                      comaActions :: TQueue ConnectionManagerAction,
+  ConnectionManager { comaActions :: TQueue ConnectionManagerAction,
                       comaEvents :: TChan ConnectionManagerEvent,
                       comaStop :: TMVar (ConnectManagerStopResponse),
                       comaSetup :: TVar (Maybe ConnectionManagerSetup),
@@ -335,12 +368,14 @@ data ConnectionManager =
                       comaHost :: Maybe HostName,
                       comaNick :: Maybe Nick,
                       comaSubscription :: TVar [ConnectionSubscription],
-                      comaMotd :: TVar [MessageComment] }
+                      comaMotd :: TVar [MessageComment],
+                      comaActive :: TVar Bool }
   deriving Eq
 
 -- | Connection manager setup
 data ConnectionManagerSetup =
-  ConnectionManagerSetup { comaName :: Name,
+  ConnectionManagerSetup { comaInterface :: Interface,
+                           comaName :: Name,
                            comaCurrentHost :: Maybe HostName,
                            comaPort :: Port,
                            comaUserName :: UserName,
@@ -426,6 +461,21 @@ data ConnectionManagerEvent = ComaLookupAddress HostName
 newtype ConnectionManagerStopResponse =
   ConnectionManagerStopResponse (TMVar ())
 
+-- | Connection manager server.
+data ConnectionManagerServer =
+  ConnectionManagerServer { cmseRunning :: TVar Bool,
+                            cmseActions :: TQueue ConnectionManagerServerAction }
+
+-- | Connection manager server action.
+data ConnectionManagerServerAction = CmsaStartConnectionManager ConnectionManager ConnectionManagerStartResponse
+                                   | CmsaStop ConnectionManagerServerStopResponse
+
+-- | Connection manager start response.
+newtype ConnectionManagerStartResponse = ConnectionManagerStartResponse (TMVar (Either Error ()))
+
+-- | ConnectionManager server stop response.
+newtype ConnectionManagerServerStopResponse = ConnectionManagerServerStopResponse (TMVar (Either Error ()))
+
 -- | OPER response.
 newtype OperResponse = OperResponse (TMVar OperEvent)
 
@@ -500,7 +550,7 @@ data SquitEvent = SquitSuccess
 
 -- | Amphibian channel.
 data Channel =
-  Channel { chanAsync :: TVar (Maybe (Async ())),
+  Channel { chanInterface :: Interface,
             chanActions :: TQueue ChannelAction,
             chanEvents :: TChan ChannelEvent,
             chanName :: ChannelName,
@@ -514,7 +564,8 @@ data Channel =
             chanNamesAccum :: TVar [(Nick, UserStatus)],
             chanAutoJoin :: TVar Bool,
             chanJoined :: TVar Bool,
-            chanJoinResponse :: TVar (Maybe ChannelJoinResponse) }
+            chanJoinResponse :: TVar (Maybe ChannelJoinResponse),
+            chanActive :: TVar Bool }
   deriving Eq
 
 -- | Channel name.
@@ -582,16 +633,32 @@ newtype ChannelNoticeResponse = ChannelNoticeResponse (TMVar (Either Error ()))
 -- | Channel set topic response.
 newtype ChannelSetTopicResponse = ChannelSetTopicResponse (TMVar (Either Error ()))
 
+-- | Channel server type.
+data ChannelServer =
+  ChannelServer { chseRunning :: TVar Bool,
+                  chseActions :: TQueue ChannelServerAction }
+
+-- | Channel server action.
+data ChannelServerAction = ChsaStartChannel Channel ChannelStartResponse
+                         | ChsaStop ChannelServerStopResponse
+
+-- | Channel start response.
+newtype ChannelStartResponse = ChannelStartResponse (TMVar (Either Error ()))
+
+-- | Channel server stop response.
+newtype ChannelServerStopResponse = ChannelServerStopResponse (TMVar (Either Error ()))
+
 -- | User.
 data User =
-  User { userAsync :: TVar (Maybe (Async ())),
+  User { userInterface :: Interface,
          userConnectionManager :: ConnectionManager,
          userSubscription :: ConnectionManagerSubscription,
          userNick :: TVar Nick,
          userActions :: TQueue UserAction,
          userInjectedEvents :: TQueue ConnectionManagerEvent,
          userEvents :: TChan UserEvent,
-         userDelayEvents :: TVar Bool }
+         userDelayEvents :: TVar Bool,
+         userActive :: TVar Bool }
   deriving Eq
 
 -- | User subscription.
@@ -622,6 +689,21 @@ newtype UserNoticeResponse = UserNoticeResponse (TMVar (Either Error ()))
 
 -- | Response to user stop.
 newtype UserStopResponse = UserStopResponse (TMVar (Either Error ()))
+
+-- | User server type.
+data UserServer =
+  UserServer { usseRunning :: TVar Bool,
+               usseActions :: TQueue UserServerAction }
+
+-- | User server action.
+data UserServerAction = UssaStartUser User UserStartResponse
+                      | UssaStop UserServerStopResponse
+
+-- | User start response.
+newtype UserStartResponse = UserStartResponse (TMVar (Either Error ()))
+
+-- | User server stop response.
+newtype UserServerStopResponse = UserServerStopResponse (TMVar (Either Error ()))
 
 -- | Styled text.
 newtype StyledText = StyledText [StyledTextElement]

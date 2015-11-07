@@ -49,10 +49,8 @@ import qualified Data.Text as T
 new :: STM PluginServer
 new = do
   running <- newTVar Bool
-  plugins <- newTVar []
   actions <- newTQueue
   return $ PluginServer { plseRunning = running,
-                          plsePlugins = plugins,
                           plseActions = actions }
 
 -- | Start a plugin server
@@ -95,6 +93,7 @@ runServer server = do
           putTMVar response $ Right ()
           return $ do
             async $ runAM (runPlugin plugin) intf
+            return True
         else do
           errorText <- I.lookupText intf $ T.pack "Plugin is already started"
           putTMVar response . Left $ Error [errorText]

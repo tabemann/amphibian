@@ -34,7 +34,16 @@ module Network.IRC.Client.Amphibian.Interface
         unregisterInputDispatcher,
         getPluginServer,
         registerPluginServer,
-        unregisterPluginServer)
+        unregisterPluginServer,
+        getConnectionManagerServer,
+        registerConnectionManagerServer,
+        unregisterConnectionManagerServer,
+        getChannelServer,
+        registerChannelServer,
+        unregisterChannelServer,
+        getUserServer,
+        registerUserServer,
+        unregisterUserServer)
 
        where
 
@@ -74,6 +83,10 @@ newInterface config = do
   frames <- newTVar []
   plugins <- newTVar []
   inputDispatcher <- newTVar Nothing
+  pluginServer <- newTVar Nothing
+  connectionManagerServer <- newTVar Nothing
+  channelServer <- newTVar Nothing
+  userServer <- newTVar Nothing
   events <- newBroadcastTChan
   return $ Interface { intfTextMap = textMap,
                        intfAvailableLanguages = availableLanguages',
@@ -85,6 +98,10 @@ newInterface config = do
                        intfFrames = frames,
                        intfPlugins = plugins,
                        intfInputDispatcher = inputDispatcher,
+                       intfPluginServer = pluginServer,
+                       intfConnectionManagerServer = connectionManagerServer,
+                       intfChannelServer = channelServer,
+                       intfUserServer = userServer,
                        intfEvents = events }
 
 -- | Subscribe to events from an interface.
@@ -292,20 +309,92 @@ getPluginServer = readTVar . intfPluginServer
 
 -- | Register plugin server.
 registerPluginServer :: Interface -> PluginServer -> STM ()
-registerPluginServer intf dispatcher = do
+registerPluginServer intf server = do
   currentDispatcher <- readTVar $ intfPluginServer intf
   case currentDispatcher of
     Nothing -> do
-      writeTVar (intfPluginServer intf) (Just dispatcher)
-      writeTChan (intfEvents intf) (IntfPluginServerRegistered dispatcher)
+      writeTVar (intfPluginServer intf) (Just server)
+      writeTChan (intfEvents intf) (IntfPluginServerRegistered server)
     _ -> return ()
 
 -- | Unregister plugin server.
 unregisterPluginServer :: Interface -> PluginServer -> STM ()
-unregisterPluginServer intf dispatcher = do
+unregisterPluginServer intf server = do
   currentDispatcher <- readTVar $ intfPluginServer intf
   case currentDispatcher of
-    Just currentDispatcher | currentDispatcher == dispatcher -> do
+    Just currentDispatcher | currentDispatcher == server -> do
       writeTVar (intfPluginServer intf) Nothing
-      writeTChan (intfEvents intf) (IntfPluginServerUnregistered dispatcher)
+      writeTChan (intfEvents intf) (IntfPluginServerUnregistered server)
+    _ -> return ()
+
+-- | Get connection manager server.
+getConnectionManagerServer :: Interface -> STM (Maybe ConnectionManagerServer)
+getConnectionManagerServer = readTVar . intfConnectionManagerServer
+
+-- | Register connection manager server.
+registerConnectionManagerServer :: Interface -> ConnectionManagerServer -> STM ()
+registerConnectionManagerServer intf server = do
+  currentDispatcher <- readTVar $ intfConnectionManagerServer intf
+  case currentDispatcher of
+    Nothing -> do
+      writeTVar (intfConnectionManagerServer intf) (Just server)
+      writeTChan (intfEvents intf) (IntfConnectionManagerServerRegistered server)
+    _ -> return ()
+
+-- | Unregister connection manager server.
+unregisterConnectionManagerServer :: Interface -> ConnectionManagerServer -> STM ()
+unregisterConnectionManagerServer intf server = do
+  currentDispatcher <- readTVar $ intfConnectionManagerServer intf
+  case currentDispatcher of
+    Just currentDispatcher | currentDispatcher == server -> do
+      writeTVar (intfConnectionManagerServer intf) Nothing
+      writeTChan (intfEvents intf) (IntfConnectionManagerServerUnregistered server)
+    _ -> return ()
+
+-- | Get channel server.
+getChannelServer :: Interface -> STM (Maybe ChannelServer)
+getChannelServer = readTVar . intfChannelServer
+
+-- | Register channel server.
+registerChannelServer :: Interface -> ChannelServer -> STM ()
+registerChannelServer intf server = do
+  currentDispatcher <- readTVar $ intfChannelServer intf
+  case currentDispatcher of
+    Nothing -> do
+      writeTVar (intfChannelServer intf) (Just server)
+      writeTChan (intfEvents intf) (IntfChannelServerRegistered server)
+    _ -> return ()
+
+-- | Unregister channel server.
+unregisterChannelServer :: Interface -> ChannelServer -> STM ()
+unregisterChannelServer intf server = do
+  currentDispatcher <- readTVar $ intfChannelServer intf
+  case currentDispatcher of
+    Just currentDispatcher | currentDispatcher == server -> do
+      writeTVar (intfChannelServer intf) Nothing
+      writeTChan (intfEvents intf) (IntfChannelServerUnregistered server)
+    _ -> return ()
+
+-- | Get user server.
+getUserServer :: Interface -> STM (Maybe UserServer)
+getUserServer = readTVar . intfUserServer
+
+-- | Register user server.
+registerUserServer :: Interface -> UserServer -> STM ()
+registerUserServer intf server = do
+  currentDispatcher <- readTVar $ intfUserServer intf
+  case currentDispatcher of
+    Nothing -> do
+      writeTVar (intfUserServer intf) (Just server)
+      writeTChan (intfEvents intf) (IntfUserServerRegistered server)
+    _ -> return ()
+
+-- | Unregister user server.
+unregisterUserServer :: Interface -> UserServer -> STM ()
+unregisterUserServer intf server = do
+  currentDispatcher <- readTVar $ intfUserServer intf
+  case currentDispatcher of
+    Just currentDispatcher | currentDispatcher == server -> do
+      writeTVar (intfUserServer intf) Nothing
+      writeTChan (intfEvents intf) (IntfUserServerUnregistered server)
     _ -> return ()

@@ -28,7 +28,13 @@ module Network.IRC.Client.Amphibian.Monad
         unregisterInputDispatcher,
         getPluginServer,
         registerPluginServer,
-        unregisterPluginServer)
+        unregisterPluginServer,
+        getConnectionManagerServer,
+        registerConnectionManagerServer,
+        unregisterConnectionManagerServer,
+        getChannelServer,
+        registerChannelServer,
+        unregisterChannelServer)
 
        where
 
@@ -211,12 +217,48 @@ getPluginServer = do
 
 -- | Register plugin server.
 registerPluginServer :: PluginServer -> AM ()
-registerPluginServer dispatcher = do
+registerPluginServer server = do
   intf <- getInterface
-  liftIO . atomically $ I.registerPluginServer intf dispatcher
+  liftIO . atomically $ I.registerPluginServer intf server
 
 -- | Unregister plugin server.
 unregisterPluginServer :: PluginServer -> AM ()
-unregisterPluginServer dispatcher = do
+unregisterPluginServer server = do
   intf <- getInterface
-  liftIO . atomically $ I.unregisterPluginServer intf dispatcher
+  liftIO . atomically $ I.unregisterPluginServer intf server
+
+-- | Get connection manager server.
+getConnectionManagerServer :: AM (Maybe ConnectionManagerServer)
+getConnectionManagerServer = do
+  intf <- getInterface
+  liftIO . atomically $ I.getConnectionManagerServer intf
+
+-- | Register connection manager server.
+registerConnectionManagerServer :: ConnectionManagerServer -> AM ()
+registerConnectionManagerServer server = do
+  intf <- getInterface
+  liftIO . atomically $ I.registerConnectionManagerServer intf server
+
+-- | Unregister connection manager server.
+unregisterConnectionManagerServer :: ConnectionManagerServer -> AM ()
+unregisterConnectionManagerServer server = do
+  intf <- getInterface
+  liftIO . atomically $ I.unregisterConnectionManagerServer intf server
+
+-- | Get channel server.
+getChannelServer :: AM (Maybe ChannelServer)
+getChannelServer = do
+  intf <- getInterface
+  liftIO . atomically $ I.getChannelServer intf
+
+-- | Register channel server.
+registerChannelServer :: ChannelServer -> AM ()
+registerChannelServer server = do
+  intf <- getInterface
+  liftIO . atomically $ I.registerChannelServer intf server
+
+-- | Unregister channel server.
+unregisterChannelServer :: ChannelServer -> AM ()
+unregisterChannelServer server = do
+  intf <- getInterface
+  liftIO . atomically $ I.unregisterChannelServer intf server
