@@ -10,6 +10,10 @@ module Network.IRC.Client.Amphibian.UserDisplay
        where
 
 import Network.IRC.Client.Amphibian.Types
+import Network.IRC.Client.Amphibian.Monad
+import Network.IRC.Client.Amphibian.Utility
+import Network.IRC.Client.Amphibian.Ctcp
+import Network.IRC.Client.Amphibian.Commands
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frame as F
 import qualified Network.IRC.Client.Amphibian.User as U
@@ -33,7 +37,10 @@ import Control.Concurrent.STM.TQueue (TQueue,
 import Control.Concurrent.Async (Async,
                                  async,
                                  cancel)
+import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
+import qualified Data.ByteString as B
+import qualified Data.ByteString.UTF8 as BUTF8
 
 -- | Create a connection display.
 new :: Interface -> STM UserDisplay
@@ -155,6 +162,13 @@ handleUserEvent display mapping = do
       return $ do
         recvQuitMessage frame nick fullName
         return True
+    UserRecvCtcpRequest nick comment ->
+      case parseCtcp comment of
+        Just (command, Just comment) | command == ctcp_ACTION -> do
+          return $ do
+            FM.recvActionMessage frame nick comment FrmtPrivate
+            return True
+        _ -> return $ return True
     UserSelfMessage nick comment ->
       return $ do
         selfMessageMessage frame nick comment
@@ -163,3 +177,11 @@ handleUserEvent display mapping = do
       return $ do
         selfNoticeMessage frame nick comment
         return True
+    UserSelfCtcpRequest nick comment ->
+      case parseCtcp comment of
+        Just (command, Just comment) | command == ctcp_ACTION -> do
+          return $ do
+            FM.selfActionMessage frame nick comment FrmtPrivate
+            return True
+        _ -> return $ return True
+    _ -> return $ return True

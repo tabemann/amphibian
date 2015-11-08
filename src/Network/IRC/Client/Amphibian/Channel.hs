@@ -73,6 +73,7 @@ new :: Interface -> ConnectionManager -> ChannelName -> Maybe ChannelKey -> STM 
 new intf manager name key = do
   actions <- newTQueue
   events <- newBroadcastTChan
+  name' <- newTVar name
   key <- newTVar key
   topic <- newTVar Nothing
   topicUser <- newTVar Nothing
@@ -87,7 +88,7 @@ new intf manager name key = do
   return $ Channel { chanInterface = interface,
                      chanActions = actions,
                      chanEvents = events,
-                     chanName = name,
+                     chanName = name',
                      chanConnectionManager = manager,
                      chanKey = key,
                      chanTopic = topic,
@@ -106,36 +107,36 @@ getConnectionManager :: Channel -> ConnectionManager
 getConnectionManager channel = chanConnectionManager channel
 
 -- | Get channel name.
-getName :: Channel -> ChannelName
-getName channel = chanName channel
+getName :: Channel -> STM ChannelName
+getName = readTVar . chanName
 
 -- | Get channel topic.
 getTopic :: Channel -> STM (Maybe ChannelTopic)
-getTopic channel = readTVar $ chanTopic channel
+getTopic = readTVar . chanTopic
 
 -- | Get channel topic user.
 getTopicUser :: Channel -> STM (Maybe FullUser)
-getTopicUser channel = readTVar $ chanTopicUser channel
+getTopicUser = readTVar . chanTopicUser
 
 -- | Get channel topic time.
 getTopicTime :: Channel -> STM UTCTime
-getTopicTime channel = readTVar $ chanTopicTime channel
+getTopicTime = readTVar . chanTopicTime
 
 -- | Get channel type.
 getType :: Channel -> STM ChannelType
-getType channel = readTVar $ chanType channel
+getType = readTVar . chanType
 
 -- | Get channel names.
 getNames :: Channel -> STM [(Nick, UserStatus)]
-getNames channel = readTVar $ chanNames channel
+getNames = readTVar . chanNames
 
 -- | Get whether the channel will be auto-joined.
 getAutoJoin :: Channel -> STM Bool
-getAutoJoin channel = readTVar $ chanAutoJoin channel
+getAutoJoin = readTVar . chanAutoJoin
 
 -- | Get whether the channel is joined.
 getJoined :: Channel -> STM Bool
-getJoined channel = readTVar $ chanJoined channel
+getJoined = readTVar . chanJoined
 
 -- | Start a channel thread.
 start :: Channel -> STM ChannelStartResponse

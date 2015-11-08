@@ -29,9 +29,11 @@ module Network.IRC.Client.Amphibian.FrameMessage
         recvNickMessage,
         recvTopicMessage,
         recvMessageMessage,
+        recvActionMessage,
         recvNoticeMessage,
         motdMessage,
         selfMessageMessage,
+        selfActionMessage,
         selfNoticeMessage,
         unknownCommandMessage,
         errorMessage)
@@ -428,7 +430,7 @@ topicWhoTimeMessage frame name user time = do
   timeLocale <- confTimeLocale <$> getConfig
   name' <- decode frame name
   user' <- decode frame user
-  timeText <- T.pack $ format timeLocale "%c" time
+  timeText <- T.pack $ formatTime timeLocale "%c" time
   let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
   let textMap' = HM.insert (T.pack "user") (formatString user') textMap
   let textMap = HM.insert (T.pack "time") (formatString timeText) textMap'
@@ -600,15 +602,6 @@ recvTopicMessage frame nick topic = do
                                                            
     F.notify frame [FrnoRecvTopic]
 
--- | Check whether a message is an action.
-getAction :: StyledText -> Just StyledText
-getAction (StyledText (StyledTextElement [] firstText : rest)) =
-  let (firstPart, firstTextRest) = T.breakOn isSpace firstText in
-  if firstPart == T.pack "ACTION"
-  then Just . StyledText $ StyledTextElement [] firstTextRest : rest
-  else Nothing
-getAction (StyledText []) = Nothing
-
 -- | Send a received message message to a specific frame.
 recvMessageMessage :: Frame -> Nick -> MessageComment -> FrameMessageType -> AM ()
 recvMessageMessage frame nick comment private = do
@@ -618,35 +611,42 @@ recvMessageMessage frame nick comment private = do
   time <- liftIO getCurrentTime
   nick' <- decode frame nick
   comment' <- ST.decode <$> decode frame comment
-  case getAction comment' of
-    Nothing ->
-      if (length $ T.splitOn myNick' (ST.removeStyle comment')) > 1
-      then
-        liftIO . atomically $ do
-          F.outputLine frame $ FrameLine { frliTime = time,
-                                           frliSource = ST.addStyle [TxstBold, TxstColor 5] nick',
-                                           frliBody = ST.mergeStyle [TxstColor 5] comment' }
-          case private of
-            FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage, FrnoRecvMention]
-            FrmtChannel F.notify frame [FrnoRecvChannelMessage, FrnoRecvMention]
-      else
-        liftIO . atomically $ do
-          F.outputLine frame $ FrameLine { frliTime = time,
-                                           frliSource = ST.addStyle [TxstColor 12] nick',
-                                           frliBody = comment' }
-          case private of
-            FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage]
-            FrmtChannel -> F.notify frame [FrnoRecvChannelMessage]
-    Just action ->
-      liftIO . atomically $ do
-        F.outputLine frame $ FrameLine { frliTime = time,
-                                         frliSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
-                                         frliBody = ST.concat [ST.addStyle [TxstColor 12] nick',
-                                                               ST.addStyle [] T.singleton ' ',
-                                                               action] }
-        case private of
-          FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage]
-          FrmtChannel -> F.notify frame [FrnoRecvChannelMessage]
+  if (length $ T.splitOn myNick' (ST.removeStyle comment')) > 1
+  then
+    liftIO . atomically $ do
+      F.outputLine frame $ FrameLine { frliTime = time,
+                                       frliSource = ST.addStyle [TxstBold, TxstColor 5] nick',
+                                       frliBody = ST.mergeStyle [TxstColor 5] comment' }
+      case private of
+        FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage, FrnoRecvMention]
+        FrmtChannel F.notify frame [FrnoRecvChannelMessage, FrnoRecvMention]
+  else
+    liftIO . atomically $ do
+      F.outputLine frame $ FrameLine { frliTime = time,
+                                       frliSource = ST.addStyle [TxstColor 12] nick',
+                                       frliBody = comment' }
+      case private of
+        FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage]
+        FrmtChannel -> F.notify frame [FrnoRecvChannelMessage]
+
+-- | Send a received CTCP action message to a specific frame
+recvActionMessage :: Frame -> Nick -> MessageComment -> FrameMessageType -> AM ()
+recvActionMessage frame nick comment private = do
+  manager <- liftIO . atomically $ F.getConnectionManager frame
+  myNick <- liftIO . atomically $ CM.getNick manager
+  myNick' <- decode frame myNick
+  time <- liftIO getCurrentTime
+  nick' <- decode frame nick
+  comment' <- ST.decode <$> decode frame comment
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
+                                     frliBody = ST.concat [ST.addStyle [TxstColor 12] nick',
+                                                           ST.addStyle [] T.singleton ' ',
+                                                           comment'] }
+    case private of
+      FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage]
+      FrmtChannel -> F.notify frame [FrnoRecvChannelMessage]
 
 -- | Send a received notice message to a frame.
 recvNoticeMessage :: Frame -> Nick -> MessageComment -> FrameMessageType -> FrameTarget -> AM ()
@@ -697,22 +697,25 @@ selfMessageMessage frame nick comment = do
   time <- liftIO getCurrentTime
   nick' <- decode frame nick
   comment' <- ST.decode <$> decode frame comment
-  case getAction comment' of
-    Nothing -> do
-      lightBackground <- confLightBackground <$> getConfig
-      let color = if lightBackground then 1 else 0
-      liftIO . atomically $
-        F.outputLine frame $ FrameLine { frliTime = time,
-                                         frliSource = ST.addStyle [TxstColor color] nick',
-                                         frliBody = ST.setBaseColor color comment' }
-    Just action ->
-      liftIO . atomically $
-        F.outputLine frame $ FrameLine { frliTime = time,
-                                         frliSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
-                                         frliBody = ST.concat [ST.addStyle [TxstColor 12] nick',
-                                                               ST.addStyle [] T.singleton ' ',
-                                                               action] }
+  lightBackground <- confLightBackground <$> getConfig
+  let color = if lightBackground then 1 else 0
+  liftIO . atomically $
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstColor color] nick',
+                                     frliBody = ST.setBaseColor color comment' }
 
+-- | Send a self action message to a specific frame.
+selfActionMessage :: Frame -> Nick -> MessageComment -> AM ()
+selfActionMessage frame nick comment = do
+  time <- liftIO getCurrentTime
+  nick' <- decode frame nick
+  comment' <- ST.decode <$> decode frame comment
+  liftIO . atomically $
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
+                                     frliBody = ST.concat [ST.addStyle [TxstColor 12] nick',
+                                                           ST.addStyle [] T.singleton ' ',
+                                                           comment'] }
 
 -- | Send a self notice message to a frame.
 selfNoticeMessage :: Frame -> Nick -> MessageComment -> AM ()

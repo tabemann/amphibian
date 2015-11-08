@@ -3,12 +3,14 @@ module Network.IRC.Client.Amphibian.Utility
        (extractNick,
         convertAddRemove,
         isError,
-        unique)
+        unique,
+        parseChannelNameOrNick)
 
        where
 
 import Network.IRC.Client.Amphibian.Types
 import Text.Read (readMaybe)
+import qualified Data.ByteString.UTF8 as BUTF8
 
 -- | Extract nick.
 extractNick :: Maybe MessagePrefix -> Maybe Nick
@@ -31,3 +33,11 @@ isError command =
 unique :: Eq a => [a] -> [a]
 unique (x : xs) = x : unique (filter (/= x) xs)
 unique [] = []
+
+-- | Parse channel name or nick.
+parseChannelNameOrNick :: ByteString -> ChannelNameOrNick
+parseChannelNameOrNick channelNameOrNick =
+  case BUTF8.uncons channelNameOrNick of
+    Just ('#', _) -> CnonChannelName channelNameOrNick
+    _ -> CnonNick channelNameOrNick
+

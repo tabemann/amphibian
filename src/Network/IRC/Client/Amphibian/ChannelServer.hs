@@ -144,9 +144,10 @@ doJoin channel (ChannelJoinResponse response) = do
   if not autJoin
   then do
     writeTVar (chanAutoJoin channel) True
+    name' <- readTVar $ chanName channel
     sendResponse <- CM.send (chanConnectionManager channel) $ IRCMessage { ircmPrefix = Nothing,
                                                                            ircmCommand = cmd_JOIN,
-                                                                           ircmParameters = [chanName channel],
+                                                                           ircmParameters = [name],
                                                                            ircmComment = Nothing }
     let relay = liftIO . atomically $ do errorResponse <- waitSend sendResponse
                                          putTMVar response errorResponse
@@ -165,9 +166,10 @@ doPart channel comment (ChannelPartResponse response) = do
   then do
     writeTVar (chanAutoJoin channel) False
     writeTVar (chanJoined channel) False
+    name' <- readTVar $ chanName channel
     sendResponse <- CM.send (chanConnectionManager channel) $ IRCMessage { ircmPrefix = Nothing,
                                                                            ircmCommand = cmd_PART,
-                                                                           ircmParameters = [chanName channel],
+                                                                           ircmParameters = [name],
                                                                            ircmComment = comment }
     let relay = liftIO . atomically $ do errorResponse <- waitSend sendResponse
                                          putTMVar response errorResponse
@@ -185,10 +187,10 @@ doMessage channel comment (ChannelMessageResponse response) = do
   if joined
   then do
     nick <- CM.getNick $ chanConnectionManager channel
-    writeTChan (chanEvents channel) (ChanSelfMessage nick comment)
+    name' <- readTVar $ chanName channel
     sendResponse <- CM.send (chanConnectionManager channel) $ IRCMessage { ircmPrefix = Nothing,
                                                                            ircmCommand = cmd_PRIVMSG,
-                                                                           ircmParameters = [chanName channel].
+                                                                           ircmParameters = [name].
                                                                            ircmComment = Just comment }
     let relay = liftIO . atomically $ do errorResponse <- waitSend sendResponse
                                          putTMVar response errorResponse
@@ -206,10 +208,10 @@ doNotice channel comment (ChannelNoticeResponse response) = do
   if joined
   then do
     nick <- CM.getNick $ chanConnectionManager channel
-    writeTChan (chanEvents channel) (ChanSelfNotice nick comment)
+    name' <- readTVar $ chanName chanel
     sendResponse <- CM.send (chanConnectionManager channel) $ IRCMessage { ircmPrefix = Nothing,
                                                                            ircmCommand = cmd_NOTICE,
-                                                                           ircmParameters = [chanName channel].
+                                                                           ircmParameters = [name].
                                                                            ircmComment = Just comment }
     let relay = liftIO . atomically $ do errorResponse <- waitSend sendResponse
                                          putTMVar response errorResponse
@@ -226,9 +228,10 @@ doSetTopic channel comment (ChannelSetTopicResponse response) = do
   joined <- readTVar $ chanJoined channel
   if joined
   then do
+    name' <- readTVar $ chanName channel
     sendResponse < CM.send (chanConnectionManager channel) $ IRCMessage { ircmPrefix = Nothing,
                                                                           ircmCommand = cmd_TOPIC,
-                                                                          ircmParameters = [chanName channel],
+                                                                          ircmParameters = [name],
                                                                           ircmComment = Just comment }
     writeTVar (chanTopic channel) (Just comment)
     let relay = liftIO . atomically $ do errorResponse <- waitSend sendResponse
@@ -261,16 +264,24 @@ handleEvents channel = do
         | command == rpl_TOPIC -> handleRplTopic channel message
         | command == rpl_TOPICWHOTIME -> handleRplTopicWhoTime channel message
         | command == cmd_QUIT -> handleQuit channel message
+      ComaRecvCtcpRequest nick dest comment -> handleRecvCtcpRequest channel nick dest comment
+      ComaRecvCtcpReply nick dest comment -> handleRecvCtcpReply channel nick dest comment
+      ComaSelfMessage nick dest comment -> handleSelfMessage channel nick dest comment
+      ComaSelfNotice nick dest comment -> handleSelfNotice channel nick dest comment
+      ComaSelfCtcpRequest nick dest comment -> handleSelfCtcpRequest channel nick dest comment
+      ComaSelfCtcpReply nick dest comment -> handleSelfCtcpReply channel nick dest comment
       ComaDisconnected error -> writeTChan (chanEvents channel) (ChanDisconnected error)
+      _ -> return $ return True
   else return $ return True
 
 -- | Handle JOIN message.
 handleJoin :: Channel -> IRCMessage -> STM (AM Bool)
 handleJoin channel message = do
   currentNick <- CM.getNick $ chanConnectionManager channel
+  name' <- readTVar $ chanName channel
   case (extractNick $ ircmPrefix message, ircmComment message) of
     (Just nick, Just channelName)
-      | nick == currentNick && channelName == chanName channel -> do
+      | nick == currentNick && channelName == name' -> do
         response <- readTVar $ chanJoinResponse channel
         case response of
           Just response -> do
@@ -291,11 +302,12 @@ handleJoin channel message = do
 handlePart :: Channel -> IRCMessage -> STM (AM Bool)
 handlePart channel message = do
   currentNick <- CM.getNick $ chanConnectionManager channel
-  case extractNick $ ircmPrefix message of
-    Just nick
-      | nick == currentNick ->
+  name' <- readTVar $ chanName channel
+  case (extractNick $ ircmPrefix message, ircmParameters message) of
+    (Just nick, [channelName])
+      | nick == currentNick && name == channelName ->
         writeTChan (chanEvents channel) (ChanParted $ ircmComment comment)
-      | otherwise ->
+      | name == channelName ->
         writeTChan (chanEvents channel) (ChanRecvPart nick (ircmPrefix prefix) (ircmComment comment))
         nicks <- filter (\(knownNick, _) -> knownNick /= nick) <$> readTVar $ chanNames channel
         writeTVar (chanNames channel) nicks
@@ -321,27 +333,30 @@ handleNick channel message = do
 -- | Handle PRIVMSG message.
 handlePrivmsg :: Channel -> IRCMessage -> STM (AM Bool)
 handlePrivmsg channel message = do
+  name' <- readTVar $ chanName channel
   case (extractNick $ ircmPrefix message, ircmParameters message) of
     (Just nick, [channelName])
-      | channelName == chanName channel -> writeTChan (chanEvents channel) (ChanRecvMessage nick (ircmComment message))
+      | channelName == name' -> writeTChan (chanEvents channel) (ChanRecvMessage nick (ircmComment message))
     _ -> return ()
   return $ return True
 
 -- | Handle NOTICE message.
 handleNotice :: Channel -> IRCMessage -> STM (AM Bool)
 handleNotice channel message = do
+  name' <- readTVar $ chanName channel
   case (extractNick $ ircmPrefix message, ircmParameters message) of
     (Just nick, [channelName])
-      | channelName == chanName channel -> writeTChan (chanEvents channel) (ChanRecvNotice nick (ircmComment message))
+      | channelName == name' -> writeTChan (chanEvents channel) (ChanRecvNotice nick (ircmComment message))
     _ -> return ()
   return $ return True
 
 -- | Handle TOPIC message.
 handleTopic :: Channel -> IRCMessage -> STM (AM Bool)
 handleTopic channel message = do
+  name' <- readTVar $ chanName channel
   case (extractNick $ ircmPrefix message, ircmParameters message) of
     (Just nick, [channelName])
-      | channelName == chanName channel -> do
+      | channelName == name' -> do
         return $ do
           time <- liftIO getCurrentTime
           liftIO . atomically $ do
@@ -355,9 +370,10 @@ handleTopic channel message = do
 -- | Handle rpl_NAMREPLY message.
 handleRplNamrply :: Channel -> IRCMessage -> STM (AM Bool)
 handleRplNamrply channel message = do
+  name' <- readTVar $ chanName channel
   let parameters = ircmParameters message
   case fromEnd 1 parameters of
-    Just name | name == chanName channel -> do
+    Just name | name == name' -> do
       case fromEnd 2 parameters of
         Just channelType
           | channelType == BUTF8.fromString "=" -> writeTVar (chanType channel) ChanPublic
@@ -443,13 +459,68 @@ handleRplTopicWhoTime channel message = do
 handleQuit :: Channel -> IRCMessage -> STM (AM Bool)
 handleQuit channel message = do
   currentNick <- CM.getNick $ chanConnectionManager channel
+  names <- readTVar $ chanNames channel
   case extractNick $ ircmPrefix message of
     Just nick
-      | nick /= currentNick ->
+      | nick /= currentNick && nick `elem` map (\(knownNick, _) -> knownNick) names ->
         writeTChan (chanEvents channel) (ChanRecvQuit nick (ircmPrefix prefix) (ircmComment comment))
-        nicks <- filter (\(knownNick, _) -> knownNick /= nick) <$> readTVar $ chanNames channel
-        writeTVar (chanNames channel) nicks
+        names' <- filter (\(knownNick, _) -> knownNick /= nick) <$> names
+        writeTVar (chanNames channel) names'
     _ -> return ()
+  return $ return True
+
+-- | Handle received CTCP request message.
+handleRecvCtcpRequest :: Channel -> Nick -> ChannelNameOrNick -> MessageComment -> STM (AM Bool)
+handleRecvCtcpRequest channel nick dest comment = do
+  name' <- readTVar $ chanName channel
+  if dest == CnonChannelName name'
+  then writeTChan (chanEvents channel) (ChanRecvCtcpRequest nick comment)
+  else return ()
+  return $ return True
+
+-- | Handle received CTCP reply message.
+handleRecvCtcpReply :: Channel -> Nick -> ChannelNameOrNick -> MessageComment -> STM (AM Bool)
+handleRecvCtcpReply channel nick dest comment = do
+  name' <- readTVar $ chanName channel
+  if dest == CnonChannelName name'
+  then writeTChan (chanEvents channel) (ChanRecvCtcpReply nick comment)
+  else return ()
+  return $ return True
+
+-- | Handle self message message.
+handleSelfMessage :: Channel -> Nick -> ChannelNameOrNick -> MessageComment -> STM (AM Bool)
+handleSelfMessage channel nick dest comment = do
+  name' <- readTVar $ chanName channel
+  if dest == CnonChannelName name'
+  then writeTChan (chanEvents channel) (ChanSelfMessage nick comment)
+  else return ()
+  return $ return True
+
+-- | Handle self notice message.
+handleSelfNotice :: Channel -> Nick -> ChannelNameOrNick -> MessageComment -> STM (AM Bool)
+handleSelfNotice channel message = do
+  name' <- readTVar $ chanName channel
+  if dest == CnonChannelName name'
+  then writeTChan (chanEvents channel) (ChanSelfNotice nick comment)
+  else return ()
+  return $ return True
+
+-- | Handle self CTCP request message.
+handleSelfCtcpRequest :: Channel -> Nick -> ChannelNameOrNick -> MessageComment -> STM (AM Bool)
+handleSelfCtcpRequest channel nick dest comment = do
+  name' <- readTVar $ chanName channel
+  if dest == CnonChannelName name'
+  then writeTChan (chanEvents channel) (ChanSelfCtcpRequest nick comment)
+  else return ()
+  return $ return True
+
+-- | Handle self CTCP reply message.
+handleSelfCtcpReply :: Channel -> Nick -> ChannelNameOrNick -> MessageComment -> STM (AM Bool)
+handleSelfCtcpReply channel nick dest comment = do
+  name' <- readTVar $ chanName channel
+  if dest == CnonChannelName name'
+  then writeTChan (chanEvents channel) (ChanSelfCtcpReply nick comment)
+  else return ()
   return $ return True
 
 -- | Get the item in a position from the end of a list

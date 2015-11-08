@@ -1,6 +1,17 @@
 module Network.IRC.Client.Amphibian.ConnectionManager
 
        (ConnectionManager,
+        ConnectionManagerSetup,
+        ConnectionManagerStartResponse,
+        ConnectionManagerStopResponse,
+        ConnectionManagerConnectResponse,
+        ConnectionManagerReconnectResponse,
+        ConnectionManagerDisconnectResponse,
+        ConnectionManagerStopResponse,
+        isRegistered,
+        isConnected,
+        getNick,
+        getSetup,
         new,
         start,
         stop,
@@ -74,19 +85,23 @@ new intf actionGroup = do
 
 -- | Get whether a connection manager is connected.
 isConnected :: ConnectionManager -> STM Bool
-isConnected manager = (/= Nothing) <$> readTVar $ comaConnection manager
+isConnected = (/= Nothing) <$> readTVar . comaConnection
 
 -- | Get whether a connection manager is registered.
 isRegistered :: ConnectionManager -> STM Bool
-isRegistered manager = readTVar $ comaRegistered manager
+isRegistered = readTVar . comaRegistered
 
 -- | Get nick.
 getNick :: ConnectionManager -> STM (Maybe Nick)
-getNick manager = readTVar $ comaNick manager
+getNick = readTVar . comaNick
 
 -- | Set nick.
 setNick :: ConnectionManager -> Nick -> STM ()
 setNick manager nick = writeTVar (comaNick manager) (Just nick)
+
+-- | Get setup.
+getSetup :: ConnectionManager -> STM (Maybe ConnectionManagerSetup)
+getSetup = readTVar . comaSetup
 
 -- | Start a connection manager thread.
 start :: ConnectionManager -> STM ConnectionManagerStartResponse
@@ -110,8 +125,7 @@ stop manager = do
   return stop
 
 -- | Connect to a server.
-connect :: ConnectionManager -> ServerSetup ->
-           STM ConnectionManagerConnectResponse
+connect :: ConnectionManager -> ConnectionManagerSetup -> STM ConnectionManagerConnectResponse
 connect manager setup = do
   response <- ConnectionManagerConnectResponse <$> newEmptyTMVar
   writeTQueue (comaActions manager) (ComaConnectNew setup response)

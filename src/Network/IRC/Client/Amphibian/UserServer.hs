@@ -121,7 +121,7 @@ handleAction user = do
         sendResponse <- CM.send (userConnectionManager user) $
           IRCMessage { ircmPrefix = Nothing, ircmCommand = cmd_PRIVMSG, ircmParameters = [nick],
                        ircmComment = Just comment }
-        writeTChan (userEvents user) (UserSelfMessage myNick comment)
+
         return selfResponse
       return $ do async . atomically $ do responseValue <- CM.waitSend sendResponse
                                           writeTMVar response responseValue
@@ -132,7 +132,6 @@ handleAction user = do
         sendResponse <- CM.send (userConnectionManager user) $
           IRCMessage { ircmPrefix = Nothing, ircmCommand = cmd_NOTICE, ircmParameters = [nick],
                        ircmComment = Just comment }
-        writeTChan (userEvents user) (UserSelfNotice myNick comment)
         return sendResponse
       return $ do async . atomically $ do responseValue <- CM.waitSend sendResponse
                                           writeTMVar response responseValue
@@ -163,26 +162,44 @@ handleEvent user = do
         && ircmParameters message == [ownNick] ->
         case ircmComment message of
           Just comment -> do
-            writeTChan (userEvents user) (UserRecvMessage nick comment)
+            writeTChan (userEvents user) $ UserRecvMessage nick comment
             return $ return True
           Nothing -> return $ return True
       | ircmCommand message == cmd_NOTICE && (extractNick $ ircmPrefix message) == Just nick
         && ircmParameters message == [ownNick] ->
         case ircmComment message of
           Just comment -> do
-            writeTChan (userEvents user) (UserRecvNotice nick comment)
+            writeTChan (userEvents user) $ UserRecvNotice nick comment
             return $ return True
           Nothing -> return $ return True
       | ircmCommand message == cmd_NICK && (extractNick $ ircmPrefix message) == Just nick ->
         case ircmParameters message of
           [newNick] -> do
             writeTVar (userNick user) newNick
-            writeTChan (userEvents user) (UserRecvNick nick newNick)
+            writeTChan (userEvents user) $ UserRecvNick nick newNick
             return $ return True
           _ -> return $ return True
       | ircmCommand message == cmd_QUIT && (extractNick $ ircmPrefix message) == Just nick -> do
-        writeTChan (userEvents user) (UserRecvQuit nick (ircmPrefix message) (ircmComment message))
+        writeTChan (userEvents user) $ UserRecvQuit nick (ircmPrefix message) (ircmComment message)
         return $ return True
+    ComaRecvCtcpRequest fromNick dest comment | fromNick == nick && dest == CnonNick ownNick -> do
+      writeTChan (userEvents user) $ UserRecvCtcpRequest fromNick comment
+      return $ return True
+    ComaRecvCtcpReply fromNick dest comment | fromNick == nick && dest == CnonNick ownNick -> do
+      writeTChan (userEvents user) $ UserRecvCtcpReply fromNick comment
+      return $ return True
+    ComaSelfMessage selfNick dest comment | dest == CnonNick nick -> do
+      writeTChan (userEvents user) $ UserSelfMessage selfNick comment
+      return $ return True
+    ComaSelfNotice selfNick dest comment | dest == CnonNick nick -> do
+      writeTChan (userEvents user) $ UserSelfNotice selfNick comment
+      return $ return True
+    ComaSelfCtcpRequest selfNick dest comment | dest == CnonNick nick -> do
+      writeTChan (userEvents user) $ UserSelfCtcpRequest selfNick comment
+      return $ return True
+    ComaSelfCtcpReply selfNick dest comment | dest == CnonNick nick -> do
+      writeTChan (userEvents user) $ UserSelfCtcpReply selfNick comment
+      return $ return True
     ComaDisconected error -> do
       writeTChan (userEvents user) (UserDisconnected error)
       return $ return True

@@ -12,6 +12,8 @@ module Network.IRC.Client.Amphibian.Commands
         cmd_PRIVMSG,
         cmd_NOTICE,
         cmd_NAMES,
+        cmd_PING,
+        cmd_PONG,
         rpl_WELCOME,
         rpl_YOURHOST,
         rpl_CREATED,
@@ -183,7 +185,16 @@ module Network.IRC.Client.Amphibian.Commands
         rpl_STATSDLINE,
         rpl_STATSCONN,
         err_NOSERVICEHOST,
-        err_OTHER)
+        err_OTHER,
+        ctcp_ACTION,
+        ctcp_FINGER,
+        ctcp_VERSION,
+        ctcp_SOURCE,
+        ctcp_USERINFO,
+        ctcp_CLIENTINFO,
+        ctcp_ERRMSG,
+        ctcp_PING,
+        ctcp_TIME)
        
        where
 
@@ -229,6 +240,12 @@ cmd_NOTICE = BUTF8.fromString "NOTICE"
 
 cmd_NAMES :: MessageCommand
 cmd_NAMES = BUTF8.fromString "NAMES"
+
+cmd_PING :: MessageCommand
+cmd_PING = BUTF8.fromString "PING"
+
+cmd_PONG :: MessageCommand
+cmd_PONG = BUTF8.fromString "PONG"
 
 rpl_WELCOME :: MessageCommand
 rpl_WELCOME = BUTF8.fromString "001"
@@ -747,3 +764,30 @@ err_NOSERVICEHOST = BUTF8.fromString "492"
 
 err_OTHER :: MessageCommand
 err_OTHER = BUTF8.fromString "500"
+
+ctcp_ACTION :: CtcpCommand
+ctcp_ACTION = BUTF8.fromString "ACTION"
+
+ctcp_FINGER :: CtcpCommand
+ctcp_FINGER = BUTF8.fromString "FINGER"
+
+ctcp_VERSION :: CtcpCommand
+ctcp_VERSION = BUTF8.fromString "VERSION"
+
+ctcp_SOURCE :: CtcpCommand
+ctcp_SOURCE = BUTF8.fromString "SOURCE"
+
+ctcp_USERINFO :: CtcpCommand
+ctcp_USERINFO = BUTF8.fromString "USERINFO"
+
+ctcp_CLIENTINFO :: CtcpCommand
+ctcp_CLIENTINFO = BUTF8.fromString "CLIENTINFO"
+
+ctcp_ERRMSG :: CtcpCommand
+ctcp_ERRMSG = BUTF8.fromString "ERRMSG"
+
+ctcp_PING :: CtcpCommand
+ctcp_PING = BUTF8.fromString "PING"
+
+ctcp_TIME :: CtcpCommand
+ctcp_TIME = BUTF8.fromString "TIME"

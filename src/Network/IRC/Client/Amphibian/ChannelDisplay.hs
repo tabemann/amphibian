@@ -10,6 +10,10 @@ module Network.IRC.Client.Amphibian.ChannelDisplay
        where
 
 import Network.IRC.Client.Amphibian.Types
+import Network.IRC.Client.Amphibian.Monad
+import Network.IRC.Client.Amphibian.Utility
+import Network.IRC.Client.Amphibian.Ctcp
+import Network.IRC.Client.Amphibian.Commands
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frame as F
 import qualified Network.IRC.Client.Amphibian.Channel as C
@@ -33,7 +37,10 @@ import Control.Concurrent.STM.TQueue (TQueue,
 import Control.Concurrent.Async (Async,
                                  async,
                                  cancel)
+import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
+import qualified Data.ByteString as B
+import qualified Data.ByteString.UTF8 as BUTF8
 
 -- | Create a connection display.
 new :: Interface -> STM ChannelDisplay
@@ -129,85 +136,100 @@ handleChannelEvent display mapping = do
   case event of
     ChanDisconnected (Left error) ->
       return $ do
-        disconnectErrorMessage frame error
+        FM.disconnectErrorMessage frame error
         return True
     ChanDisconnected (Right ()) ->
       return $ do
-        disconnectMessage frame
+        FM.disconnectMessage frame
         return True
     ChanJoined ->
       return $ do
-        joinedMessage frame $ C.getName channel
+        FM.joinedMessage frame $ C.getName channel
         return True
     ChanParted (Just comment) ->
       return $ do
-        partedCommentMessage frame (C.getName channel) comment
+        FM.partedCommentMessage frame (C.getName channel) comment
         return True
     ChanParted Nothing ->
       return $ do
-        partedMessage frame channel
+        FM.partedMessage frame channel
         return True
     ChanNoTopic ->
       return $ do
-        noTopicMessage frame (C.getName channel)
+        FM.noTopicMessage frame (C.getName channel)
         return True
     ChanTopic topic ->
       return $ do
-        topicMessage frame (C.getName channel) topic
+        FM.topicMessage frame (C.getName channel) topic
         return True
     ChanTopicWhoTime fullName time ->
       return $ do
-        topicWhoTimeMessage frame (C.getName channel) fullName time
+        FM.topicWhoTimeMessage frame (C.getName channel) fullName time
         return True
     ChanNames names ->
       return $ do
-        namesMessage frame names
+        FM.namesMessage frame names
         return True
     ChanRecvJoin nick fullName ->
       return $ do
-        recvJoinMessage frame (C.getname channel) nick fullName
+        FM.recvJoinMessage frame (C.getname channel) nick fullName
         return True
     ChanRecvPart nick fullName (Just comment) ->
       return $ do
-        recvPartCommentMessage frame (C.getName channel) nick fullName comment
-        namesMessage frame (C.getNames channel)
+        FM.recvPartCommentMessage frame (C.getName channel) nick fullName comment
+        FM.namesMessage frame (C.getNames channel)
         return True
     ChanRecvPart nick fullName Nothing ->
       return $ do
-        recvPartMessage frame (C.getName channel) nick fullName
-        namesMessage frame (C.getNames channel)
+        FM.recvPartMessage frame (C.getName channel) nick fullName
+        FM.namesMessage frame (C.getNames channel)
         return True
     ChanRecvMessage nick comment ->
       return $ do
-        recvMessageMessage frame nick comment FrmtChannel
+        FM.recvMessageMessage frame nick comment FrmtChannel
         return True
     ChanRecvNotice nick comment ->
       return $ do
-        recvNoticeMessage frame nick comment FrmtChannel FrtaSpecific
+        FM.recvNoticeMessage frame nick comment FrmtChannel FrtaSpecific
         return True
     ChanRecvNick oldNick newNick ->
       return $ do
-        recvNickMessage frame oldNick newNick
+        FM.recvNickMessage frame oldNick newNick
         return True
     ChanRecvTopic nick topic ->
       return $ do
-        recvTopicMessage frame nick topic
+        FM.recvTopicMessage frame nick topic
         return True
     ChanRecvQuit nick fullName (Just comment) ->
       return $ do
-        recvQuitCommentMessage frame nick fullName comment
-        namesMessage frame (C.getNames channel)
+        FM.recvQuitCommentMessage frame nick fullName comment
+        FM.namesMessage frame (C.getNames channel)
         return True
     ChanRecvQuit nick fullName Nothing ->
       return $ do
-        recvQuitMessage frame nick fullName
-        namesMessage frame (C.getNames channel)
+        FM.recvQuitMessage frame nick fullName
+        FM.namesMessage frame (C.getNames channel)
         return True
+    ChanRecvCtcpRequest nick comment ->
+      case parseCtcp comment of
+        Just (command, Just comment) | command == ctcp_ACTION ->
+          return $ do
+            FM.recvActionMessage frame nick comment FrmtChannel
+            return True
+        _ -> return $ return True
     ChanSelfMessage nick comment ->
       return $ do
-        selfMessageMessage frame nick comment
+        FM.selfMessageMessage frame nick comment
         return True
     ChanSelfNotice nick comment ->
       return $ do
-        selfNoticeMessage frame nick comment
+        FM.selfNoticeMessage frame nick comment
         return True
+    ChanSelfCtcpRequest nick comment ->
+      case parseCtcp comment of
+        Just (command, Just comment) | command == ctcp_ACTION ->
+          return $ do
+            FM.selfActionMessage frame nick comment FrmtChannel
+            return True
+        _ -> return $ return True
+    _ -> return $ return True

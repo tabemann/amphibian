@@ -15,6 +15,7 @@ import qualified Network.IRC.Client.Amphibian.Interface as I
 import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Commands
 import Network.IRC.Client.Amphibian.Utility
+import Network.IRC.Client.Amphibian.Ctcp
 import Network.IRC.Client.Amphibian.Monad
 import Data.Functor ((<$>))
 import Control.Monad (mapM,
@@ -125,7 +126,7 @@ handleAction manager = do
   action <- readTQueue $ comaActions manager
   case action of
     ComaConnectNew setup (ConnectionManagerConnectResponse response) -> do
-      writeTVar (comaSetup manager) setup
+      writeTVar (comaSetup manager) $ Just setup
       return $ do
         result <- doConnect manager
         liftIO . atomically $ putTMVar response result
@@ -200,44 +201,96 @@ handleEvent manager = do
 
 -- | Handle message.
 handleMessage :: ConnectionManager -> IRCMessage -> STM (AM Bool)
-handleMessage manager message@(IRCCommand { ircmPrefix = prefix, ircmCommand = command }) = do
-  currentNick <- getNick manager
+handleMessage manager message@(IRCMessage { ircmCommand = command }) = do
   if command == cmd_NICK
-  then do case (extractNick prefix, ircmParameters message) of
-            (Just oldNick, [newNick]) | oldNick == currentNick ->
-              setNick manager newNick
-            _ -> return ()
-          return $ return True
+  then handleNick manager message
   else if command == cmd_PRIVMSG
-  then case (extractNick prefix, ircmParameters message) of
-    (Just fromNick, [nick]) | nick == currentNick -> do
-      return $ do
-        intf <- getInterface
-        join . liftIO . atomically $ do
-          users <- I.getUsers intf
-          nicks <- mapM U.getNick users
-          if fromNick `notElem` nicks
-          then do
-            user <- U.new
-            U.inject user $ ComaMessage message
-            return $ do
-              U.start user
-              return True
-          else return $ return True
-    _ -> return $ return True
+  then handlePrivMsg manager message
   else if command == cmd_NOTICE
-  then case (extractNick prefix, ircmParameters message, ircmComment message) of
-    (Just fromNick, [nick], Just comment) | nick == currentNick -> do
-      return $ do
-        intf <- getInterface
-        liftIO . atomically $ do
-          users <- I.getUsers intf
-          nicks <- mapM U.getNick users
-          if fromNick `notElem` nicks
-          then writeTChan (comaEvents manage) (ComaRecvNotice fromNick comment)
-          return True
-    _ -> return $ return True
+  then handleNotice manager message
+  else if command == cmd_PING
+  then handlePing manager message
   else return $ return True
+
+-- | Handle nick message.
+handleNick :: ConnectionManager -> IRCMessage -> STM (AM Bool)
+handleNick manager message = do
+  currentNick <- getNick manager
+  case (extractNick $ ircmPrefix message, ircmParameters message) of
+    (Just oldNick, [newNick]) | oldNick == currentNick ->
+      setNick manager newNick
+    _ -> return ()
+  return $ return True
+
+-- | Handle PRIVMSG message.
+handlePrivMsg :: ConnectionManager -> IRCMessage -> STM (AM Bool)
+handlePrivMsg manager message = do
+  currentNick <- getNick manager
+  isCtcp <- case (extractNick $ ircmPrefix prefix, ircmParameters message, ircmComment message) of
+    (Just fromNick, [dest], Just comment) ->
+      case checkCtcp comment of
+        Just comment -> do
+          writeTChan (comaEvents manager) $ ComaRecvCtcpRequest fromNick (parseChannelNameOrNick dest) comment
+          return True
+        Nothing -> return False
+    _ -> return false
+  if not isCtcp
+  then
+    case (extractNick $ ircmPrefix prefix, ircmParameters message) of
+      (Just fromNick, [nick]) | nick == currentNick -> do
+        return $ do
+          intf <- getInterface
+          liftIO . atomically $ do
+            users <- I.getUsers intf
+            nicks <- mapM U.getNick users
+            if fromNick `notElem` nicks
+            then do
+              user <- U.new intf manager fromNick
+              U.inject user $ ComaMessage message
+              U.start user
+            else return ()
+          return True
+      _ -> return $ return True
+  else return $ return True
+
+-- | Handle NOTICE message.
+HandleNotice :: ConnectionManager -> IRCMessage -> STM (AM Bool)
+handleNotice manager message = do
+  currentNick <- getNick manager
+  isCtcp <- case (extractNick $ ircmPrefix prefix, ircmParameters message, ircmComment message) of
+    (Just fromNick, [dest], Just comment) ->
+      case checkCtcp comment of
+        Just comment -> do
+          writeTChan (comaEvents manager) $ ComaRecvCtcpReply fromNick (parseChannelNameOrNick dest) comment
+          return True
+        Nothing -> return False
+    _ -> return False
+  if not isCtcp
+  then
+    case (extractNick $ ircmPrefix message, ircmParameters message, ircmComment message) of
+      (Just fromNick, [nick], Just comment) | nick == currentNick -> do
+        return $ do
+          intf <- getInterface
+          liftIO . atomically $ do
+            users <- I.getUsers intf
+            nicks <- mapM U.getNick users
+            if fromNick `notElem` nicks
+            then writeTChan (comaEvents manager) (ComaRecvNotice fromNick comment)
+            return True
+      _ -> return $ return True
+  else return $ return True
+
+-- | Handle a PING message.
+handlePing :: ConnectionManager -> IRCMessage -> STM (AM Bool)
+handlePing manager message = do
+  case ircmComment message of
+    Just comment ->  do
+      C.send connection $ IRCMessage { ircmPrefix = Nothing,
+                                       ircmCommand = cmd_PONG,
+                                       ircmParameters = [comment],
+                                       ircmComment = Nothing }
+      return $ return True
+    _ -> return $ return True
 
 -- | Register with a server.
 register :: ConnectionManager -> AM ()
@@ -406,21 +459,26 @@ convertUserMode mode =
 doConnect :: ConnectionManager -> AM (Either Error ())
 doConnect manager = do
   setup <- liftIO . atomically . readTVar $ comaSetup manager
-  connection <- liftIO . atomically . readTVar $ comaConnection manager
-  case connection of
-    Nothing -> do
-      connection <- liftIO . atomically $ do
-        connection <- C.new
-        writeTVar (comaConnection manager) (Just connection)
-        subscription <- C.subscribe connection
-        oldSubscription <- readTVar $ comaSubscription manager
-        writeTVar (comaSubscription manager) (oldSubscription ++ [subscription])
-        return connection
-      response <- liftIO $ C.connect connection (comaOriginalHost setup) (comaPort setup)
-      liftIO . atomically $ C.waitConnect response
-    Just _ -> do
-      errorText <- lookupText $ T.pack "already connected to server"
-      return . Left $ Error [errorText]
+  case setup of
+    Just setup -> do
+      connection <- liftIO . atomically . readTVar $ comaConnection manager
+      case connection of
+        Nothing -> do
+          connection <- liftIO . atomically $ do
+            connection <- C.new
+            writeTVar (comaConnection manager) (Just connection)
+            subscription <- C.subscribe connection
+            oldSubscription <- readTVar $ comaSubscription manager
+            writeTVar (comaSubscription manager) (oldSubscription ++ [subscription])
+            return connection
+          response <- liftIO $ C.connect connection (comaOriginalHost setup) (comaPort setup)
+          liftIO . atomically $ C.waitConnect response
+        Just _ -> do
+          errorText <- lookupText $ T.pack "Already connected to server"
+          return . Left $ Error [errorText]
+  Nothing -> do
+    errorText <- lookupText $ T.pack "Never connected to server"
+    return . Left $ Error [errorText]
 
 -- | Actually reconnect to a connection.
 doReconnect :: ConnectionManager -> AM (Either Error ())
@@ -453,8 +511,29 @@ doSend manager message = do
   connection <- liftIO . atomically . readTVar $ comaConnection manager
   case connection of
     Just connection ->
-      response <- liftIO . atomically $ C.send connection
-      liftIO . atomically $ do C.waitSend response
+      response <- liftIO . atomically $ C.send connection message
+      response' <- liftIO . atomically $ do C.waitSend response  
+      case (extractNick $ ircmPrefix message, ircmParameters message, ircmComment message) of
+        (Just nick, [dest], Just comment) ->
+          case checkCtcp comment of
+            Just comment ->
+              if ircmCommand message == cmd_PRIVMSG
+              then liftIO. atomically . writeTChan (comaEvents manager) $
+                     ComaSelfCtcpRequest nick (parseChannelNameOrNick dest) comment
+              else if ircmCommand message == cmd_NOTICE
+              then liftIO . atomically . writeTChan (comaEvents manager) $
+                     ComaSelfCtcpReply nick (parseChannelNameOrNick dest) comment
+              else return ()
+            _ ->
+              if ircmCommand message == cmd_PRIVMSG
+              then liftIO. atomically . writeTChan (comaEvents manager) $
+                     ComaSelfMessage nick (parseChannelNameOrNick dest) comment
+              else if ircmCommand message == cmd_NOTICE
+              then liftIO . atomically . writeTChan (comaEvents manager) $
+                     ComaSelfNotice nick (parseChannelNameOrNick dest) comment
+              else return ()
+        _ ->
+      return response'
     Nothing -> do
       errorText <- lookupText $ T.pack "not connected to server"
       return . Left $ Error [errorText]

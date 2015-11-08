@@ -47,9 +47,10 @@ import Data.Functor ((<$>))
 import qualified Data.Text as T
 
 -- | Create a new user.
-new :: Interface -> ConnectionManager -> ConnectionManagerSubscription -> Nick -> STM User
-new intf manager subscription nick = do
+new :: Interface -> ConnectionManager -> Nick -> STM User
+new intf manager nick = do
   nick' <- newTVar nick
+  subscription <- CM.subscribe manger
   actions <- newTQueue,
   events <- newBroadcastTChan
   delayEvents <- newTVar True

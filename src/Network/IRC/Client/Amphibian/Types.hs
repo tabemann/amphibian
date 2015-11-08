@@ -202,12 +202,16 @@ data Config =
            confLanguage :: Language,
            confTimeLocale :: TimeLocale,
            confLightBackground :: Bool,
-           confPluginCompileOptions :: }
+           confPluginCompileOptions :: [Text],
+           confCtcpVersion :: Text,
+           confCtcpSource :: Text,
+           confCtcpClientInfo :: Text }
   deriving Eq
 
 -- | Connection configuration.
 data ConnectionConfig =
-  ConnectionConfig { cocoEncoding :: Encoding }
+  ConnectionConfig { cocoEncoding :: Encoding,
+                     cocoCtcpUserInfo :: Text }
 
 -- | Amphibian server setup.
 data ServerSetup =
@@ -374,9 +378,8 @@ data ConnectionManager =
 
 -- | Connection manager setup
 data ConnectionManagerSetup =
-  ConnectionManagerSetup { comaInterface :: Interface,
-                           comaName :: Name,
-                           comaCurrentHost :: Maybe HostName,
+  ConnectionManagerSetup { comaName :: Name,
+                           comaOriginalHost :: HostName,
                            comaPort :: Port,
                            comaUserName :: UserName,
                            comaAllNicks :: [Nick],
@@ -407,7 +410,7 @@ newtype ConnectionManagerSubscription =
   ConnectionManagerSubscription (TChan ConnectionManagerEvent)
 
 -- | Connection manager action.
-data ConnectionManagerAction = ComaConnectNew ServerSetup
+data ConnectionManagerAction = ComaConnectNew ConnectionManagerSetup
                                ConnectionManagerConnectResponse
                              | ComaReconnect
                                ConnectionManagerReconnectResponse
@@ -427,7 +430,7 @@ newtype ConnectionManagerReconnectResponse =
 
 -- | Connection manager disconnect response.
 newtype ConnectionManagerDisconnectResponse =
-  ConnectionManagerDisconnectResponse (TMVar (Either https://en.wikipedia.org/w/index.php?search=cyanoglobin&title=Special%3ASearch&fulltext=SearchError ()))
+  ConnectionManagerDisconnectResponse (TMVar (Either Error ()))
 
 -- | Connection manager send response.
 newtype ConnectionManagerSendResponse =
@@ -455,6 +458,12 @@ data ConnectionManagerEvent = ComaLookupAddress HostName
                             | ComaRecvNotice Nick MessageComment
                             | ComaRegistrationFailed
                             | ComaMotd [MessageComment]
+                            | ComaRecvCtcpRequest Nick ChannelNameOrNick MessageComment
+                            | ComaRecvCtcpReply Nick ChannelNameOrNick MessageComment
+                            | ComaSelfMessage Nick ChannelNameOrNick MessageComment
+                            | ComaSelfNotice Nick ChannelNameOrNick MessageComment
+                            | ComaSelfCtcpRequest Nick ChannelNameOrNick MessageComment
+                            | ComaSelfCtcpReply Nick ChannelNameOrNick MessageComment
                             deriving Eq
 
 -- | Connection manager stop response.
@@ -553,7 +562,7 @@ data Channel =
   Channel { chanInterface :: Interface,
             chanActions :: TQueue ChannelAction,
             chanEvents :: TChan ChannelEvent,
-            chanName :: ChannelName,
+            chanName :: TVar ChannelName,
             chanConnectionManager :: ConnectionManager,
             chanKey :: TVar (Maybe ChannelKey),
             chanTopic :: TVar (Maybe ChannelTopic),
@@ -580,8 +589,12 @@ type ChannelTopic = ByteString
 -- | Channel type.
 data ChannelType = ChanPublic | ChanPrivate | ChanSecret deriving Eq
 
--- | User status
+-- | User status.
 data UserStatus = UserNormal | UserVoice | UserHalfOp | UserOp deriving Eq
+
+-- | Channel name or nick.
+data ChannelNameOrNick = CnonChannelName ChannelName
+                       | CnonNick Nick
 
 -- | Channel subscription.
 newtype ChannelSubscription = ChannelSubscription (TChan ChannelEvent)
@@ -611,8 +624,12 @@ data ChannelEvent = (ChanDisconnected error)
                   | ChanRecvNick Nick Nick
                   | ChanRecvTopic Nick ChannelTopic
                   | ChanRecvQuit Nick FullName (Maybe MessageComment)
+                  | ChanRecvCtcpRequest Nick MessageComment
+                  | ChanRecvCtcpReply Nick MessageComment
                   | ChanSelfMessage Nick MessageComment
                   | ChanSelfNotice Nick MessageComment
+                  | ChanSelfCtcpRequest Nick MessageComment
+                  | ChanSelfCtcpReply Nick MessageComment
                   deriving Eq
 
 -- | Channel stop response.
@@ -676,8 +693,12 @@ data UserEvent = UserDisconnected (Either Error ())
                | UserRecvNotice Nick MessageComment
                | UserRecvNick Nick Nick
                | UserRecvQuit Nick FullName (Maybe MessageComment)
+               | UserRecvCtcpRequest Nick MessageComment
+               | UserRecvCtcpReply Nick MessageComment
                | UserSelfMessage Nick MessageComment
                | UserSelfNotice Nick MessageComment
+               | UserSelfCtcpRequest Nick MessageComment
+               | UserSelfCtcpReply Nick MessageComment
                | UserNotPresent
                deriving Eq
 
@@ -917,3 +938,28 @@ data FrameMessageType = FrmtPrivate | FrmtChannel
 
 -- | Whether to send a message to a specific frame or the most recently focused subframe.
 data FrameTarget = FrtaSpecific | FrtaLastFocused
+
+-- | CTCP handler.
+data CtcpHandler =
+  CtcpHandler { cthaInterface :: Interface,
+                cthaRunning :: TVar Bool,
+                cthaActions :: TQueue CtcpHandlerAction,
+                cthaSubscription :: InterfaceSubscription,
+                cthaConnectionManagers :: TVar [CtcpHandlerMapping] }
+
+-- | CTCP handler connection manager mapping.
+data CtcpHandlerMapping =
+  CtcpHandlerMapping { cthmConnectionManager :: ConnectionManager,
+                       cthmSubscription :: ConnectionManagerSubscription }
+
+-- | CTCP handler action.
+data CtcpHandlerAction = CthaStop CtcpHandlerStopResponse
+
+-- | CTCP handler stop response.
+newtype CtcpHandlerStopResponse = CtcpHandlerStopResponse (TMVar (Either Error ()))
+
+-- | CTCP command
+type CtcpCommand = ByteString
+
+-- | CTCP argument
+type CtcpArgument = ByteString
