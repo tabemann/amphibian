@@ -134,85 +134,112 @@ handleMapping handler mapping = do
     ComaRecvCtcpRequest nick _ comment ->
       case parseCtcp comment of
         Just (command, argument)
-          | command == ctcp_FINGER -> do
-            name <- comaName <$> CM.getSetup manager
-            let message =
-              IRCMessage { ircmPrefix = Nothing,
-                           ircmCommand = cmd_NOTICE,
-                           ircmParameters = [nick],
-                           ircmComment = Just . formatCtcp ctcp_FINGER . Just $ B.append (BC.singleton ':') name }
-            CM.send manager message
-            return $ return True
-          | command == ctcp_VERSION -> do
-            version <- encode intf manager =<< confCtcpVersion <$> I.getConfig intf
-            CM.send manager $ IRCMessage { ircmPrefix = Nothing,
-                                           ircmCommand = cmd_NOTICE,
-                                           ircmParameters = [nick],
-                                           ircmComment = Just . formatCtcp ctcp_VERSION $ Just version }
-            return $ return True
-          | command == ctcp_SOURCE -> do
-            source <- encode intf manager =<< confCtcpSource <$> I.getConfig intf
-            CM.send manager $ IRCMessage { ircmPrefix = Nothing,
-                                           ircmCommand = cmd_NOTICE,
-                                           ircmParameters = [nick],
-                                           ircmComment = Just . formatCtcp ctcp_SOURCE $ Just source }
-            return $ return True
-          | command == ctcp_USERINFO -> do
-            userInfo <- encode intf manager =<< cocoCtcpUserInfo <$> I.getConnectionConfig intf manager
-            let message =
-              IRCMessage { ircmPrefix = Nothing,
-                           ircmCommand = cmd_NOTICE,
-                           ircmParameters = [nick],
-                           ircmComment = Just . formatCtcp ctcp_USERINFO . Just $ B.append (BC.singleton ':') userInfo }
-            CM.send manager message
-            return $ return True
-          | command == ctcp_CLIENTINFO -> do
-            clientInfo <- encode intf manager =<< confCtcpUserInfo <$> I.getConfig intf
-            let message =
-              IRCMessage { ircmPrefix = Nothing,
-                           ircmCommand = cmd_NOTICE,
-                           ircmParameters = [nick],
-                           ircmComment = Just . formatCtcp ctcp_CLIENTINFO . Just $
-                             B.append (BC.singleton ':') clientInfo }
-            CM.send manager message
-            return $ return True
-          | command == ctcp_PING -> do
-            case argument of
-              Just argument ->
-                CM.send manager $ IRCMessage { ircmPrefix = Nothing,
-                                               ircmCommand = cmd_NOTICE,
-                                               ircmParameters = [nick],
-                                               ircmComment = Just . formatCtcp ctcp_PING $ Just argument }
-              Nothing ->
-                CM.send manager $ IRCMessage { ircmPrefix = Nothing,
-                                               ircmCommand = cmd_NOTICE,
-                                               ircmParameters = [nick],
-                                               ircmComment = Just $ formatCtcp ctcp_PING Nothing }
-            return $ return True
-          | command == ctcp_TIME -> do
-            return $ do
-              timeLocale <- confTimeLocale <$> getConfig
-              time <- liftIO getCurrentTime
-              let timeData = encode intf manager . T.pack $ formatTime timeLocale "%c" time
-              liftIO . atomically $
-                CM.send manager $ IRCMessage { ircmPrefix = Nothing,
-                                               ircmCommand = cmd_NOTICE,
-                                               ircmParameters = [nick]
-                                               ircmComment = Just . formatCtcp ctcp_TIME $ Just timeData }
-              return True
-          | otherwise -> do
-            let errorMessage = encode intf manager $ I.lookupText intf "Unknown/unsupported CTCP command"
-            let comment = case argument of
-              Just argument ->
-                formatCtcp ctcp_ERRMSG (B.concat [command, BC.singleton ' ', argument, BC.pack " :", errorMesage])
-              Nothing ->
-                formatCtcp ctcp_ERRMSG (B.concat [command, BC.pack " :", errorMessage])
-            CM.send manager $ IRCMessage { ircmPrefix = Nothing,
-                                           ircmCommand = cmd_NOTICE,
-                                           ircmParameters = [nick],
-                                           ircmComment = Just . formatCtcp ctcp_ERRMSG $ Just comment }
-            return $ return True
+          | command == ctcp_FINGER && argument == Nothing-> handleFinger intf manager nick
+          | command == ctcp_VERSION && argument == Nothing -> handleVersion intf manager nick
+          | command == ctcp_SOURCE && argument == Nothing -> handleSource intf manager nick
+          | command == ctcp_USERINFO && argument == Nothing -> handleUserInfo intf manager nick
+          | command == ctcp_CLIENTINFO && argument == Nothing -> handleClientInfo intf manager nick
+          | command == ctcp_PING -> handlePing intf manager nick argument
+          | command == ctcp_TIME && argument == Nothing -> handleTime intf manager nick
+          | otherwise -> handleUnsupported intf manager nick argument
     _ -> return $ return True
+
+-- | Handle FINGER CTCP request.
+handleFinger :: Interface -> ConnectionManager -> Nick -> STM (AM Bool)
+handleFinger intf manager nick = do
+  name <- comaName <$> CM.getSetup manager
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_FINGER . Just $
+                                   B.append (BC.singleton ':') name }
+  return $ return True
+
+-- | Handle VERSION CTCP request.
+handleVersion :: Interface -> ConnectionManager -> Nick -> STM (AM Bool)
+handleVersion intf manager nick = do
+  version <- encode intf manager =<< confCtcpVersion <$> I.getConfig intf
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_VERSION $ Just version }
+  return $ return True
+
+-- | Handle SOURCE CTCP request.
+handleSource :: Interface -> ConnectionManager -> Nick -> STM (AM Bool)
+handleSource intf manager nick = do
+  source <- encode intf manager =<< confCtcpSource <$> I.getConfig intf
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_SOURCE $ Just source }
+  return $ return True
+
+-- | Handle USERINFO CTCP request.
+handleUserInfo :: Interface -> ConnectionManager-> Nick -> STM (AM Bool)
+handleUserInfo intf manager nick = do
+  userInfo <- encode intf manager =<< cocoCtcpUserInfo <$> I.getConnectionConfig intf manager
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_USERINFO . Just $
+                                   B.append (BC.singleton ':') userInfo }
+  return $ return True
+
+-- | Handle CLIENTINFO CTCP request.
+handleClientInfo :: Interface -> ConnectionManager -> Nick -> STM (AM Bool)
+handleClientInfo intf manager nick = do
+  clientInfo <- encode intf manager =<< confCtcpUserInfo <$> I.getConfig intf
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_CLIENTINFO . Just $
+                                   B.append (BC.singleton ':') clientInfo }
+  return $ return True
+
+-- | Handle PING CTCP request.
+handlePing :: Interface -> ConnectionManager -> Nick -> Maybe CtcpArgument -> STM (AM Bool)
+handlePing intf manager nick (Just argument) = do
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_PING $ Just argument }
+  return $ return True
+handlePing intf manager nick Nothing = do
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just $ formatCtcp ctcp_PING Nothing }
+  return $ return True
+
+-- | Handle TIME CTCP request.
+handleTime :: Interface -> ConnectionManager -> Nick -> STM (AM Bool)
+handleTime intf manager nick = do
+  return $ do
+    time <- liftIO getCurrentTime
+    liftIO . atomically $
+      timeLocale <- confTimeLocale <$> I.getConfig intf
+      let timeData = encode intf manager . T.pack $ formatTime timeLocale "%c" time
+      CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                     ircmCommand = cmd_NOTICE,
+                                     ircmParameters = [nick]
+                                     ircmComment = Just . formatCtcp ctcp_TIME $ Just timeData }
+    return True
+
+-- | Handle unsupported CTCP request.
+handleUnsupported :: Interface -> ConnectionManager -> Nick -> Maybe CtcpArgument -> STM (AM Bool)
+handleUnsupported intf manager nick argument = do
+  let errorMessage = encode intf manager $ I.lookupText intf "Unknown/unsupported CTCP command"
+  let comment = case argument of
+    Just argument ->
+      formatCtcp ctcp_ERRMSG (B.concat [command, BC.singleton ' ', argument, BC.pack " :", errorMesage])
+    Nothing ->
+      formatCtcp ctcp_ERRMSG (B.concat [command, BC.pack " :", errorMessage])
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_ERRMSG $ Just comment }
+  return $ return True
 
 -- | Encode text sent to a connection manager.
 encode :: Interface -> ConnectionManager -> T.Text -> STM B.ByteString
