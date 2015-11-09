@@ -108,8 +108,32 @@ module Network.IRC.Client.Amphibian.Types
         FrameNotifications(..),
         FormatMap,
         ConnectionDisplay(..),
+        ConnectionDisplayFrameMapping(..),
         ConnectionDisplayAction(..),
-        ConnectionDisplayStopResponse(..))
+        ConnectionDisplayStopResponse(..),
+        ChannelDisplay(..),
+        ChannelDisplayFrameMapping(..),
+        ChannelDisplayAction(..),
+        ChannelDisplayStopResponse(..),
+        UserDisplay(..),
+        UserDisplayFrameMapping(..),
+        UserDisplayAction(..),
+        UserDisplayStopResponse(..),
+        InputDispatcher(..),
+        InputDispatcherAction(..),
+        InputDispatcherStopResponse(..),
+        InputDispatcherFrameMapping(..),
+        InputDispatcherMessageHandler(..),
+        InputDIspatcherCommandHandler(..),
+        FrameMessageType(..),
+        FrameTarget(..),
+        CtcpDispatcher(..),
+        CtcpDispatcherMapping(..),
+        CtcpDispatcherRequestHandler(..),
+        CtcpDispatcherAction(..),
+        CtcpDispatcherStopResponse(..),
+        CtcpCommand,
+        CtcpArgument)
        
        where
 
@@ -146,6 +170,7 @@ data Interface =
               intfFrames :: TVar [Frame],
               intfPlugins :: TVar [Plugin],
               intfInputDispatcher :: TVar (Maybe InputDispatcher),
+              intfCtcpDispatcher :: TVar (Maybe CtcpDispatcher,
               intfPluginServer :: TVar (Maybe PluginServer),
               intfConnectionManagerServer :: TVar (Maybe ConnectionManagerServer),
               intfChannelServer :: TVar (Maybe ChannelServer),
@@ -163,6 +188,7 @@ data InterfaceEvent = IntfConnectionManagerRegistered ConnectionManager
                     | IntfFrameRegistered Frame
                     | IntfPluginRegistered Plugin
                     | IntfInputDispatcherRegistered InputDispatcher
+                    | IntfCtcpDispatcherRegistered CtcpDispatcher
                     | IntfPluginServerRegistered PluginServer
                     | IntfConnectionManagerServerRegistered ConnectionManagerServer
                     | IntfChannelServerRegistered ChannelServer
@@ -173,6 +199,7 @@ data InterfaceEvent = IntfConnectionManagerRegistered ConnectionManager
                     | IntfFrameUnregistered Frame
                     | IntfPluginUnregistered Plugin
                     | IntfInputDispatcherUnregistered InputDispatcher
+                    | IntfCtcpDispatcherUnregistered CtcpDispatcher
                     | IntfPluginServerUnregistered PluginServer
                     | IntfConnectionManagerServerUnregistered ConnectionManagerServer
                     | IntfChannelServerUnregistered ChannelServer
@@ -874,7 +901,7 @@ data ChannelDisplayFrameMapping =
 data ChannelDisplayAction = CodaStop ChannelDisplayStopResponse
 
 -- | Channel display stop response.
-data ChannelisplayStopResponse = ChannelDisplayStopResponse (TMVar (Either Error ()))
+data ChannelDisplayStopResponse = ChannelDisplayStopResponse (TMVar (Either Error ()))
 
 -- | User display.
 data UserDisplay =
@@ -905,7 +932,7 @@ data InputDispatcher =
                     indiInterfaceSubscription :: InterfaceSubscription,
                     indiFrames :: TVar [InputDispatcherFrameMapping],
                     indiMessageHandlers :: TVar [InputDispatcherMessageHandler],
-                    indiCommandHandlers :: TVar (HashMap Text [InputDisptacherCommandHandler]) }
+                    indiCommandHandlers :: TVar (HashMap Text [InputDispatcherCommandHandler]) }
   deriving Eq
 
 -- | Input dispatcher actions
@@ -939,24 +966,33 @@ data FrameMessageType = FrmtPrivate | FrmtChannel
 -- | Whether to send a message to a specific frame or the most recently focused subframe.
 data FrameTarget = FrtaSpecific | FrtaLastFocused
 
--- | CTCP handler.
-data CtcpHandler =
-  CtcpHandler { cthaInterface :: Interface,
-                cthaRunning :: TVar Bool,
-                cthaActions :: TQueue CtcpHandlerAction,
-                cthaSubscription :: InterfaceSubscription,
-                cthaConnectionManagers :: TVar [CtcpHandlerMapping] }
+-- | CTCP dispatcher.
+data CtcpDispatcher =
+  CtcpDispatcher { ctdiInterface :: Interface,
+                   ctdiRunning :: TVar Bool,
+                   ctdiActions :: TQueue CtcpDispatcherAction,
+                   ctdiSubscription :: InterfaceSubscription,
+                   ctdiConnectionManagers :: TVar [CtcpDispatcherMapping],
+                   ctdiRequestHandlers :: TVar (HashMap CtcpCommand [CtcpDispatcherCommandHandler]) }
 
 -- | CTCP handler connection manager mapping.
-data CtcpHandlerMapping =
-  CtcpHandlerMapping { cthmConnectionManager :: ConnectionManager,
-                       cthmSubscription :: ConnectionManagerSubscription }
+data CtcpDispatcherMapping =
+  CtcpDispatcherMapping { ctdmConnectionManager :: ConnectionManager,
+                          ctdmSubscription :: ConnectionManagerSubscription }
+
+-- | CTCP request dispatcher request handler.
+data CtcpDispatcherRequestHandler =
+  CtcpDispatcherRequestHandler { cdrhDispatcher :: CtcpDispatcher,
+                                 cdrhCommand :: CtcpCommand,
+                                 cdrhHandler :: TVar (ConnectionManager -> Nick -> CtcpCommand ->
+                                                      Maybe CtcpArgument -> AM Bool) }
+  deriving Eq
 
 -- | CTCP handler action.
-data CtcpHandlerAction = CthaStop CtcpHandlerStopResponse
+data CtcpDispatcherAction = CthaStop CtcpDispatcherStopResponse
 
 -- | CTCP handler stop response.
-newtype CtcpHandlerStopResponse = CtcpHandlerStopResponse (TMVar (Either Error ()))
+newtype CtcpDispatcherStopResponse = CtcpDispatcherStopResponse (TMVar (Either Error ()))
 
 -- | CTCP command
 type CtcpCommand = ByteString

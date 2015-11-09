@@ -32,6 +32,9 @@ module Network.IRC.Client.Amphibian.Interface
         getInputDispatcher,
         registerInputDispatcher,
         unregisterInputDispatcher,
+        getCtcpDispatcher,
+        registerCtcpDispatcher,
+        unregisterCtcpDispatcher,
         getPluginServer,
         registerPluginServer,
         unregisterPluginServer,
@@ -83,6 +86,7 @@ newInterface config = do
   frames <- newTVar []
   plugins <- newTVar []
   inputDispatcher <- newTVar Nothing
+  ctcpDispatcher <- newTVar Nothing
   pluginServer <- newTVar Nothing
   connectionManagerServer <- newTVar Nothing
   channelServer <- newTVar Nothing
@@ -98,6 +102,7 @@ newInterface config = do
                        intfFrames = frames,
                        intfPlugins = plugins,
                        intfInputDispatcher = inputDispatcher,
+                       intfCtcpDispatcher = ctcpDispatcher,
                        intfPluginServer = pluginServer,
                        intfConnectionManagerServer = connectionManagerServer,
                        intfChannelServer = channelServer,
@@ -301,6 +306,30 @@ unregisterInputDispatcher intf dispatcher = do
     Just currentDispatcher | currentDispatcher == dispatcher -> do
       writeTVar (intfInputDispatcher intf) Nothing
       writeTChan (intfEvents intf) (IntfInputDispatcherUnregistered dispatcher)
+    _ -> return ()
+
+-- | Get CTCP dispatcher.
+getCtcpDispatcher :: Interface -> STM (Maybe CtcpDispatcher)
+getCtcpDispatcher = readTVar . intfCtcpDispatcher
+
+-- | Register CTCP dispatcher.
+registerCtcpDispatcher :: Interface -> CtcpDispatcher -> STM ()
+registerCtcpDispatcher intf dispatcher = do
+  currentDispatcher <- readTVar $ intfCtcpDispatcher intf
+  case currentDispatcher of
+    Nothing -> do
+      writeTVar (intfCtcpDispatcher intf) (Just dispatcher)
+      writeTChan (intfEvents intf) (IntfCtcpDispatcherRegistered dispatcher)
+    _ -> return ()
+
+-- | Unregister CTCP dispatcher.
+unregisterCtcpDispatcher :: Interface -> CtcpDispatcher -> STM ()
+unregisterCtcpDispatcher intf dispatcher = do
+  currentDispatcher <- readTVar $ intfCtcpDispatcher intf
+  case currentDispatcher of
+    Just currentDispatcher | currentDispatcher == dispatcher -> do
+      writeTVar (intfCtcpDispatcher intf) Nothing
+      writeTChan (intfEvents intf) (IntfCtcpDispatcherUnregistered dispatcher)
     _ -> return ()
 
 -- | Get plugin server.

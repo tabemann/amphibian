@@ -193,7 +193,7 @@ dispatchMessage dispatcher frame text =
 -- | Dispatch command.
 dispatchCommand :: InputDispatcher -> Frame -> T.Text -> StyledText -> STM (AM Bool)
 dispatchCommand dispatcher frame command text = do
-  commandHandlers <- HM.lookup command <> readTVar $ indiCommandHandlers dispatcher
+  commandHandlers <- HM.lookup command <$> readTVar $ indiCommandHandlers dispatcher
   case commandHandlers of
     [] -> return $ do
             FM.unknownCommandMessage frame command

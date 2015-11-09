@@ -26,6 +26,9 @@ module Network.IRC.Client.Amphibian.Monad
         getInputDispatcher,
         registerInputDispatcher,
         unregisterInputDispatcher,
+        getCtcpDispatcher,
+        registerCtcpDispatcher,
+        unregisterCtcpDispatcher,
         getPluginServer,
         registerPluginServer,
         unregisterPluginServer,
@@ -208,6 +211,24 @@ unregisterInputDispatcher :: InputDispatcher -> AM ()
 unregisterInputDispatcher dispatcher = do
   intf <- getInterface
   liftIO . atomically $ I.unregisterInputDispatcher intf dispatcher
+
+-- | Get CTCP dispatcher.
+getCtcpDispatcher :: AM (Maybe CtcpDispatcher)
+getCtcpDispatcher = do
+  intf <- getInterface
+  liftIO . atomically $ I.getCtcpDispatcher intf
+
+-- | Register CTCP dispatcher.
+registerCtcpDispatcher :: CtcpDispatcher -> AM ()
+registerCtcpDispatcher dispatcher = do
+  intf <- getInterface
+  liftIO . atomically $ I.registerCtcpDispatcher intf dispatcher
+
+-- | Unregister CTCP dispatcher.
+unregisterCtcpDispatcher :: CtcpDispatcher -> AM ()
+unregisterCtcpDispatcher dispatcher = do
+  intf <- getInterface
+  liftIO . atomically $ I.unregisterCtcpDispatcher intf dispatcher
 
 -- | Get plugin server.
 getPluginServer :: AM (Maybe PluginServer)
