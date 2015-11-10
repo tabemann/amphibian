@@ -4,7 +4,8 @@ module Network.IRC.Client.Amphibian.Plugin
         PluginServerStopResponse,
         new,
         start,
-        stop)
+        stop,
+        waitStop)
 
        where
 
@@ -186,9 +187,8 @@ execute plugin = do
 -- | Compile a plugin.
 compile :: Plugin -> AM (Either Error ())
 compile path = do
-  let path' = T.unpack $ plugPath plugin
-  compileOptions <- map T.unpack <$> confScriptCompileOptions <$> liftIO getConfig
-  status <- liftIO $ make path' compileOptions
+  compileOptions <- map T.unpack <$> confPluginCompileOptions <$> liftIO getConfig
+  status <- liftIO $ make (plugPath plugin) compileOptions
   case status of
     MakeSuccess _ _ -> return (Right ())
     MakeFailure errors -> return . Left . Error $ map T.pack errors  
@@ -196,17 +196,16 @@ compile path = do
 -- | Load a plugin.
 load :: Plugin -> AM (Either Error ())
 load plugin = do
-  let path' = T.unpack $ plugPath plugin
   conf <- liftIO getConfig
   let entryPoint' =
     case plugEntryPoint plugin of
       Just entryPoint -> T.unpack entryPoint
       Nothing -> T.unpack $ confDefaultScriptEntry conf
-  let base = takeBaseName path'
-      dir = takeDirectory path' in
+  let base = takeBaseName $ plugPath plugin
+      dir = takeDirectory $ plugPath plugin in
   do intf <- interface
      result <- liftIO $ eval_ (base ++ "." ++ entryPoint' ++ " :: Plugin -> AM ()") ["Prelude", base]
-               (map T.unpack $ confScriptEvalOptions conf) [] [dir] :: AM (Either [String] (Maybe (Plugin -> AM ())))
+               (map T.unpack $ confPluginEvalOptions conf) [] [dir] :: AM (Either [String] (Maybe (Plugin -> AM ())))
      case result of
        Right (Just action) -> do
          action plugin

@@ -58,7 +58,7 @@ import qualified Data.Text as T
 -- This should be compiled with -optl=-Wl,--export-dynamic
 
 -- | Create a plugin.
-new :: Interface -> T.Text -> Maybe T.Text -> Bool -> STM Plugin
+new :: Interface -> FilePath -> Maybe T.Text -> Bool -> STM Plugin
 new interface path entryPoint precompiled = do
   actions <- newTQueue
   inputEvents <- newBroadcastTChan

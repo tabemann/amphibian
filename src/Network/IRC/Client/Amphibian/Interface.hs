@@ -70,8 +70,6 @@ import Control.Concurrent.STM (STM,
 import Data.Functor ((<$>))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
-import System.Locale (TimeLocale,
-                      defaultTimeLocale)
 
 -- | Create a new interface.
 newInterface :: Config -> STM Interface

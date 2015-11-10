@@ -22,16 +22,14 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
 
 -- | Install handlers.
-installHandlers :: AM ()
-installHandlers = do
-  intf <- getInterface
-  liftIO . atomically $ do
-    dispatcher <- I.getInputDispatcher intf
-    case dispatcher of
-      Just dispatcher -> do
-        ID.registerMessageHandler dispatcher defaultMessageHandler
-        ID.registerCommandHandler dispatcher (T.pack "notice") noticeHandler
-      Nothing -> return ()
+installHandlers :: Interface -> STM ()
+installHandlers intf = do
+  dispatcher <- I.getInputDispatcher intf
+  case dispatcher of
+    Just dispatcher -> do
+      ID.registerMessageHandler dispatcher defaultMessageHandler
+      ID.registerCommandHandler dispatcher (T.pack "notice") noticeHandler
+    Nothing -> return ()
 
 -- | Encode text sent from a frame.
 encode :: Frame -> T.Text -> AM B.ByteString

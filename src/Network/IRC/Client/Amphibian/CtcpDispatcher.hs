@@ -133,11 +133,11 @@ handleInterface dispatcher = do
   case event of
     IntfConnectionManagerRegistered manager -> do
       mappings <- readTVar $ ctdiConnectionManagers dispatcher
-      if not any (\mapping -> ctdmConnectionManager mapping == manager)
+      if not any (\mapping -> ctdmConnectionManager mapping == manager) mappings
       then do
         subscription <- CM.subscribe manager
         let mapping = CtcpDispatcherMapping { ctdmConnectionManager = manager,
-                                           ctdmSubscription = subscription }
+                                              ctdmSubscription = subscription }
         writeTVar (ctdiConnectionManagers dispatcher) (mapping : mappings)
       else return ()
     IntfConnectionManagerUnregistered manager -> do
@@ -155,15 +155,9 @@ handleMapping dispatcher mapping = do
   case event of
     ComaRecvCtcpRequest nick _ comment ->
       case parseCtcp comment of
-        Just (command, argument) -> dispatchRequest intf manager nick command argument
-          | request == ctcp_FINGER && argument == Nothing-> handleFinger intf manager nick
-          | request == ctcp_VERSION && argument == Nothing -> handleVersion intf manager nick
-          | request == ctcp_SOURCE && argument == Nothing -> handleSource intf manager nick
-          | request == ctcp_USERINFO && argument == Nothing -> handleUserInfo intf manager nick
-          | request == ctcp_CLIENTINFO -> handleClientInfo intf manager nick
-          | request == ctcp_PING -> handlePing intf manager nick argument
-          | request == ctcp_TIME && argument == Nothing -> handleTime intf manager nick
-          | otherwise -> handleUnsupported intf manager nick argument
+        Just (command, argument)
+          | command == ctcp_CLIENTINFO -> handleClientInfo dispatcher manager nick
+          | otherwise -> dispatchRequest intf manager nick command argument
     _ -> return $ return True
 
 -- | Dispatch request.
@@ -183,6 +177,19 @@ dispatchRequest dispatcher manager nick command argument = do
         dispatchRequest' [] manager nick command argument = do
           handleUnsupported manager nick command argument
           return True
+
+-- | Handle CLIENTINFO CTCP request.
+handleClientInfo :: CtcpDispatcher -> ConnectionManager -> Nick -> STM (AM Bool)
+handleClientInfo dispatcher manager nick = do
+  let intf = ctdiInterface dispatcher
+  keys <- unique <$> map fst <$> HM.toList <$> readTVar $ ctdiRequestHandlers dispatcher
+  CM.send manager $ IRCMessage { ircmPrefix = Nothing,
+                                 ircmCommand = cmd_NOTICE,
+                                 ircmParameters = [nick],
+                                 ircmComment = Just . formatCtcp ctcp_CLIENTINFO . Just .
+                                   B.append (BC.singleton ':') $ B.intercalate (BC.singleton ' ') keys }
+  return $ return True
+
 
 -- | Handle unsupported CTCP request.
 handleUnsupported :: ConnectionManager -> Nick -> CtcpCommand -> Maybe CtcpArgument -> AM ()

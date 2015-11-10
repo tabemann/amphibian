@@ -84,6 +84,7 @@ lookupHostnameMessage frame hostName = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [TxstColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -99,10 +100,12 @@ lookupAddressFailedMessage frame (Error errorLines) = do
          [] ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
       restLines =
         case errorLines of
@@ -115,6 +118,7 @@ lookupAddressFailedMessage frame (Error errorLines) = do
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
                 frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                 frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
      
 -- | Send a reverse lookup failed message to a specific frame.
@@ -127,10 +131,12 @@ reverseLookupFailedMessage frame (Error errorLines) = do
          [] ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
       restLines =
         case errorLines of
@@ -143,6 +149,7 @@ reverseLookupFailedMessage frame (Error errorLines) = do
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
                 frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                 frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
 
 -- | Send a connecting message to a specific frame.
@@ -156,6 +163,7 @@ connectingMessage frame hostName port = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [TxstColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -172,6 +180,7 @@ connectedMessage frame hostName port = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [TxstColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -187,10 +196,12 @@ connectFailedMessage frame (Error errorLines) = do
          [] ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
       restLines =
         case errorLines of
@@ -203,6 +214,7 @@ connectFailedMessage frame (Error errorLines) = do
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
                 frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                 frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
 
 -- | Send a disconnect message to a specific frame.
@@ -213,6 +225,7 @@ disconnectMessage frame = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [] text }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -228,10 +241,12 @@ disconnectErrorMessage frame (Error errorLines) = do
          [] ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
       restLines =
         case errorLines of
@@ -244,6 +259,7 @@ disconnectErrorMessage frame (Error errorLines) = do
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
                 frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                 frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
 
 -- | Send a password mismatch message to a specific frame.
@@ -257,6 +273,7 @@ passwordMismatchMessage frame password = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -264,12 +281,13 @@ passwordMismatchMessage frame password = do
 
 -- | Send a banned from server message to a specific frame.
 bannedFromServerMessage :: Frame -> AM ()
-bannedFroMServerMessage frame = do
+bannedFromServerMessage frame = do
   text <- lookupText $ T.pack "Banned from server"
   time <- liftIO getCurrentTime
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [] text }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -277,12 +295,13 @@ bannedFroMServerMessage frame = do
 
 -- | Send a banned from server comment message to a specific frame.
 bannedFromServerCommentMessage :: Frame -> MessageComment -> AM ()
-bannedFroMServerCommentMessage frame comment = do
+bannedFromServerCommentMessage frame comment = do
   styledText <- ST.decode <$> decode frame comment
   time <- liftIO getCurrentTime
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = styledText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -299,6 +318,7 @@ welcomeMessage frame nick = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -312,6 +332,7 @@ welcomeCommentMessage frame comment = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = styledText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -328,6 +349,7 @@ attemptingNickMessage frame nick = do
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
                          frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                         frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                          frliBody = ST.addStyle [TxstColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -344,6 +366,7 @@ malformedNickMessage frame nick = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                                      frliBody = ST.addStyle [] formattedText }
     F.notify frame [FrnoDisconnected]
 
@@ -358,6 +381,7 @@ joinedMessage frame name = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime time,
                                      frliSource = ST.addStyle [TxstColor 3] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 3] $ T.singleton '*',
                                      frliBody = ST.addStyle [TxstColor 3] formattedText }
     F.notify frame [FrnoJoined]
 
@@ -372,6 +396,7 @@ partedMessage frame name = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
                                      frliBody = ST.addStyle [TxstColor 7] formattedText }
     F.notify frame [FrnoParted]
 
@@ -387,6 +412,7 @@ partedCommentMessage frame name comment = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
                                      frliBody = ST.concat [ST.addStyle [TxstColor 7] formattedText,
                                                            ST.addStyle [TxstColor 7] $ T.pack " (",
                                                            ST.mergeStyle [TxstColor 7] commment',
@@ -405,6 +431,7 @@ noTopicMessage frame name = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                                      frliBody = ST.addStyle [] formattedText }
     F.notify frame [FrnoNoTopic]  
 
@@ -420,6 +447,7 @@ topicMessage frame name topic = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                                      frliBody = ST.concat [ST.addStyle [TxstColor 13] formattedText,
                                                            ST.mergeStyle [TxstColor 13] topic'] }
     F.notify frame [FrnoTopic]
@@ -440,6 +468,7 @@ topicWhoTimeMessage frame name user time = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                                      frliBody = ST.addStyle [TxstColor 13] formattedText }
     F.notify frame [FrnoTopicWhoTime]
 
@@ -465,6 +494,7 @@ namesDisplayMessage frame name statusNicks = do
     F.setUsers frame statusNicks'
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                                      frliBody = ST.addStyle [TxstColor 10] formattedText }
     F.notify frame [FrnoNames]
   where convertNick (nick, status) = do
@@ -486,6 +516,7 @@ recvJoinMessage frame name nick user = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 3] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 3] $ T.singleton '*',
                                      frliBody = ST.addStyle [TxstColor 3] formattedText }
     F.notify frame [FrnoRecvJoin]
 
@@ -504,6 +535,7 @@ recvPartMessage frame name nick user = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
                                      frliBody = ST.addStyle [TxstColor 7] formattedText }
     F.notify frame [FrnoRecvPart]
 
@@ -523,6 +555,7 @@ recvPartCommentMessage frame nick user comment = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
                                      frliBody = ST.concat [ST.addStyle [TxstColor 7] formattedText,
                                                            ST.addStyle [TxstColor 7] $ T.pack " (",
                                                            ST.mergeStyle [TxstColor 7] commment',
@@ -543,6 +576,7 @@ recvQuitMessage frame nick user = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
                                      frliBody = ST.addStyle [TxstColor 7] formattedText }
     F.notify frame [FrnoRecvPart]
 
@@ -560,6 +594,7 @@ recvQuitCommentMessage frame nick user comment = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 7] $ T.singleton '*',
                                      frliBody = ST.concat [ST.addStyle [TxstColor 7] formattedText,
                                                            ST.addStyle [TxstColor 7] $ T.pack " (",
                                                            ST.mergeStyle [TxstColor 7] commment',
@@ -581,6 +616,7 @@ recvNickMessage frame oldNick newNick = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                                      frliBody = ST.addStyle [] formattedText }
     F.notify frame [FrnoRecvNick]
 
@@ -596,6 +632,7 @@ recvTopicMessage frame nick topic = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                                      frliBody = ST.concat [ST.addStyle [] formattedText,
                                                            ST.addStyle [] $ T.pack ": ",
                                                            topic'] }
@@ -616,6 +653,10 @@ recvMessageMessage frame nick comment private = do
     liftIO . atomically $ do
       F.outputLine frame $ FrameLine { frliTime = time,
                                        frliSource = ST.addStyle [TxstBold, TxstColor 5] nick',
+                                       frliAltSource =
+                                         ST.concat [ST.addStyle [TxstColor 5] $ T.singleton '<',
+                                                    ST.addStyle [TxstBold, TxstColor 5] nick',
+                                                    ST.addStyle [TxstColor 5] $ T.singleton '>'],
                                        frliBody = ST.mergeStyle [TxstColor 5] comment' }
       case private of
         FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage, FrnoRecvMention]
@@ -624,6 +665,10 @@ recvMessageMessage frame nick comment private = do
     liftIO . atomically $ do
       F.outputLine frame $ FrameLine { frliTime = time,
                                        frliSource = ST.addStyle [TxstColor 12] nick',
+                                       frliAltSource =
+                                         ST.concat [ST.addStyle [TxstColor 13] $ T.singleton '<',
+                                                    ST.addStyle [TxstBold, TxstColor 12] nick',
+                                                    ST.addStyle [TxstColor 13] $ T.singleton '>'],
                                        frliBody = comment' }
       case private of
         FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage]
@@ -641,6 +686,7 @@ recvActionMessage frame nick comment private = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
                                      frliBody = ST.concat [ST.addStyle [TxstColor 12] nick',
                                                            ST.addStyle [] T.singleton ' ',
                                                            comment'] }
@@ -660,6 +706,9 @@ recvNoticeMessage frame nick comment private target = do
                      frliSource = ST.concat [ST.addStyle [TxstColor 12] $ T.singleton '-',
                                              ST.addStyle [TxstColor 13] nick',
                                              ST.addStyle [TxstColor 12] $ T.singleton '-'],
+                     frliAltSource = ST.concat [ST.addStyle [TxstColor 12] $ T.singleton '-',
+                                                ST.addStyle [TxstColor 13] nick',
+                                                ST.addStyle [TxstColor 12] $ T.singleton '-'],
                      frliBody = comment' }
     else FrameLine { frliTime = time,
                      frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
@@ -688,6 +737,7 @@ motdMessage frame lines = do
   where formatLine time color line =
           FrameLine { frliTime = time,
                       frliSource = ST.addStyle [TxstColor color] $ T.singleton '*',
+                      frliAltSource = ST.addStyle [TxstColor color] $ T.singleton '*',
                       frliBody = line }
     
 
@@ -702,6 +752,9 @@ selfMessageMessage frame nick comment = do
   liftIO . atomically $
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor color] nick',
+                                     frliAltSource = ST.concat [ST.addStyle [TxstColor color] $ T.singleton '<',
+                                                                ST.addStyle [TxstColor color] nick',
+                                                                St.addStyle [TxstColor color] $ T.singleton '>'],
                                      frliBody = ST.setBaseColor color comment' }
 
 -- | Send a self action message to a specific frame.
@@ -713,6 +766,7 @@ selfActionMessage frame nick comment = do
   liftIO . atomically $
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [TxstColor 12] $ T.singleton '*',
                                      frliBody = ST.concat [ST.addStyle [TxstColor 12] nick',
                                                            ST.addStyle [] T.singleton ' ',
                                                            comment'] }
@@ -728,6 +782,9 @@ selfNoticeMessage frame nick comment = do
                                      frliSource = ST.concat [ST.addStyle [TxstColor 9] $ T.singleton '-',
                                                              ST.addStyle [TxstColor 9] nick',
                                                              ST.addStyle [TxstColor 9] $ T.singleton '-'],
+                                     frliAltSource = ST.concat [ST.addStyle [TxstColor 9] $ T.singleton '-',
+                                                                ST.addStyle [TxstColor 9] nick',
+                                                                ST.addStyle [TxstColor 9] $ T.singleton '-'],
                                      frliBody = comment' }
 
 -- | Send an unkown command message to a frame.
@@ -740,6 +797,7 @@ unknownCommandMessage frame command = do
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [Txst 13] $ T.singleton '*',
+                                     frliAltSource = ST.addStyle [Txst 13] $ T.singleton '*',
                                      frliBody = ST.addStyle [] formattedText }
 
 -- | Send an arbitrary error message to a frame.
@@ -751,10 +809,12 @@ errorMessage frame text (Error errorLines) = do
          [] ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
                        frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                       frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                        frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
       restLines =
         case errorLines of
@@ -767,4 +827,5 @@ errorMessage frame text (Error errorLines) = do
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
                 frliSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
+                frliAltSource = ST.addStyle [TxstColor 13] $ T.singleton '*',
                 frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }

@@ -36,7 +36,6 @@ installHandlers intf = do
       CD.registerRequestHandler dispatcher ctcp_VERSION handleVersion
       CD.registerRequestHandler dispatcher ctcp_SOURCE handleSource
       CD.registerRequestHandler dispatcher ctcp_USERINFO handleUserInfo
-      CD.registerRequestHandler dispatcher ctcp_CLIENTINFO handleClientInfo
       CD.registerRequestHandler dispatcher ctcp_PING handlePing
       CD.registerRequestHandler dispatcher ctcp_TIME handleTime
     Nothing -> return ()
@@ -101,21 +100,6 @@ handleUserInfo manager nick command Nothing
     return True
   | otherwise = return False
 handleUserInfo manager nick command (Just _) = return False
-
--- | Handle CLIENTINFO CTCP request.
-handleClientInfo :: ConnectionManager -> Nick -> CtcpCommand -> Maybe CtcpArgument -> AM Bool
-handleClientInfo manager nick command _
-  | command = ctcp_CLIENTINFO = do
-    intf <- getInterface
-    liftIO . atomically $ do
-      clientInfo <- encode intf manager =<< confCtcpUserInfo <$> I.getConfig intf
-      CM.send manager $ IRCMessage { ircmPrefix = Nothing,
-                                     ircmCommand = cmd_NOTICE,
-                                     ircmParameters = [nick],
-                                     ircmComment = Just . formatCtcp ctcp_CLIENTINFO . Just $
-                                       B.append (BC.singleton ':') clientInfo }
-    return True
-  | otherwise = return False
 
 -- | Handle PING CTCP request.
 handlePing :: ConnectionManager -> Nick -> CtcpCommand -> Maybe CtcpArgument -> AM Bool

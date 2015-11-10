@@ -152,6 +152,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import System.Locale (TimeLocale)
+import System.IO (FilePath)
 
 -- | Amphibian monad.
 newtype AM a = AM (ReaderT Interface IO a)
@@ -170,7 +171,7 @@ data Interface =
               intfFrames :: TVar [Frame],
               intfPlugins :: TVar [Plugin],
               intfInputDispatcher :: TVar (Maybe InputDispatcher),
-              intfCtcpDispatcher :: TVar (Maybe CtcpDispatcher,
+              intfCtcpDispatcher :: TVar (Maybe CtcpDispatcher),
               intfPluginServer :: TVar (Maybe PluginServer),
               intfConnectionManagerServer :: TVar (Maybe ConnectionManagerServer),
               intfChannelServer :: TVar (Maybe ChannelServer),
@@ -222,17 +223,19 @@ newtype Error = Error [Text]
 
 -- | Amphibian configuration.
 data Config =
-  Config { confServerList :: [ServerSetup],
+  Config { confConfigDir :: FilePath,
+           confDataDir :: FilePath,
+           confConfigPluginName :: FilePath,
+           confPluginError :: Either Error (),
+           confServerList :: [ServerInfo],
            confDefaultScriptEntry :: Text,
-           confScriptCompileOptions :: [Text],
-           confScriptEvalOptions :: [Text],
+           confPluginCompileOptions :: [Text],
+           confPluginEvalOptions :: [Text],
            confLanguage :: Language,
            confTimeLocale :: TimeLocale,
            confLightBackground :: Bool,
-           confPluginCompileOptions :: [Text],
            confCtcpVersion :: Text,
-           confCtcpSource :: Text,
-           confCtcpClientInfo :: Text }
+           confCtcpSource :: Text }
   deriving Eq
 
 -- | Connection configuration.
@@ -241,32 +244,16 @@ data ConnectionConfig =
                      cocoCtcpUserInfo :: Text }
 
 -- | Amphibian server setup.
-data ServerSetup =
-  ServerSetup { srstName :: String,
-                srstHost :: String,
-                srstPort :: String,
-                srstUsername :: String,
-                srstNicks :: [String],
-                srstPassword :: Maybe String,
-                srstDefaultChannels :: [String] }
-  deriving Eq
-
--- | Amphibian connection information.
-data ConnectionInfo =
-  ConnectionInfo { cninName :: String,
-                   cninOriginalHost :: String,
-                   cninCurrentHost :: Maybe String,
-                   cninPort :: String,
-                   cninUsername :: String,
-                   cninCurrentNick :: String,
-                   cninAllNicks :: [String],
-                   cninPassword :: Maybe String,
-                   cninDefaultChannels :: [String] }
+data ServerInfo =
+  ServerInfo { seinName :: String,
+               seinSetup :: ConnectionManagerSetup,
+               seinConfig :: ConnectionConfig,
+               seinDefaultChannels :: [Text] }
   deriving Eq
 
 -- | Plugin.
 data Plugin =
-  Plugin { plugPath :: Text,
+  Plugin { plugPath :: FilePath,
            plugEntryPoint :: Maybe Text,
            plugPrecompiled :: Bool,
            plugInterface :: Interface,
@@ -568,7 +555,7 @@ data QuitEvent = QuitSuccess (Maybe MessageComment)
                | QuitDisconnected
                | QuitNotRegistered
                | QuitError Error
-               deriving Eqhttps://en.wikipedia.org/w/index.php?search=cyanoglobin&title=Special%3ASearch&fulltext=Search
+               deriving Eq
 
 -- | SQUIT response.
 newtype SquitResponse = SquitResponse (TMVar SquitEvent)
@@ -819,6 +806,7 @@ data FrameInputEvent = FievTopic Text
 data FrameLine =
   FrameLine { frliTime :: UTCTime,
               frliSource :: StyledText,
+              frliAltSource :: StyledText,
               frliBody :: StyledText }
   deriving Eq
 
