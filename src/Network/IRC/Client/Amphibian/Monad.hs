@@ -23,6 +23,9 @@ module Network.IRC.Client.Amphibian.Monad
         getPlugins,
         registerPlugin,
         unregisterPlugin,
+        getFrontend,
+        registerFrontend,
+        unregisterFrontend,
         getInputDispatcher,
         registerInputDispatcher,
         unregisterInputDispatcher,
@@ -193,6 +196,24 @@ unregisterPlugin :: Plugin -> AM ()
 unregisterPlugin plugin = do
   intf <- getInterface
   liftIO . atomically $ I.unregisterPlugin intf plugin
+
+-- | Get frontend.
+getFrontend :: AM (Maybe Frontend)
+getFrontend = do
+  intf <- getInterface
+  liftIO . atomically $ I.getFrontend intf
+
+-- | Register frontend.
+registerFrontend :: Frontend -> AM ()
+registerFrontend frontend = do
+  intf <- getInterface
+  liftIO . atomically $ I.registerFrontend intf frontend
+
+-- | Unregister frontend.
+unregisterFrontend :: Frontend -> AM ()
+unregisterFrontend frontend = do
+  intf <- getInterface
+  liftIO . atomically $ I.unregisterFrontend intf frontend
 
 -- | Get input dispatcher.
 getInputDispatcher :: AM (Maybe InputDispatcher)

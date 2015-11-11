@@ -170,6 +170,7 @@ data Interface =
               intfUsers :: TVar [User],
               intfFrames :: TVar [Frame],
               intfPlugins :: TVar [Plugin],
+              intfFrontend :: TVar (Maybe Frontend),
               intfInputDispatcher :: TVar (Maybe InputDispatcher),
               intfCtcpDispatcher :: TVar (Maybe CtcpDispatcher),
               intfPluginServer :: TVar (Maybe PluginServer),
@@ -188,6 +189,7 @@ data InterfaceEvent = IntfConnectionManagerRegistered ConnectionManager
                     | IntfUserRegistered User
                     | IntfFrameRegistered Frame
                     | IntfPluginRegistered Plugin
+                    | IntfFrontendRegistered Frontend
                     | IntfInputDispatcherRegistered InputDispatcher
                     | IntfCtcpDispatcherRegistered CtcpDispatcher
                     | IntfPluginServerRegistered PluginServer
@@ -199,6 +201,7 @@ data InterfaceEvent = IntfConnectionManagerRegistered ConnectionManager
                     | IntfUserUnregistered User
                     | IntfFrameUnregistered Frame
                     | IntfPluginUnregistered Plugin
+                    | IntfFrontendUnregistered Frontend
                     | IntfInputDispatcherUnregistered InputDispatcher
                     | IntfCtcpDispatcherUnregistered CtcpDispatcher
                     | IntfPluginServerUnregistered PluginServer
@@ -755,8 +758,30 @@ data TextStyle = TxstBold | TxstUnderline | TxstColor TextColor
 -- | Text color
 type TextColor = Int
 
+-- | Frontend.
+data Frontend = Frontend { fronInterface :: Interface,
+                           fronActive :: TVar Bool,
+                           fronInputEvents :: TChan FrontendInputEvent,
+                           fronOutputEvents :: TChan FrontendOutputEvent }
+                deriving Eq
+
+-- | Frontend input subscription.
+data FrontendInputSubscription = FrontendInputSubscription (TChan FrontendInputEvent)
+
+-- | Frontend output subscription.
+data FrontendOutputSubscription = FrontendOutputSubscription (TChan FrontendOutputEvent)
+
+-- | Frontend input events.
+data FrontendInputEvent = FrieStop
+                        deriving Eq
+
+-- | Frontend output events.
+data FrontendOutputEvent = FroeStopped
+                         deriving Eq
+
 -- | Frame.
-data Frame = Frame { framInputEvents :: TChan FrameInputEvent,
+data Frame = Frame { framInterface :: Interface,
+                     framInputEvents :: TChan FrameInputEvent,
                      framOutputEvents :: TChan FrameOutputEvent,
                      framMapping :: TVar FrameMapping,
                      framTopic :: TVar (Maybe Text),
@@ -768,7 +793,8 @@ data Frame = Frame { framInputEvents :: TChan FrameInputEvent,
                      framChildren :: TVar [Frame],
                      framFocus :: TVar Bool,
                      framLastFocus :: TVar (Maybe Frame)
-                     framNotifications :: TVar [FrameNotifications] }
+                     framNotifications :: TVar [FrameNotification],
+                     framOpen :: TVar Bool }
              deriving Eq
 
 -- | Frame output subscription.
@@ -791,8 +817,9 @@ data FrameOutputEvent = FoevTopic (Maybe Text)
                       | FoevName Text
                       | FoevTitle Text
                       | FoevLine FrameLine
-                      | FoevNotifications [FrameNotifications]
+                      | FoevNotifications [FrameNotification]
                       | FoevMapping FrameMapping
+                      | FoevClose
                       deriving Eq
 
 -- | Frame input event.
@@ -800,6 +827,7 @@ data FrameInputEvent = FievTopic Text
                      | FievLine StyledText
                      | FievFocus Bool
                      | FievMapping FrameMapping
+                     | FievClosed
                      deriving Eq
 
 -- | Frame line.
@@ -811,40 +839,40 @@ data FrameLine =
   deriving Eq
 
 -- | Frame notifications.
-data FrameNotifications = FrnoLookupHostname
-                        | FrnoFoundAddress
-                        | FrnoLookupAddressFailed
-                        | FrnoFoundHostname
-                        | FrnoReverseLookupFailed
-                        | FrnoConnecting
-                        | FrnoConnected
-                        | FrnoConnectFailed
-                        | FrnoDisconnected
-                        | FrnoPasswordMismatch
-                        | FrnoBannedFromServer
-                        | FrnoWelcome
-                        | FrnoAttemptingNick
-                        | FrnoMalformedNick
-                        | FrnoNickInUse
-                        | FrnoJoined
-                        | FrnoParted
-                        | FrnoNick
-                        | FrnoNoTopic
-                        | FrnoTopic
-                        | FrnoTopicWhoTime
-                        | FrnoNames
-                        | FrnoRecvJoin
-                        | FrnoRecvPart
-                        | FrnoRecvNick
-                        | FrnoRecvTopic
-                        | FrnoRecvChannelMessage
-                        | FrnoRecvChannelNotice
-                        | FrnoRecvPrivateMessage
-                        | FrnoRecvPrivateNotice
-                        | FrnoRecvServer
-                        | FrnoRecvMention
-                        | FrnoError
-                        deriving Eq
+data FrameNotification = FrnoLookupHostname
+                       | FrnoFoundAddress
+                       | FrnoLookupAddressFailed
+                       | FrnoFoundHostname
+                       | FrnoReverseLookupFailed
+                       | FrnoConnecting
+                       | FrnoConnected
+                       | FrnoConnectFailed
+                       | FrnoDisconnected
+                       | FrnoPasswordMismatch
+                       | FrnoBannedFromServer
+                       | FrnoWelcome
+                       | FrnoAttemptingNick
+                       | FrnoMalformedNick
+                       | FrnoNickInUse
+                       | FrnoJoined
+                       | FrnoParted
+                       | FrnoNick
+                       | FrnoNoTopic
+                       | FrnoTopic
+                       | FrnoTopicWhoTime
+                       | FrnoNames
+                       | FrnoRecvJoin
+                       | FrnoRecvPart
+                       | FrnoRecvNick
+                       | FrnoRecvTopic
+                       | FrnoRecvChannelMessage
+                       | FrnoRecvChannelNotice
+                       | FrnoRecvPrivateMessage
+                       | FrnoRecvPrivateNotice
+                       | FrnoRecvServer
+                       | FrnoRecvMention
+                       | FrnoError
+                       deriving Eq
 
 -- | Format map.
 type FormatMap = HashMap Text (Text -> (Text, Text))

@@ -10,9 +10,15 @@ import Network.IRC.Client.Amphibian.Utility
 import Network.IRC.Client.Amphibian.Default
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.PluginServer as PS
+import qualified Network.IRC.Client.Amphibian.Frontend as F
 import qualified Network.IRC.Client.Amphibian.InputDispatcher as ID
+import qualified Network.IRC.Client.Amphibian.InputHandler as IH
 import qualified Network.IRC.Client.Amphibian.CtcpDispatcher as CD
+import qualified Network.IRC.Client.Amphibian.CtcpHandler as CH
 import qualified Network.IRC.Client.Amphibian.Plugin as P
+import qualified Network.IRC.Client.Amphibian.ConnectionDisplay as CoD
+import qualified Network.IRC.Client.Amphibian.ChannelDisplay as ChD
+import qualified Network.IRC.Client.Amphibian.UserDisplay as UD
 import Control.Monad.IO.CLass (liftIO)
 import Control.Concurrent.STM (STM,
                                atomically,
@@ -36,10 +42,22 @@ continueBootstrap = do
   intf <- getInterface
   pluginServer <- liftIO . atomically $ PS.new
   PS.start pluginServer
+  liftIO . atomically $ do
+    frontend <- F.new
+    F.start frontend
   inputDispatcher <- liftIO . atomically $ ID.new intf
   ID.start inputDispatcer
   ctcpDispatcher <- liftIO . atomically $ CD.new intf
   CD.start ctcpDispatcher
+  connectionDisplay <- liftIO . atomically $ CoD.new intf
+  CoD.start connectionDisplay
+  channelDisplay <- liftIO . atomically $ ChD.new intf
+  ChD.start channelDisplay
+  userDisplay <- liftIO . atomically $ UD.new intf
+  UD.start userDisplay
+  liftIO . atomically $ do
+    IH.installHandlers intf
+    CH.installHandlers intf
   runConfigPlugin
 
 -- | Run configuration plugin.

@@ -29,6 +29,9 @@ module Network.IRC.Client.Amphibian.Interface
         getPlugins,
         registerPlugin,
         unregisterPlugin,
+        getFrontend,
+        registerFrontend,
+        unregisterFrontend,
         getInputDispatcher,
         registerInputDispatcher,
         unregisterInputDispatcher,
@@ -83,6 +86,7 @@ newInterface config = do
   users <- newTVar []
   frames <- newTVar []
   plugins <- newTVar []
+  frontend <- newTVar Nothing
   inputDispatcher <- newTVar Nothing
   ctcpDispatcher <- newTVar Nothing
   pluginServer <- newTVar Nothing
@@ -99,6 +103,7 @@ newInterface config = do
                        intfUsers = users,
                        intfFrames = frames,
                        intfPlugins = plugins,
+                       intfFrontend = frontend,
                        intfInputDispatcher = inputDispatcher,
                        intfCtcpDispatcher = ctcpDispatcher,
                        intfPluginServer = pluginServer,
@@ -281,6 +286,30 @@ unregisterfPlugin intf plugin = do
     writeTVar (intfPlugins intf) (filter (/= plugin) plugins)
     writeTChan (intfEvents intf) (IntfPluginUnregistered plugin)
   else return ()
+
+-- | Get frontend.
+getFrontend :: Interface -> STM (Maybe Frontend)
+getFrontend = readTVar . intfFrontend
+
+-- | Register frontend.
+registerFrontend :: Interface -> Frontend -> STM ()
+registerFrontend intf frontend = do
+  currentDispatcher <- readTVar $ intfFrontend intf
+  case currentDispatcher of
+    Nothing -> do
+      writeTVar (intfFrontend intf) (Just frontend)
+      writeTChan (intfEvents intf) (IntfFrontendRegistered frontend)
+    _ -> return ()
+
+-- | Unregister frontend.
+unregisterFrontend :: Interface -> Frontend -> STM ()
+unregisterFrontend intf frontend = do
+  currentDispatcher <- readTVar $ intfFrontend intf
+  case currentDispatcher of
+    Just currentDispatcher | currentDispatcher == frontend -> do
+      writeTVar (intfFrontend intf) Nothing
+      writeTChan (intfEvents intf) (IntfFrontendUnregistered frontend)
+    _ -> return ()
 
 -- | Get input dispatcher.
 getInputDispatcher :: Interface -> STM (Maybe InputDispatcher)

@@ -6,6 +6,7 @@ module Network.IRC.Client.Amphibian.Frame
         FrameOutputEvent,
         FrameInputEvent,
         new,
+        start,
         subscribeOutput,
         subscribeInput,
         peekOutput,
@@ -35,7 +36,10 @@ module Network.IRC.Client.Amphibian.Frame
         setLastFocus
         getNotifications,
         notify,
-        notifyLastFocused)
+        notifyLastFocused,
+        getOpen,
+        close,
+        closed)
 
        where
 
@@ -60,8 +64,8 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 
 -- | Create a new frame.
-new :: Maybe Frame -> FrameMapping -> T.Text -> T.Text -> T.Text -> STM Frame
-new parent mapping nick name title = do
+new :: Interface -> Maybe Frame -> FrameMapping -> T.Text -> T.Text -> T.Text -> STM Frame
+new intf parent mapping nick name title = do
   inputEvents <- newBroadcastTChan
   outputEvents <- newBroadcastTChan
   mapping' <- newTVar mapping
@@ -75,7 +79,9 @@ new parent mapping nick name title = do
   focus <- newTVar False
   lastFocus <- newTVar Nothing
   notifications <- newTVar []
-  let frame = Frame { framInputEvents = inputEvents,
+  open <- newTVar True
+  let frame = Frame { framInterface = intf,
+                      framInputEvents = inputEvents,
                       framOutputEvents = outputEvents,
                       framMapping = mapping',
                       framTopic = topic,
@@ -87,13 +93,18 @@ new parent mapping nick name title = do
                       framChildren = children,
                       framFocus = focus,
                       framLastFocus = lastFocus,
-                      framNotifications = notifications }
+                      framNotifications = notifications,
+                      framOpen = open }
   case parent of
     Just parent -> do
       parentNotifications <- readTVar $ framChildren parent
       writeTVar (framChildren parent) (frame : parentNotifications)
     Nothing -> return ()
   return frame
+
+-- | Start a frame.
+start :: Frame -> STM ()
+start frame = I.registerFrame (framInterface intf) frame
 
 -- | Subscribe to output events from a frame.
 subscribeOutput :: Frame -> STM FrameOutputSubscription
@@ -241,11 +252,11 @@ setLastFocus frame focusedFrame = do
     Nothing -> return ()
 
 -- | Get notifications for a frame.
-getNotifications :: Frame -> STM [FrameNotifications]
-getNotifications = readTVar . frameNotifications
+getNotifications :: Frame -> STM [FrameNotificatios]
+getNotifications = readTVar . framNotifications
 
 -- | Notify a frame.
-notify :: Frame -> [FrameNotifications] -> STM ()
+notify :: Frame -> [FrameNotification] -> STM ()
 notify frame notifications = do
   oldNotifications <- readTVar $ framNotifications frame
   let newNotifications = unique $ notifications ++ oldNotifications
@@ -259,3 +270,19 @@ notifyLastFocused frame notifications = do
   case lastFocus of
     Just lastFocus -> notify lastFocus notifications
     Nothing -> notify frame notifications
+
+-- | Get whether a frame is open.
+getOpen :: Frame -> STM Bool
+getOpen = readTVar . framOpen
+
+-- | Signal for a frame to close.
+close :: Frame -> STM ()
+close frame = writeTChan (framOutputEvents frame) FoevClose
+
+-- | Signal that a frame has closed.
+closed :: Frame -> STM ()
+closed frame = do
+  writeTVar (framOpen frame) False
+  writeTChan (framInputEvents) frame FievClosed
+  I.unregisterFrame (framInterface frame) frame
+
