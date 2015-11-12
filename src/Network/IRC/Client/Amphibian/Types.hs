@@ -883,8 +883,13 @@ data ConnectionDisplay =
                       codiActions :: TQueue ConnectionDisplayAction,
                       codiInterface :: Interface,
                       codiInterfaceSubscription :: InterfaceSubscription,
+                      codiAllFrames :: TVar [ConnectionDisplayFrame] 
                       codiFrames :: TVar [ConnectionDisplayFrameMapping] }
   deriving Eq
+
+-- | Connection display frame.
+data ConnectionDisplayFrame { cdfrFrame :: Frame,
+                              cdfrSubscription :: FrameInputSubscription }
 
 -- | Connection display frame mapping
 data ConnectionDisplayFrameMapping =
@@ -904,14 +909,19 @@ data ChannelDisplay =
                    chdiActions :: TQueue ChannelDisplayAction,
                    chdiInterface :: Interface,
                    chdiInterfaceSubscription :: InterfaceSubscription,
+                   chdiAllFrames :: TVar [ChannelDisplayFrame],
                    chdiFrames :: TVar [ChannelDisplayFrameMapping] }
   deriving Eq
 
+-- | Channel display frame.
+data ChannelDisplayFrame { chdfFrame :: Frame,
+                           chdfSubscription :: FrameInputSubscription }
+
 -- | Channel display frame mapping
 data ChannelDisplayFrameMapping =
-  ChannelDisplayFrameMapping { chdfFrame :: Frame,
-                               chdfChannel :: Channel,
-                               chdfSubscription :: ChannelSubscription }
+  ChannelDisplayFrameMapping { cdfmFrame :: Frame,
+                               cdfmChannel :: Channel,
+                               cdfmSubscription :: ChannelSubscription }
 
 -- | Channel display actions.
 data ChannelDisplayAction = CodaStop ChannelDisplayStopResponse
@@ -925,14 +935,19 @@ data UserDisplay =
                 usdiActions :: TQueue UserDisplayAction,
                 usdiInterface :: Interface,
                 usdiInterfaceSubscription :: InterfaceSubscription,
+                usdiAllFrames :: TVar [UserDisplayFrame],
                 usdiFrames :: TVar [UserDisplayFrameMapping] }
   deriving Eq
 
--- | User display frame mapping
+-- | User display frame.
+data UserDisplayFrame { usdfFrame :: Frame,
+                        usdfSubscription :: FrameInputSubscription }
+
+-- | User display frame mapping.
 data UserDisplayFrameMapping =
-  UserDisplayFrameMapping { usdfFrame :: Frame,
-                            usdfUser :: User,
-                            usdfSubscription :: UserSubscription }
+  UserDisplayFrameMapping { udfmFrame :: Frame,
+                            udfmUser :: User,
+                            udfmSubscription :: UserSubscription }
 
 -- | User display actions.
 data UserDisplayAction = CodaStop UserDisplayStopResponse

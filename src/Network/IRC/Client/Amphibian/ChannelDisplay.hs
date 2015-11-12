@@ -49,11 +49,13 @@ new intf = do
   actions <- newTQUeue
   interfaceSubscription <- I.subscribe intf
   frames <- newTVar []
+  allFrames <- newTVar []
   return $ ChannelDisplay { chdiRunning = running,
                             chdiActions = actions,
                             chdiInterface = interface,
                             chdiInterfaceSubscription = interfaceSubscription,
-                            chdiFrames = frames }
+                            chdiFrames = frames,
+                            chdiAllFrames = allFrames }
 
 -- | Start connection display.
 start :: ChannelDisplay -> AM ()
@@ -84,11 +86,13 @@ runChannelDisplay :: ChannelDisplay -> AM ()
 runChannelDisplay display = do
   continue <- join . liftIO . atomically $ do
     frames <- readTVar $ chdiFrames display
+    allFrames <- readTVar $ chdiAllFrames display
     handleAction display `orElse` handleInterfaceEvent display `orElse`
-      (foldr1 (\mapping y -> handleChannelEvent display mapping `orElse` y) retry frames) 
+      (foldr (\frame y -> handleFrameEvent display frame `orElse` y) retry allFrames) `orElse`
+      (foldr (\mapping y -> handleChannelEvent display mapping `orElse` y) retry frames) 
   if continue
   then runChannelDisplay display
-  else liftIO . atomically $ writeTVar (codaRunning display) False
+  else liftIO . atomically $ writeTVar (chdiRunning display) False
 
 -- | Handle connection display action.
 handleAction :: ChannelDisplay -> STM (AM Bool)
@@ -105,34 +109,67 @@ handleInterfaceEvent display = do
   event <- I.recv $ chdiInterfaceSubscription display
   case event of
     IntfFrameRegistered frame -> do
+      allFrames <- readTVar $ chdiAllFrames display
+      if frame `notElem` map chdfFrame allFrames
+      then do
+        frameSubscription <- F.subscribeInput frame
+        let frame' = ChannelDisplayFrame { chdfFrame = frame,
+                                           chdfSubscription = frameSubscription }
+        writeTVar (chdiAllFrames display) (frame' : allFrames)
+      else return ()
       mapping <- F.getMapping frame
       case mapping of
-        FrmaChannel channel ->
-          frames <- readTVar $ chdiFrames display
-          if frame `notElem` map chdfFrame frames
-          then do
-            subscription <- C.subscribe channel
-            let mapping = ChannelDisplayFrameMapping { chdfFrame = frame,
-                                                       chdfChannel = channel,
-                                                       chdfSubscription = subscription }
-            writeTVar (chdiFrames display) (mapping : frames)
-          else return ()
+        FrmaChannel channel -> addMappedFrame display Frame
         _ -> return ()
       return $ return True
     IntfFrameUnregistered frame -> do
-      frame <- readTVar $ chdiFrames display
-      if frame `elem` map chdfFrame frames
-      then writeTVar (chdiFrames display) (filter (\mapping -> chdfFrame mapping /= frame) frames)
+      allFrames <- readTVar $ chdiAllFrames display
+      if frame `elem` map chdfFrame allFrames
+      then writeTVar (chdiAllFrames display) (filter (\frame' -> chdfFrame frame' /= frame) allFrames)
       else return ()
+      removeMappedFrame display frame
       return $ return True
     _ -> return $ return True
+
+-- | Handle frame event.
+handleFrameEvent :: ChannelDisplay -> ChannelDisplayFrame -> STM (AM Bool)
+handleFrameEvent display frame = do
+  event <- F.recvInput $ chdfSubscription frame
+  case event of
+    FievMapping mapping -> do
+      case mapping of
+        FrmaChannel _ -> addMappedFrame display $ chdfFrame frame
+        _ -> removeMappedFrame display $ chdfFrame frame
+      return $ return True
+    _ -> return $ return True
+
+-- | Add frame to mapped frames.
+addMappedFrame :: ChannelDisplay -> Frame -> STM ()
+addMappedFrame display frame = do
+  frames <- readTVar $ chdiFrames display
+  if frame `notElem` map cdfmFrame frames
+  then do
+    subscription <- C.subscribe channel
+    let mapping = ChannelDisplayFrameMapping { cdfmFrame = frame,
+                                               cdfmChannel = channel,
+                                               cdfmSubscription = subscription }
+    writeTVar (chdiFrames display) (mapping : frames)
+  else return ()
+
+-- | Remove frame from mapped frames.
+removeMappedFrame :: ChannelDisplay -> Frame -> STM ()
+removeMappedFrame display frame = do
+  frame <- readTVar $ chdiFrames display
+  if frame `elem` map cdfmFrame frames
+  then writeTVar (chdiFrames display) (filter (\mapping -> cdfmFrame mapping /= frame) frames)
+  else return ()
 
 -- | Handle connection event.
 handleChannelEvent :: ChannelDisplay -> ChannelDisplayFrameMapping -> STM (AM Bool)
 handleChannelEvent display mapping = do
-  event <- C.recv $ chdfSubscription mapping
-  let frame = chdfFrame mapping
-      channel = chdfChannel mapping
+  event <- C.recv $ cdfmSubscription mapping
+  let frame = cdfmFrame mapping
+      channel = cdfmChannel mapping
   case event of
     ChanDisconnected (Left error) ->
       return $ do
