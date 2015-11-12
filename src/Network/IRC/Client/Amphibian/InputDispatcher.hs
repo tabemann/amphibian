@@ -67,6 +67,7 @@ start dispatcher = do
     if not running
     then do
       writeTVar (indiRunning dispatcher) True
+      I.registerInputDispatcher intf dispatcher
       return $ async (runAM (runDispatcher dispatcher) intf)
     else return $ return ()
   return ()
@@ -137,6 +138,8 @@ handleAction dispatcher = do
   action <- readTQueue $ indiActions dispatcher
   case action of
     IndaStop (InputDispatcherStopResponse response) -> do
+      I.unregisterInputDispatcher (indiInterface dispatcher) dispatcher
+      writeTVar (indiRunning dispatcher) False
       putTMVar response $ Right ()
       return $ return False
 

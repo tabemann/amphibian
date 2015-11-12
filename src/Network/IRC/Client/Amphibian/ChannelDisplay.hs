@@ -100,6 +100,7 @@ handleAction display = do
   action <- readTQueue $ chdiActions display
   case action of
     CodaStop (ChannelDisplayStopResponse response) -> do
+      writeTVar (chdiRunning display) False
       writeTMVar response (Right ())
       return $ return False
 

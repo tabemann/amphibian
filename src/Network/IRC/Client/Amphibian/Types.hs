@@ -380,9 +380,9 @@ type MessageComment = ByteString
 
 -- | Connection manager.
 data ConnectionManager =
-  ConnectionManager { comaActions :: TQueue ConnectionManagerAction,
+  ConnectionManager { comaInterface :: Interface,
+                      comaActions :: TQueue ConnectionManagerAction,
                       comaEvents :: TChan ConnectionManagerEvent,
-                      comaStop :: TMVar (ConnectManagerStopResponse),
                       comaSetup :: TVar (Maybe ConnectionManagerSetup),
                       comaConnection :: TVar (Maybe Connection),
                       comaRegistered :: TVar Bool,
@@ -427,7 +427,8 @@ newtype ConnectionManagerSubscription =
   ConnectionManagerSubscription (TChan ConnectionManagerEvent)
 
 -- | Connection manager action.
-data ConnectionManagerAction = ComaConnectNew ConnectionManagerSetup
+data ConnectionManagerAction = ComaStop ConnectionManagerStopResponse
+                             | ComaConnectNew ConnectionManagerSetup
                                ConnectionManagerConnectResponse
                              | ComaReconnect
                                ConnectionManagerReconnectResponse
@@ -436,6 +437,10 @@ data ConnectionManagerAction = ComaConnectNew ConnectionManagerSetup
                              | ComaSend IRCMessage
                                ConnectionManagerSendResponse
                              deriving Eq
+
+-- | Connection manager stop response.
+newtype ConnectionManagerStopResponse =
+  ConnectionManagerStopResponse (TMVar (Either Error ()))
 
 -- | Connection manager connect response.
 newtype ConnectionManagerConnectResponse =
@@ -482,10 +487,6 @@ data ConnectionManagerEvent = ComaLookupAddress HostName
                             | ComaSelfCtcpRequest Nick ChannelNameOrNick MessageComment
                             | ComaSelfCtcpReply Nick ChannelNameOrNick MessageComment
                             deriving Eq
-
--- | Connection manager stop response.
-newtype ConnectionManagerStopResponse =
-  ConnectionManagerStopResponse (TMVar ())
 
 -- | Connection manager server.
 data ConnectionManagerServer =

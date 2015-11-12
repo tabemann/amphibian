@@ -93,6 +93,7 @@ handleAction display = do
   action <- readTQueue $ codiActions display
   case action of
     CodaStop (ConnectionDisplayStopResponse response) -> do
+      writeTVar (codiRunning display) False
       writeTMVar response (Right ())
       return $ return False
 

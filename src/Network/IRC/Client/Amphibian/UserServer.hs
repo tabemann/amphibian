@@ -137,6 +137,8 @@ handleAction user = do
                                           writeTMVar response responseValue
                   return True
     UserStop (UserStopResponse response) -> do
+      I.unregisterUser (userInterface user) user
+      writeTVar (userActive user) False
       writeTMVar response (Right ())
       return $ return False
 

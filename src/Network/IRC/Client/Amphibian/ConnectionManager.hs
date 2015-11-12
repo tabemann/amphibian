@@ -60,7 +60,6 @@ new intf actionGroup = do
   thread <- newTVar Nothing
   actions <- newTQueue
   events <- newBroadcastTChan
-  stop <- newEmptyTMVar
   setup <- newTVar Nothing
   connection <- newTVar Nothing
   registered <- newTVar False
@@ -73,7 +72,6 @@ new intf actionGroup = do
                                comaAsync = thread,
                                comaActions = actions,
                                comaEvents = events,
-                               comaStop = stop,
                                comaSetup = setup,
                                comaConnection = connection,
                                comaRegistered = registered,
@@ -121,7 +119,7 @@ start manager = do
 stop :: ConnectionManager -> STM (ConnectionManagerStopResponse)
 stop manager = do
   stop <- ConnectionManagerStopResponse <$> newEmptyTMVar
-  putTMVar (comaStop manager) stop
+  writeTQueue (comaActions manager) (ComaStop stop)
   return stop
 
 -- | Connect to a server.

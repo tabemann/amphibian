@@ -89,7 +89,7 @@ runServer server = do
     action <- readTQueue $ cmseActions server
     case action of
       PlsaStartConnectionManager manager (ConnectionManagerStartResponse response) -> do
-        active <- readTVar $ plugActive manager
+        active <- readTVar $ comaActive manager
         if not active
         then do
           writeTVar (comaActive manager) True
@@ -114,8 +114,7 @@ runConnectionManager :: ConnectionManager -> AM ()
 runConnectionManager manager =
   continue <- join . atomically $
     handleAction manager intf `orElse`
-    handleEvent manager intf `orElse`
-    handleStop manager intf
+    handleEvent manager intf
   if continue
     then connectionManager manager
     else return ()
@@ -125,23 +124,31 @@ handleAction :: ConnectionManager -> STM (AM Bool)
 handleAction manager = do
   action <- readTQueue $ comaActions manager
   case action of
+    ComaStop (ConnectionManagerStopResponse response) -> do
+      I.unregisterConnectionManager (comaInterface manager) manager
+      writeTVar (comaActive manager) False
+      return $ return True
     ComaConnectNew setup (ConnectionManagerConnectResponse response) -> do
       writeTVar (comaSetup manager) $ Just setup
       return $ do
         result <- doConnect manager
         liftIO . atomically $ putTMVar response result
+        return True
     ComaReconnect (ConnectManagerReconnectResponse response) ->
       return $ do
         result <- doReconnect manager
         liftIO . atomically $ putTMVar response result
+        return True
     ComaDisconnect (ConnectionManagerDisconnectResponse response) ->
       return $ do
         result <- doDisconnect manager
         liftIO . atomically $ putTMVar response result
+        return True
     ComaSend message (ConnectionManagerSendResponse response) ->
       return $ do
         result <- doSend manager message
         liftIO . atomically $ putTMVar response result
+        return True
     
 -- | Handle event for connection manager.
 handleEvent :: ConnectionManager -> STM (AM Bool)

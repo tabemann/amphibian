@@ -91,10 +91,10 @@ runServer server = do
     action <- readTQueue $ chseActions server
     case action of
       ChsaStartChannel channel (ChannelStartResponse response) -> do
-        active <- readTVar $ plugActive channel
+        active <- readTVar $ chanActive channel
         if not active
         then do
-          writeTVar (plugActive channel) True
+          writeTVar (chanActive channel) True
           I.registerChannel intf channel
           putTMVar response $ Right ()
           return $ do
@@ -134,6 +134,8 @@ handleActions channel = do
 -- | Carry out stop.
 doStop :: Channel -> ChannelStopResponse -> STM (AM Bool)
 doStop channel (ChannelStopResponse response) = do
+  I.unregisterChannel (chanInterface channel) channel
+  writeTVar (chanActive channel) False
   putTMVar response $ Right ()
   return $ return False
 

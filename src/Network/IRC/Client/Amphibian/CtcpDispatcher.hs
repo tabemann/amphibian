@@ -123,6 +123,7 @@ handleAction dispatcher = do
   case action of
     CthaStop (CtcpDispatcherStopResponse response) -> do
       I.unregisterCtcpHandler (ctdiInterface dispatcher) dispatcher
+      writeTVar (ctdiRunning dispatcher) False
       putTMVar response $ Right ()
       return $ return False
 
