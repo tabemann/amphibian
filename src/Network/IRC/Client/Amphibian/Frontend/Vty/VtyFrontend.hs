@@ -116,7 +116,7 @@ unregisterKeyHandler handler = do
 -- | Register unmapped key handler.
 registerUnmappedKeyHandler :: VtyFrontend -> (VtyFrontend -> Key -> [Modifier] -> AM Bool) ->
                               STM VtyUnmappedKeyHandler
-registerKeyHandler vtyFrontend key modifiers handler = do
+registerUnmappedKeyHandler vtyFrontend key modifiers handler = do
   keyHandlers <- readTVar $ vtfrUnmappedKeyHandlers vtyFrontend
   handler' <- newTVar handler
   let handler'' = VtyUnmappedKeyHandler { vukhFrontend = vtyFrontend,
