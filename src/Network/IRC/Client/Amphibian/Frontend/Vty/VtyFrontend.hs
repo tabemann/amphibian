@@ -1,15 +1,23 @@
-module Network.IRC.Client.Amphibian.Frontend.Vty.Vty
+module Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend
 
-       (new,
+       (VtyFrontend,
+        VtyWindow,
+        VtyBufferPosition,
+        VtyKeyHandler,
+        VtyUnmappedKeyHandler,
+        getCurrentWindow,
+        new,
         start,
         registerKeyHandler,
         unregisterKeyHandler,
         registerUnmappedKeyHandler,
-        unregisterUnmappedKeyHandler)
+        unregisterUnmappedKeyHandler,
+        redraw)
 
        where
 
 import Network.IRC.Client.Amphibian.Types
+import Network.IRC.Client.Amphibian.Frontend.Vty.Types
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frontend as F
 import Control.Monad (join)
@@ -33,6 +41,10 @@ import qualified Graphics.Vty.Config as VC
 import qualified Graphics.Vty.Input as VI
 import qualified Graphics.Vty.Attributes as VA
 import qualified Data.Map.Strict as M
+
+-- | Get current Vty frontend window.
+getCurrentWindow :: VtyFrontend -> STM (Maybe VtyWindow)
+getCurrentWindow = readTVar . vtfrCurrentWindow
 
 -- | Create a new Vty frontend.
 new :: Interface -> STM VtyFrontend
@@ -79,8 +91,44 @@ start vtyFrontend = do
           liftIO . atomically . writeTVar (vtfrVty vtyFrontend) $ Just vty
           runVtyFrontend vtyFrontend
 
--- | Register key handler
-registerKeyHandler :: VtyFrontend -> Key
+-- | Register key handler.
+registerKeyHandler :: VtyFrontend -> Key -> [Modifier] -> (VtyFrontend -> Key -> [Modifier] -> AM Bool) ->
+                      STM VtyKeyHandler
+registerKeyHandler vtyFrontend key modifiers handler = do
+  keyMappings <- readTVar $ vtfrKeyMappings vtyFrontend
+  let keyCombo = VtyKeyCombination { vtkcKey = key,
+                                     vtkcModifiers = modifiers }
+  let keyHandlers = maybe [] id $ HM.lookup keyCombo keyMappings
+  handler' <- newTVar handler
+  let handler'' = VtyKeyHandler { vtkhFrontend = vtyFrontend,
+                                  vtkhKeyCombo = keyCombo,
+                                  vtkhHandler = handler' }
+  writeTVar (vtfrKeyMappings vtyFrontend) $ HM.insert keyCombo (handler'' : keyHandlers) keyMappingsMap
+  return handler''
+
+-- | Unregister key handler.
+unregisterKeyHandler :: VtyKeyHandler -> STM ()
+unregisterKeyHandler handler = do
+  keyMappings <- readTVar . vtfrKeyMappings $ vtkhFrontend handler
+  let keyHandlers = maybe [] id $ HM.lookup (vtkhKeyCombo handler) keyMappings
+  writeTVar (vtfrKeyMappings vtyFrontend) $ HM.insert keyCombo (filter (/= handler) keyHandlers) keyMappings
+
+-- | Register unmapped key handler.
+registerUnmappedKeyHandler :: VtyFrontend -> (VtyFrontend -> Key -> [Modifier] -> AM Bool) ->
+                              STM VtyUnmappedKeyHandler
+registerKeyHandler vtyFrontend key modifiers handler = do
+  keyHandlers <- readTVar $ vtfrUnmappedKeyHandlers vtyFrontend
+  handler' <- newTVar handler
+  let handler'' = VtyUnmappedKeyHandler { vukhFrontend = vtyFrontend,
+                                          vukhHandler = handler' }
+  writeTVar (vtfrUnmappedKeyHandlers vtyFrontend) $ handler'' : keyHandlers
+  return handler''
+
+-- | Unregister unmapped key handler.
+unregisterUnmappedKeyHandler :: VtyUnmappedKeyHandler -> STM ()
+unregisterUnmappedKeyHandler handler = do
+  keyHandlers <- readTVar . vtfrUnmappedKeyHandlers $ vtkhFrontend handler
+  writeTVar (vtfrUnmappedKeyHandlers vtyFrontend) $ filter (/= handler) keyHandlers
 
 -- | Run the Vty frontend.
 runVtyFrontend :: VtyFrontend -> AM ()
@@ -112,7 +160,7 @@ handleInput vtyFrontend keyCombo = do
     Nothing -> return $ handleUnmappedKey vtyFrontend keyCombo
   where handleMappedKey (handler : rest) vtyFrontend keyCombo = do
           handler' <- liftIO . atomically . readTVar $ vtkhHandler handler
-          handled <- handler' vtyFrontend keyCombo
+          handled <- handler' vtyFrontend (vtkcKey keyCombo) (vtkcModifiers keyCombo)
           if not handled
           then handleMappedKey rest vtyFrontend keyCombo
           else return True
@@ -122,7 +170,7 @@ handleInput vtyFrontend keyCombo = do
           handleUnmappedKey' handlers vtyFrontend keyCombo
         handleUnmappedKey' (handler : rest) vtyFrontend keyCombo = do
           handler' <- liftIO . atomically . readTVar $ vukhHandler handler
-          handled <- handler' vtyFrontend keyCombo
+          handled <- handler' vtyFrontend (vtkcKey keyCombo) (vtkcModifiers keyCombo)
           if not handled
           then handleUnmappedKey' rest vtyFrontend keyCombo
           else return True

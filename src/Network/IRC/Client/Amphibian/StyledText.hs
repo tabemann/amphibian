@@ -9,6 +9,8 @@ module Network.IRC.Client.Amphibian.StyledText
         removeStyle,
         setStyle,
         mergeStyle,
+        setBaseColor,
+        length,
         append,
         concat,
         intercalate,
@@ -60,11 +62,15 @@ setBaseColor color (StyledText elements) = StyledText $ serBaseColor' elements
           | otherwise = StyledTextElement (TxstColor color : style) text : setBaseColor' rest
         setBaseColor' [] = []
 
+-- | Get the length of styled text.
+length :: StyledText -> Int
+length (StyledText xs) = foldl' (\prev (StyledTextElement _ text) -> prev + T.length text) 0 xs
+
 -- | Append two sections of styled text.
 append :: StyledText -> StyledText -> StyledText
 append (StyledText xs) (StyledText ys) = StyledText $ xs ++ ys
 
--- Concatenate a list of styled text.
+-- | Concatenate a list of styled text.
 concat :: [StyledText] -> StyledText
 concat xs = StyledText . concat $ map (\(StyledText ys) -> ys) xs
 

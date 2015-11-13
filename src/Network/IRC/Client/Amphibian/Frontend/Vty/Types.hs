@@ -19,10 +19,12 @@ import Data.Map.Strict (Map)
 -- | Vty frontend type.
 data VtyFrontend =
   VtyFrontend { vtfrInterface :: Interface,
-                vtfrFrontend :: TVar (Maybe Fronted)
+                vtfrFrontend :: TVar (Maybe Frontend)
                 vtfrFrontendSubscription :: TVar (Maybe FrontendOutputSubscription),
                 vtfrRunning :: TVar Bool,
                 vtfrVty :: TVar (Maybe Vty),
+                vtfrHeight :: TVar Int,
+                vtfrWidth :: TVar Int,
                 vtfrCurrentWindow :: TVar (Maybe VtyWindow),
                 vtfrWindows :: TVar [VtyWindow],
                 vtfrKeyMappings :: TVar (Map VtyKeyCombination [VtyKeyHandler]),
@@ -30,7 +32,8 @@ data VtyFrontend =
 
 -- | Vty window type.
 data VtyWindow =
-  VtyWindow { vtwiFrame :: Frame,
+  VtyWindow { vtwiFrontend :: VtyFrontend,
+              vtwiFrame :: Frame,
               vtwiBufferLines :: TVar (Seq FrameLine),
               vtwiBufferPosition :: TVar VtyBufferPosition,
               vtwiPrevInputText :: TVar (Seq StyledText),
@@ -42,6 +45,7 @@ data VtyWindow =
 -- | Vty buffer position type.
 data VtyBufferPosition = VtbpFixed Int
                        | VtbpDynamic
+                       deriving Eq
 
 -- | Vty key combination type.
 data VtyKeyCombination =
@@ -53,12 +57,12 @@ data VtyKeyCombination =
 data VtyKeyHandler =
   VtyKeyHandler ( vtkhFrontend :: VtyFrontend,
                   vtkhKeyCombo :: VtyKeyCombination,
-                  vtkhHandler :: TVar (VtyFrontend -> VtyKeyCombination -> AM Bool) )
+                  vtkhHandler :: TVar (VtyFrontend -> Key -> [Modifier] -> AM Bool) )
   deriving Eq
 
 -- | Vty unmapped key handler type.
 data VtyUnmappedKeyHandler =
   VtyUnmappedKeyHandler ( vukhFrontend :: VtyFrontend,
-                          vukhHandler :: TVar (VtyFrontend -> VtyKeyCombination -> AM Bool) )
+                          vukhHandler :: TVar (VtyFrontend -> Key -> [Modifier] -> AM Bool) )
   deriving Eq
 

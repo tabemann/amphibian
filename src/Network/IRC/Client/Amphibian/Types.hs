@@ -156,7 +156,7 @@ import System.IO (FilePath)
 
 -- | Amphibian monad.
 newtype AM a = AM (ReaderT Interface IO a)
-             deriving (Monad, MonadIO)
+             deriving (Functor, Applicative, Monad, MonadIO)
 
 -- | Amphibian interface.
 data Interface =
