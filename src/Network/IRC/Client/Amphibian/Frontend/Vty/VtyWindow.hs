@@ -90,7 +90,8 @@ scrollPrev vtyWindow = do
   newPosition <- case bufferPosition of
     VtbpFixed position -> findScroll vtyWindow bufferLines position 0 (scrollHeight `div` 2) scrollHeight
     VtbpDynamic -> findScroll vtyWindow bufferLines 0 0 ((scrollHeight `div` 2) + scrollHeight) scrollHeight
-  writeTVar (vtwiBufferPosition vtyWindow) newPosition
+  newPosition' <- normalizeBufferPosition vtyWindow newPosition
+  writeTVar (vtwiBufferPosition vtyWindow) newPosition'
   where findScroll vtyWindow bufferLines bufferPosition totalHeight checkHeight scrollHeight =
           if bufferPosition < S.length bufferLines - 1
           then do
@@ -98,23 +99,8 @@ scrollPrev vtyWindow = do
             if (totalHeight + lineHeight) < checkHeight
               then findScroll vtyWindow bufferLines (bufferPosition + 1) (totalHeight + lineHeight) checkHeight
                    scrollHeight
-              else do hasRoom <- checkHeight vtyWindow bufferLines bufferPosition 0 scrollHeight
-                      if hasRoom
-                        then return $ VtbpFixed bufferPosition
-                        else return VtbpDynamic
-          else do hasRoom <- checkHeight vtyWindow bufferLines bufferPosition 0 scrollHeight
-                  if hasRoom
-                    then return $ VtbpFixed bufferPosition
-                    else return VtbpDynamic
-        checkHeight vtyWindow bufferLines bufferPosition totalHeight scrollHeight =
-          if totalHeight > scrollHeight
-          then
-            if bufferPosition >= 0
-            then do
-              lineHeight <- VF.formatLine (vtwiFrontend vtyWindow) (S.index bufferLines bufferPosition)
-              checkHeight vtyWindow bufferLines (bufferPosition - 1) (totalHeight + lineHeight) scrollHeight
-            else return False
-          else return True
+              else return $ VtbpFixed bufferPosition
+          else return $ VtbpFixed bufferPosition
 
 -- | Scroll to the next half-window height.
 scrollNext :: VtyWindow -> STM ()
@@ -125,19 +111,27 @@ scrollNext vtyWindow = do
   newPosition <- case bufferPosition of
     VtbpFixed position -> findScroll vtyWindow bufferLines position 0 scrollHeight
     VtbpDynamic -> return VtbpDynamic
-  writeTVar (vtwiBufferPosition vtyWindow) newPosition
+  newPosition' <- normalizeBufferPosition vtyWindow newPosition
+  writeTVar (vtwiBufferPosition vtyWindow) newPosition'
   where findScroll vtyWindow bufferLines bufferPosition totalHeight scrollheight =
           if bufferPosition > 0
           then do
             lineHeight <- VF.formatLine (vtwiFrontend vtyWindow) (S.index bufferLines bufferPosition)
             if (totalHeight + lineHeight) < scrollHeight `div` 2
               then findScroll vtyWindow bufferLines (bufferPosition - 1) (totalHeight + lineHeight) scrollHeight
-              else do hasRoom <- checkHeight vtyWindow bufferLines bufferPosition 0 scrollheight
-                      if hasRoom
-                        then return $ VtbpFixed bufferPosition
-                        else return VtbpDynamic
+              else return $ VtbpFixed bufferPosition
           else return VtbpDynamic
-        checkHeight vtyWindow bufferLines bufferPosition totalHeight scrollHeight =
+
+-- | Normalize window buffer position.
+normalizeBufferPosition :: VtyWindow -> VtyBufferPosition -> STM VtyBufferPosition
+normalizeBufferPosition vtyWindow (VtbpFixed position) = do
+  bufferLines <- readTVar $ vtwiBufferLines vtyWindow
+  scrollHeight <- VF.getScrollHeight $ vtwiFrontend vtyWindow
+  hasRoom <- checkHeight vtyWIndow bufferLines position 0 scrollHeight
+  if hasRoom
+    then return $ VtbpFixed position
+    else return VtbpDynamic
+  where checkHeight vtyWindow bufferLines bufferPosition totalHeight scrollHeight =
           if totalHeight > scrollHeight
           then
             if bufferPosition >= 0
@@ -146,3 +140,4 @@ scrollNext vtyWindow = do
               checkHeight vtyWindow bufferLines (bufferPosition - 1) (totalHeight + lineHeight) scrollHeight
             else return False
           else return True
+normalizeBufferPosition _ VtbpDynamic = return VtbpDynamic
