@@ -36,7 +36,7 @@ data VtyWindow =
               vtwiFrame :: Frame,
               vtwiBufferLines :: TVar (Seq FrameLine),
               vtwiBufferPosition :: TVar VtyBufferPosition,
-              vtwiPrevInputText :: TVar (Seq StyledText),
+              vtwiPrevInputBuffer :: TVar (Seq StyledText),
               vtwiPrevInputPosition :: TVar Int,
               vtwiInputText :: TVar StyledText,
               vtwiInputCursorPosition :: TVar Int,

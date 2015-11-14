@@ -12,6 +12,9 @@ module Network.IRC.Client.Amphibian.StyledText
         setBaseColor,
         length,
         append,
+        appendUnstyled,
+        insertUnstyled,
+        splitAt,
         concat,
         intercalate,
         isColor,
@@ -70,12 +73,37 @@ length (StyledText xs) = foldl' (\prev (StyledTextElement _ text) -> prev + T.le
 append :: StyledText -> StyledText -> StyledText
 append (StyledText xs) (StyledText ys) = StyledText $ xs ++ ys
 
+-- | Append unstyled text after styled text.
+appendUnstyled :: StyledText -> T.Text -> StyledText
+appendUnstyled (StyledText xs) text = StyledText $ appendUnstyled' xs text
+  where appendUnstyled' (x : xs@(_ : _)) text = x : appendUnstyled' xs text
+        appendUnstyled' (StyledTextElement style text : []) appendText =
+          [StyledTextElement style $ T.append text appendedText]
+        appendUnstyled' [] text = [StyledTextElement [] text]
+
+-- | Insert unstyled text into styled text.
+insertUnstyled :: Int -> T.Text -> StyledText -> StyledText
+insertUnstyled insertIndex insertedText styledText =
+  let (beforeStyledText, afterStyledText) = splitAt insertIndex styledText in
+  append (appendUnstyled beforeStyledText insertedText) afterStyledText
+
+-- | Split unstyled text at a index.
+splitAt :: Int -> StyledText -> (StyledText, StyledText)
+splitAt (StyledText xs) index = splitAt' xs index []
+  where splitAt' (x@(StyledTextElement style text) : rest) index prev =
+          if index < T.length text
+          then let (before, after) = T.splitAt index text in
+                (StyledText . reverse $ StyledTextElement style before : prev,
+                 StyledText $ StyledTextElement style after : rest)
+          else splitAt' rest (index - T.length text) (x : prev)
+        splitAt' [] _ prev = (StyledText $ reverse prev, StyledText [])
+
 -- | Concatenate a list of styled text.
 concat :: [StyledText] -> StyledText
 concat xs = StyledText . concat $ map (\(StyledText ys) -> ys) xs
 
 -- | Intercalate a list of styled text.
-intercalate : StyledText -> [StyledText] -> StyledText
+intercalate :: StyledText -> [StyledText] -> StyledText
 intercalate (StyledText x) xs = StyledText . intercalate x $ map (\(StyledText ys) -> ys) xs
 
 -- | Get whether a style element is a color.

@@ -105,7 +105,7 @@ handlePageUp vtyFrontend _ _ = do
     curentWindow <- VF.getCurrentWindow vtyFrontend
     case currentWindow of
      Just currentWindow -> do
-       VW.scrollUp currentWindow
+       VW.scrollPrev currentWindow
        return $ VF.redraw vtyFrontend
      Nothing -> return $ return ()
   return True
@@ -117,7 +117,7 @@ handlePageDown vtyFrontend _ _ = do
     curentWindow <- VF.getCurrentWindow vtyFrontend
     case currentWindow of
      Just currentWindow -> do
-       VW.scrollDown currentWindow
+       VW.scrollNext currentWindow
        return $ VF.redraw vtyFrontend
      Nothing -> return $ return ()
   return True

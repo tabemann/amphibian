@@ -6,6 +6,8 @@ module Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend
         VtyKeyHandler,
         VtyUnmappedKeyHandler,
         getCurrentWindow,
+        getScrollHeight,
+        formatLine,
         new,
         start,
         registerKeyHandler,
@@ -45,6 +47,19 @@ import qualified Data.Map.Strict as M
 -- | Get current Vty frontend window.
 getCurrentWindow :: VtyFrontend -> STM (Maybe VtyWindow)
 getCurrentWindow = readTVar . vtfrCurrentWindow
+
+-- | Get buffer height.
+getScrollHeight :: VtyFrontend -> STM Int
+getScrollHeight vtyFrontend = do
+  height <- readTVar $ vtfrHeight vtyFrontend
+  if height > 4
+    then return $ height - 4
+    else return 0
+
+-- | Format line.
+formatLine :: VtyFrontend -> FrameLine -> STM StyledText
+formatLine vtyFrontend line = do
+  return $ ST.concat [frliAltSource line, ST.addStyle [] $ T.singleton ' ', frliBody line]
 
 -- | Create a new Vty frontend.
 new :: Interface -> STM VtyFrontend
