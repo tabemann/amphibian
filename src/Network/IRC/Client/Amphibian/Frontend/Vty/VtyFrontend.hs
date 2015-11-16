@@ -6,7 +6,12 @@ module Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend
         VtyKeyHandler,
         VtyUnmappedKeyHandler,
         getCurrentWindow,
+        getHeight,
+        getWidth,
         getScrollHeight,
+        getInterface,
+        getWindowServer,
+        getWindows,
         formatLine,
         new,
         start,
@@ -14,6 +19,10 @@ module Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend
         unregisterKeyHandler,
         registerUnmappedKeyHandler,
         unregisterUnmappedKeyHandler,
+        registerWindowServer,
+        unregisterWindowServer,
+        registerWindow,
+        unregisterWindow,
         redraw)
 
        where
@@ -43,10 +52,22 @@ import qualified Graphics.Vty.Config as VC
 import qualified Graphics.Vty.Input as VI
 import qualified Graphics.Vty.Attributes as VA
 import qualified Data.Map.Strict as M
+import qualified Data.Sequence as S
+import Data.Sequence ((<|),
+                      (|>),
+                      (><))
 
 -- | Get current Vty frontend window.
 getCurrentWindow :: VtyFrontend -> STM (Maybe VtyWindow)
 getCurrentWindow = readTVar . vtfrCurrentWindow
+
+-- | Get height.
+getHeight :: VtyFrontend -> STM Int
+getHeight = readTVar . vtfrHeight
+
+-- | Get width.
+getWidth :: VtyFrontend -> STM Int
+getWidth = readTVar . vtfrWidth
 
 -- | Get buffer height.
 getScrollHeight :: VtyFrontend -> STM Int
@@ -55,6 +76,18 @@ getScrollHeight vtyFrontend = do
   if height > 4
     then return $ height - 4
     else return 0
+
+-- | Get interface.
+getInterface :: VtyFrontend -> Interface
+getInterface = vtfrInterface
+
+-- | Get window server.
+getWindowServer :: VtyFrontend -> STM (Maybe VtyWindowServer)
+getWindowServer = readTVar . vtfrWindowServer
+
+-- | Get window count.
+getWindows :: VtyFrontend -> STM [VtyWindow]
+getWindows = readTVar . vtfrWindows
 
 -- | Format line.
 formatLine :: VtyFrontend -> FrameLine -> STM StyledText
@@ -150,6 +183,61 @@ runVtyFrontend :: VtyFrontend -> AM ()
 runVtyFrontend vtyFrontend = do
   continue <- join . liftIO . atomically $ do
     handleFrontend vtyFrontend `orElse` handleVty vtyFrontend
+
+-- | Register window server.
+registerWindowServer :: VtyFrontend -> VtyWindowServer -> STM ()
+registerWindowServer vtyFrontend vtyWindowServer = do
+  currentWindowServer <- readTVar $ vtfrWindowServer vtyFrontend
+  case currentWindowServer of
+   Nothing -> writeTVar (vtyWindowServer vtyFrontend) $ Just vtyWindowServer
+   _ -> return ()
+
+-- | Unregister window server.
+unregisterWindowServer :: VtyFrontend -> VtyWindowServer -> STM ()
+unregisterWindowServer vtyFrontend vtyWindowServer = do
+  currentWindowServer <- readTVar $ vtfrWindowServer vtyFrontend
+  case currentWindowServer of
+   Just currentWindowServer
+     | currentWindowServer == vtyWindowServer -> writeTVar (vtfrWindowServer vtyFrontend) Nothing
+   _ -> return ()
+
+-- | Register window.
+registerWindow :: VtyFrontend -> VtyWindow -> STM ()
+registerWindow vtyFrontend vtyWindow = do
+  windows <- readTVar $ vtfrWindows vtyFrontend
+  case S.elemIndexL vtyWindow windows of
+   Nothing -> do
+     currentWindowIndex <- readTVar $ vtfrCurrentWindowIndex vtyFrontend
+     let (before, after) = S.splitAt (maybe 0 (+ 1) currentWindowIndex) windows
+     writeTVar (vtfrWindows vtyFrontend) $ (before |> vtyWindow) >< after
+   Just _ -> return ()
+
+-- | Unregister window.
+unregisterWindow :: VtyFrontend -> VtyWindow -> STM ()
+unregisterWindow vtyFrontend vtyWindow = do
+  windows <- readTVar $ vtfrWindows vtyFrontend
+  case S.elemIndexL vtyWindow windows of
+   Just index -> do
+     let before = S.take index
+         after = S.drop (index + 1)
+     writeTVar (vtfrWindows vtyFrontend) $ before >< after
+     currentWindow <- readTVar $ vtfrCurrentWindow vtyFrontend
+     case currentWindow of
+      Just currentWindow
+        | currentWindow == vtyWindow -> do
+            if index > 0
+              then do writeTVar (vtfrCurrentWindowIndex vtyFrontend) . Just $ index - 1
+                      writeTVar (vtfrCurrentWindow vtyFrontend) . Just . S.index windows $ index - 1
+              else if S.length windows > 1
+                   then do writeTVar (vtfrCurrentWindowIndex vtyFrontend) $ Just 0
+                           writeTVar (vtfrCurrentWindow vtyFrontend) . Just $ S.index windows 1
+                   else do writeTVar (vtfrCurrentWindowIndex vtyFrontend) Nothing
+                           writeTVar (vtfrCurrentWindow vtyFrontend) Nothing
+      _ -> return ()
+   Nothing -> return ()
+
+-- | Unregister window server.
+unregisterWindowServer :: VtyFrontend -> VtyWindowServer -> STM ()
 
 -- | Handle Vty event.
 handleVty :: VtyFrontend -> STM (AM Bool)

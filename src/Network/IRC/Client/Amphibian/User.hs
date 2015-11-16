@@ -89,11 +89,10 @@ start user = do
   let response' = UserStartResponse response
   userServer <- I.getUserServer $ userInterface user
   case userServer of
-    Just userServer ->
-      writeTQueue (usseActions userServer) $ UssaStartUser user response'
-    Nothing -> do
-      errorText <- I.lookupText (userInterface user) $ T.pack "User server is not registered"
-      putTMVar response . Left $ Error [errorText]
+   Just userServer -> writeTQueue (usseActions userServer) $ UssaStartUser user response'
+   Nothing -> do
+     errorText <- I.lookupText (userInterface user) $ T.pack "User server is not registered"
+     putTMVar response . Left $ Error [errorText]
   return response'
 
 -- | Wait for response to starting user thread.

@@ -10,7 +10,8 @@ import Graphics.Vty (Vty)
 import Graphics.Vty.Input (Key,
                            Modifier)
 import Control.Concurrent.STM (STM,
-                               TVar)
+                               TVar,
+                               TMVar)
 import Control.Concurrent.STM.TQueue (TQueue)
 import Data.Text (Text)
 import Data.Sequence (Seq)
@@ -26,14 +27,19 @@ data VtyFrontend =
                 vtfrHeight :: TVar Int,
                 vtfrWidth :: TVar Int,
                 vtfrCurrentWindow :: TVar (Maybe VtyWindow),
-                vtfrWindows :: TVar [VtyWindow],
+                vtfrCurrentWindowIndex :: TVar (Maybe Int),
+                vtfrWindows :: TVar (Seq VtyWindow),
+                vtfrWindowServer :: TVar (Maybe VtyWindowServer),
                 vtfrKeyMappings :: TVar (Map VtyKeyCombination [VtyKeyHandler]),
                 vtfrUnmappedKeyHandlers :: TVar [VtyUnmappedKeyHandler] }
+  deriving Eq
 
 -- | Vty window type.
 data VtyWindow =
   VtyWindow { vtwiFrontend :: VtyFrontend,
               vtwiFrame :: Frame,
+              vtwiSubscription :: FrameOutputSubscription,
+              vtwiActive :: TVar Bool,
               vtwiBufferLines :: TVar (Seq FrameLine),
               vtwiBufferPosition :: TVar VtyBufferPosition,
               vtwiPrevInputBuffer :: TVar (Seq StyledText),
@@ -41,6 +47,25 @@ data VtyWindow =
               vtwiInputText :: TVar StyledText,
               vtwiInputCursorPosition :: TVar Int,
               vtwiInputVisiblePosition :: TVar Int }
+  deriving Eq
+
+-- | Vty window server type.
+data VtyWindowServer =
+  VtyWindowServer { vtwsFrontend :: VtyFrontend,
+                    vtwsRunning :: TVar Bool,
+                    vtwsActions :: TQueue VtyWindowServerAction }
+  deriving Eq
+
+-- | Vty window server action type.
+data VtyWindowServerAction = VtwsStartWindow VtyWindow VtyWindowStartResponse
+                           | VtwsStop VtyWindowServerStopResponse
+                           deriving Eq
+
+-- | Vty window server stop response type.
+newtype VtyWindowServerStopResponse = VtyWindowServerStopResponse (TMVar (Either Error ()))
+
+-- | Vty window start response type.
+newtype VtyWindowStartResponse = VtyWindowStartResponse (TMVar (Either Error ()))
 
 -- | Vty buffer position type.
 data VtyBufferPosition = VtbpFixed Int

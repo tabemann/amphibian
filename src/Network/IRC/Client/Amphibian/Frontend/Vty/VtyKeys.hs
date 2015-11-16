@@ -21,6 +21,7 @@ import Data.Char (toUpper,
 installHandlers :: VtyFrontend -> STM ()
 installHandlers vtyFrontend = do
   VF.registerUnmappedKeyHandler vtyFrontend handleUnmapped
+  VF.registerKeyHandler vtyFrontend VI.KEnter [] handleEnter
   VF.registerKeyHandler vtyFrontend VI.KLeft [] handleLeft
   VF.registerKeyHandler vtyFrontend VI.KRight [] handleRight
   VF.registerKeyHandler vtyFrontend VI.KUp [] handleUp
@@ -49,6 +50,18 @@ handleUnmapped vtyFrontend (VI.KChar char) [VI.MShift]
            return $ VF.redraw vtyFrontend
          Nothing -> return $ return ()
 handleUnmapped _ _ _ = return ()
+
+-- | Handle enter key.
+handleLeft :: VtyFrontend -> VI.Key -> [VI.Modifier] -> AM ()
+handleLeft vtyFrontend _ _ = do
+  join . liftIO . atomically $ do
+    curentWindow <- VF.getCurrentWindow vtyFrontend
+    case currentWindow of
+     Just currentWindow -> do
+       VW.enterLine currentWindow
+       return $ VF.redraw vtyFrontend
+     Nothing -> return $ return ()
+  return True
 
 -- | Handle left key.
 handleLeft :: VtyFrontend -> VI.Key -> [VI.Modifier] -> AM ()
