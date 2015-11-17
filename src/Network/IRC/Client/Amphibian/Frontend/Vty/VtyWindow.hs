@@ -162,7 +162,7 @@ scrollPrev :: VtyWindow -> STM ()
 scrollPrev vtyWindow = do
   bufferLines <- readTVar $ vtwiBufferLines vtyWindow
   bufferPosition <- readTVar $ vtwiBufferPosition vtyWindow
-  scrollHeight <- VF.getScrollHeight $ vtwiFrontend vtyWindow
+  scrollHeight <- VF.getScrollHeight (vtwiFrontend vtyWindow) vtyWindow
   newPosition <- case bufferPosition of
     VtbpFixed position -> findScroll vtyWindow bufferLines position 0 (scrollHeight `div` 2) scrollHeight
     VtbpDynamic -> findScroll vtyWindow bufferLines 0 0 ((scrollHeight `div` 2) + scrollHeight) scrollHeight
@@ -183,7 +183,7 @@ scrollNext :: VtyWindow -> STM ()
 scrollNext vtyWindow = do
   bufferLines <- readTVar $ vtwiBufferLines vtyWindow
   bufferPosition <- readTVar $ vtwiBufferPosition vtyWindow
-  scrollHeight <- VF.getScrollHeight $ vtwiFrontend vtyWindow
+  scrollHeight <- VF.getScrollHeight (vtwiFrontend vtyWindow) vtyWindow
   newPosition <- case bufferPosition of
     VtbpFixed position -> findScroll vtyWindow bufferLines position 0 scrollHeight
     VtbpDynamic -> return VtbpDynamic
@@ -202,7 +202,7 @@ scrollNext vtyWindow = do
 normalizeBufferPosition :: VtyWindow -> VtyBufferPosition -> STM VtyBufferPosition
 normalizeBufferPosition vtyWindow (VtbpFixed position) = do
   bufferLines <- readTVar $ vtwiBufferLines vtyWindow
-  scrollHeight <- VF.getScrollHeight $ vtwiFrontend vtyWindow
+  scrollHeight <- VF.getScrollHeight (vtwiFrontend vtyWindow) vtyWindow
   hasRoom <- checkHeight vtyWIndow bufferLines position 0 scrollHeight
   if hasRoom
     then return $ VtbpFixed position

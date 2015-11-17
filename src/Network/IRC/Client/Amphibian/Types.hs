@@ -753,8 +753,11 @@ data StyledTextElement = StyledTextElement [TextStyle] Text
                          deriving Eq
 
 -- | Text style
-data TextStyle = TxstBold | TxstUnderline | TxstColor TextColor
-                 deriving Eq
+data TextStyle = TxstBold
+               | TxstUnderline
+               | TxstForeColor TextColor
+               | TxstBackColor TextColor
+               deriving Eq
 
 -- | Text color
 type TextColor = Int
@@ -785,7 +788,7 @@ data Frame = Frame { framInterface :: Interface,
                      framInputEvents :: TChan FrameInputEvent,
                      framOutputEvents :: TChan FrameOutputEvent,
                      framMapping :: TVar FrameMapping,
-                     framTopic :: TVar (Maybe Text),
+                     framTopic :: TVar (Maybe StyledText),
                      framUsers :: TVar (Maybe [(Text, UserStatus)]),
                      framNick :: TVar Text,
                      framName :: TVar Text,
@@ -812,7 +815,7 @@ data FrameMapping = FrmaConnectionManager ConnectionManager
                   deriving Eq
 
 -- | Frame output event.
-data FrameOutputEvent = FoevTopic (Maybe Text)
+data FrameOutputEvent = FoevTopic (Maybe StyledText)
                       | FoevUsers (Maybe [(Text, UserStatus)])
                       | FoevNick Text
                       | FoevName Text
@@ -824,7 +827,7 @@ data FrameOutputEvent = FoevTopic (Maybe Text)
                       deriving Eq
 
 -- | Frame input event.
-data FrameInputEvent = FievTopic Text
+data FrameInputEvent = FievTopic StyledText
                      | FievLine StyledText
                      | FievFocus Bool
                      | FievMapping FrameMapping

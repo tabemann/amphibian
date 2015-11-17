@@ -31,7 +31,8 @@ import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Frontend.Vty.Types
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frontend as F
-import Control.Monad (join)
+import Control.Monad (join,
+                      forM_)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
 import Control.Concurrent.STM (STM,
@@ -50,6 +51,8 @@ import qualified Data.Text as T
 import qualified Graphics.Vty as V
 import qualified Graphics.Vty.Config as VC
 import qualified Graphics.Vty.Input as VI
+import qualified Graphics.Vty.Image as VIm
+import qualified Graphics.Vty.Picture as VP
 import qualified Graphics.Vty.Attributes as VA
 import qualified Data.Map.Strict as M
 import qualified Data.Sequence as S
@@ -103,6 +106,7 @@ new intf = do
   vty <- newTVar Nothing
   vtyEvents <- newTVar Nothing
   currentWindow <- newTVar Nothing
+  currentWindowIndex <- newTVar Nothing
   windows <- newTVar []
   keyMappings <- newTVar M.empty
   unmappedKeyHandlers <- newTVar []
@@ -113,6 +117,7 @@ new intf = do
                          vtfrVty = vty,
                          vtfrVtyEvents = vtyEvents,
                          vtfrCurrentWindow = currentWindow,
+                         vtfrCurrentWindowIndex = currentWindowIndex,
                          vtfrKeyMappings = keyMappings,
                          vtfrUnmappedKeyHandlers = unmappedKeyHandlers,
                          vtfrWindows = windows }
@@ -227,17 +232,23 @@ unregisterWindow vtyFrontend vtyWindow = do
         | currentWindow == vtyWindow -> do
             if index > 0
               then do writeTVar (vtfrCurrentWindowIndex vtyFrontend) . Just $ index - 1
-                      writeTVar (vtfrCurrentWindow vtyFrontend) . Just . S.index windows $ index - 1
+                      let newCurrentWindow = S.index windows $ index - 1
+                      writeTVar (vtfrCurrentWindow vtyFrontend) $ Just newCurrentWindow
+                      F.setFocus (vtwiFrame newCurrentWindow) True
               else if S.length windows > 1
                    then do writeTVar (vtfrCurrentWindowIndex vtyFrontend) $ Just 0
-                           writeTVar (vtfrCurrentWindow vtyFrontend) . Just $ S.index windows 1
+                           let newCurrentWIndow = S.index windows 1
+                           writeTVar (vtfrCurrentWindow vtyFrontend) $ Just newCurrentWindow
+                           F.setFocus (vtwiFrame newCurrentWindow) True
                    else do writeTVar (vtfrCurrentWindowIndex vtyFrontend) Nothing
                            writeTVar (vtfrCurrentWindow vtyFrontend) Nothing
       _ -> return ()
    Nothing -> return ()
 
--- | Unregister window server.
-unregisterWindowServer :: VtyFrontend -> VtyWindowServer -> STM ()
+-- | Redraw Vty frontend.
+redraw :: VtyFrontend -> AM ()
+redraw vtyFrontend = do
+  let header
 
 -- | Handle Vty event.
 handleVty :: VtyFrontend -> STM (AM Bool)
@@ -248,9 +259,19 @@ handleVty vtyFrontend = do
       event <- readTChan . VI._eventChannel $ V.inputIFace vty
       case event of
         VI.EvKey key modifiers -> handleInput vtyFrontend $ VtyKeyCombination key modifiers
-        VI.EvResize _ _ -> return $ do
-          redraw vtyFrontend
-          return True
+        VI.EvResize width height ->
+          writeTVar (vtfrWidth vtyFrontend) width
+          writeTVar (vtfrHeight vtyFrontend) height
+          windows <- readTVar $ vtfrWindows vtyFrontend
+          forM_ windows $ \window -> do
+            inputCursorPosition <- readTVar $ vtwiInputCursorPosition window
+            inputVisiblePosition <- readTVar $ vtwiInputVisiblePosition window
+            if inputCursorPosition > inputVisiblePosition + width
+              then writeTVar (vtwInputVisiblePosition window) $ inputCursorPosition - width
+              else return ()
+          return $ do
+            redraw vtyFrontend
+            return True
         _ -> return $ return True
     Nothing -> retry
 

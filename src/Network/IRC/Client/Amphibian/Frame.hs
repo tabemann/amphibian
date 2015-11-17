@@ -152,17 +152,17 @@ setMapping frame mapping = do
   writeTChan (framOutputEvents frame) (FoevMapping mapping)
 
 -- | Get topic for a frame.
-getTopic :: Frame -> STM (Maybe T.Text)
+getTopic :: Frame -> STM (Maybe StyledText)
 getTopic = readTVar . framTopic
 
 -- | Set topic for a frame.
-setTopic :: Frame -> Maybe T.Text -> STM ()
+setTopic :: Frame -> Maybe StyledText -> STM ()
 setTopic frame topic = do
   writeTVar (framTopic frame) topic
   writeTChan (framOutputEvents frame) (FoevTopic topic)
 
 -- | Input topic for a frame.
-inputTopic :: Frame -> T.Text -> STM ()
+inputTopic :: Frame -> StyledText -> STM ()
 inputTopic frame topic = do
   writeTVar (framTopic frame) (Just topic)
   writeTChan (framInputEvents frame (FievTopic topic)

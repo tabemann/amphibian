@@ -9,7 +9,8 @@ module Network.IRC.Client.Amphibian.StyledText
         removeStyle,
         setStyle,
         mergeStyle,
-        setBaseColor,
+        setBaseForeColor,
+        setBaseBackColor,
         length,
         append,
         appendUnstyled,
@@ -17,7 +18,8 @@ module Network.IRC.Client.Amphibian.StyledText
         splitAt,
         concat,
         intercalate,
-        isColor,
+        isForeColor,
+        isBackColor,
         decode,
         encode)
 
@@ -50,20 +52,28 @@ setStyle style styledText = addStyle style . removeStyle
 mergeStyle :: [TextStyle] -> StyledText -> StyledText
 mergeStyle mergedStyle (StyledText elements) = StyledText $ mergeStyle' elements
   where mergeStyle' (StyledTextElement style text : rest) =
-          let style' = if any isColor mergedStyle then filter (not . isColor) style else style in
-          let style = if TxstBold `elem` mergedStyle then filter (/= TxstBold) style' else style' in
-          let style' = if TxstUnderline `elem` mergedStyle then filter (/= TxstUnderline) style else style in
-          let style = mergedStyle ++ style' in
-          StyledTextElement style text : mergeStyle' rest
+          let style' = if any isForeColor mergedStyle then filter (not . isForeColor) style else style in
+          let style = if any isBackColor mergedStyle then filter (not . isBackColor) style' else style' in
+          let style' = if TxstBold `elem` mergedStyle then filter (/= TxstBold) style else style in
+          let style = if TxstUnderline `elem` mergedStyle then filter (/= TxstUnderline) style' else style' in
+          StyledTextElement (mergedStyle ++ style) text : mergeStyle' rest
         mergeStyle' [] = []  
 
--- | Set base color for style.
-setBaseColor :: TextColor -> StyledText -> StyledText
-setBaseColor color (StyledText elements) = StyledText $ serBaseColor' elements
-  where setBaseColor' (StyledTextElement style text : rest)
-          | any isColor style = StyledTextElement style text : setBaseColor' rest
-          | otherwise = StyledTextElement (TxstColor color : style) text : setBaseColor' rest
-        setBaseColor' [] = []
+-- | Set base foreground color for style.
+setBaseForeColor :: TextColor -> StyledText -> StyledText
+setBaseForeColor color (StyledText elements) = StyledText $ setBaseForeColor' color elements
+  where setBaseForeColor' color (StyledTextElement style text : rest)
+          | any isForeColor style = StyledTextElement style text : setBaseForeColor' color rest
+          | otherwise = StyledTextElement (TxstForeColor color : style) text : setBaseForeColor' color rest
+        setBaseForeColor' _ [] = []
+
+-- | Set base background color for style.
+setBaseBackColor :: TextColor -> StyledText -> StyledText
+setBaseBackColor color (StyledText elements) = StyledText $ setBaseBackColor' color elements
+  where setBaseBackColor' color (StyledTextElement style text : rest)
+          | any isBackColor style = StyledTextElement style text : setBaseBackColor' color rest
+          | otherwise = StyledTextElement (TxstBackColor color : style) text : setBaseColor' color rest
+        setBaseColor' _  [] = []
 
 -- | Get the length of styled text.
 length :: StyledText -> Int
@@ -106,10 +116,15 @@ concat xs = StyledText . concat $ map (\(StyledText ys) -> ys) xs
 intercalate :: StyledText -> [StyledText] -> StyledText
 intercalate (StyledText x) xs = StyledText . intercalate x $ map (\(StyledText ys) -> ys) xs
 
--- | Get whether a style element is a color.
-isColor :: TextStyle -> Bool
-isColor (TxstColor _) = True
-isColor _ = False
+-- | Get whether a style element is a foreground color.
+isForeColor :: TextStyle -> Bool
+isForeColor (TxstForeColor _) = True
+isForeColor _ = False
+
+-- | Get whether a style element is a background color.
+isBackColor :: TextStyle -> Bool
+isBackColor (TxstBackColor _) = True
+isBackColor _ = False
 
 -- | Special encoded characters.
 specialChars :: [Char]
@@ -122,49 +137,71 @@ decode text = decode' text [] []
           case T.uncons text of
             Just (char, rest)
               | char == '\x2' ->
-                if TxstBold `notElem` style
-                then decode' rest (TxstBold : style) parts
-                else case parts of
-                  (StyledTextElement _ lastPart) : otherParts ->
-                    let (part, rest') = T.break (\char -> char `elem` specialChars) rest in
-                    decode' rest' style (StyledTextElement style (T.append lastPart part) : otherParts)
-                  _ -> decode' rest style parts
-              | char == '\x1F' ->
-                if TxstUnderline `notElem` style
-                then decode' rest (TxstUnderline : style) parts
-                else case parts of
-                  (StyledTextElement _ lastPart) : otherParts ->
-                    let (part, rest') = T.break (\char -> char `elem` specialChars) rest in
-                    decode' rest' style (StyledTextElement style (T.append lastPart part) : otherParts)
-                  _ -> decode' rest style parts
-              | char == '\xF' ->
-                case parts of
-                  (StyledTextElement [] lastPart) : otherParts ->
-                      let (part, rest') = T.break (\char -> char `elem` specialChars) rest in
-                      decode' rest' [] (StyledTextElement [] (T.append lastPart part) : otherParts)
-                  _ -> decode' rest [] parts
-              | char == '\x3' ->
-                let (color, rest) = T.splitAt 2 rest in
-                case readMaybe color of
-                  Just color ->
-                    if color `elem` [0 .. 15]
-                    then
-                      if TxstColor color `notElem` style
-                      then 
-                        let styleFilter (TxstColor _) -> False
-                            styleFilter _ -> True in
-                        decode' rest (TxstColor color : filter styleFilter style) parts
-                      else case parts of
-                        (StyledTextElement [] lastPart) : otherParts ->
+                  if TxstBold `notElem` style
+                  then decode' rest (TxstBold : style) parts
+                  else case parts of
+                        (StyledTextElement _ lastPart) : otherParts ->
                           let (part, rest') = T.break (\char -> char `elem` specialChars) rest in
                           decode' rest' style (StyledTextElement style (T.append lastPart part) : otherParts)
-                        _ -> decode rest style parts
-                    else decode' rest style parts
-                  Nothing -> decode' rest style parts
+                        _ -> decode' rest style parts
+              | char == '\x1F' ->
+                  if TxstUnderline `notElem` style
+                  then decode' rest (TxstUnderline : style) parts
+                  else case parts of
+                        (StyledTextElement _ lastPart) : otherParts ->
+                          let (part, rest') = T.break (\char -> char `elem` specialChars) rest in
+                          decode' rest' style (StyledTextElement style (T.append lastPart part) : otherParts)
+                        _ -> decode' rest style parts
+              | char == '\xF' ->
+                  case parts of
+                   (StyledTextElement [] lastPart) : otherParts ->
+                     let (part, rest') = T.break (\char -> char `elem` specialChars) rest in
+                     decode' rest' [] (StyledTextElement [] (T.append lastPart part) : otherParts)
+                   _ -> decode' rest [] parts
+              | char == '\x3' ->
+                  case T.uncons rest of
+                   Just (char, rest')
+                     | char == ',' -> decodeBackColor' rest style parts
+                   _ -> decodeForeColor rest style parts
               | otherwise ->
-                let (part, rest) = T.break (\char -> char `elem` specialChars) text in
-                decode' rest style (StyledTextElement style part : parts)
+                  let (part, rest) = T.break (`elem` specialChars) text in
+                  decode' rest style (StyledTextElement style part : parts)
             Nothing -> StyledText $ reverse parts
+        decodeForeColor text style parts =
+          let (color, rest) = T.splitAt 2 text in
+          case readMaybe color of
+           Just color ->
+             if color `elem` [0 .. 15]
+             then
+               if TxstForeColor color `notElem` style
+               then decode' rest (TxstForeColor color : filter (not . isForeColor) style) parts
+               else case parts of
+                     StyledTextElement [] lastPart : otherParts ->
+                       let (part, rest') = T.break (`elem` specialChars) rest in
+                       decodeBackColor rest' style (StyledTextElement style (T.append lastPart part) : otherParts)
+                     _ -> decodeBackColor rest style parts
+             else decode' text style parts
+           Nothing -> decode' rest style parts
+        decodeBackColor text style parts =
+          case T.cons text of
+           Just (char, rest)
+             | char ==  ',' -> decodeBackColor' rest style parts
+           _ -> decode' text style parts
+        decodeBackColor' text style parts =
+          let (color, rest) = T.splitAt 2 text in
+          case readMaybe color of
+           Just color ->
+             if color `elem` [0 .. 15]
+             then
+               if TxstBackColor color `notElem` style
+               then decode' rest (TxstBackColor color : filter (not . isBackColor) style) parts
+               else case parts of
+                     StyledTextElement [] lastPart : otherParts ->
+                       let (part, rest') = T.break (`elem` specialChars) rest in
+                       decode' rest' style (StyledTextElement style (T.append lastPart part) : otherParts)
+                     _ -> decode' rest style parts
+             else decode' (T.append (T.singleton ',') text) style parts
+           Nothing -> decode' (T.append (T.singleton ',') text) style parts
 
 -- | Encode styled text.
 encode :: StyledText -> T.Text
@@ -173,34 +210,57 @@ encode (StyledText parts) = encode' parts [] []
           if part /= T.empty
           then
             let (style', encoded') =
-              if ((TxstBold `elem` style) && (TxstBold `notElem` partStyle)) ||
-                 ((TxstUnderline `elem` style) && (TxstUnderline `notElem` partStyle)) ||
-                 (any isColor style && not (any isColor partStyle))
-              then ([], T.singleton '\xF' : encoded)
-              else (style, encoded) in
+                  if ((TxstBold `elem` style) && (TxstBold `notElem` partStyle)) ||
+                     ((TxstUnderline `elem` style) && (TxstUnderline `notElem` partStyle)) ||
+                     (any isForeColor style && not (any isForeColor partStyle))
+                  then ([], T.singleton '\xF' : encoded)
+                  else (style, encoded) in
             let (style, encoded) =
-              if (TxstBold `elem` partStyle) && (TxstBold `notElem` style')
-              then (TxstBold : style', T.singleton '\x2' : encoded')
-              else (style', encoded') in
+                  if (TxstBold `elem` partStyle) && (TxstBold `notElem` style')
+                  then (TxstBold : style', T.singleton '\x2' : encoded')
+                  else (style', encoded') in
             let (style', encoded') =
-              if (TxstUnderline `elem` partStyle) && (TxstUnderline `notElem` style)
-              then (TxstUnderline : style, T.singleton '\x1F' : encoded)
-              else (style, encoded) in
-            let (style, encoded) =
-              case (find isColor partStyle) of
-                Just (TxstColor partStyleColor) ->
-                  if partStyleColor `elem` [0 .. 15]
-                  then
-                    case (find isColor style) of
-                      Just (TxstColor styleColor) ->
-                        if partStyleColor /= styleColor
-                        then (TxstColor partStyleColor : filter (not . isColor) style',
-                              T.pack (printf "\x3%02d" partStyleColor) : encoded')
-                        else (style', encoded')
-                      Nothing -> (TxstColor partStyleColor : filter (not . isColor) style',
-                                  T.pack (printf "\x3%02d" partStyleColor) : encoded')
-                  else (style', encoded')
-                Nothing -> (style', encoded') in
-            encode' rest style (part : encoded)
+                  if (TxstUnderline `elem` partStyle) && (TxstUnderline `notElem` style)
+                  then (TxstUnderline : style, T.singleton '\x1F' : encoded)
+                  else (style, encoded) in
+            let (style, encoded, hasForeColor) =
+                  case find isForeColor partStyle of
+                   Just (TxstForeColor partStyleColor) ->
+                     if partStyleColor `elem` [0 .. 15]
+                     then
+                       case find isForeColor style' of
+                        Just (TxstForeColor styleColor) ->
+                          if partStyleColor /= styleColor
+                          then (TxstForeColor partStyleColor : filter (not . isForeColor) style',
+                                T.pack (printf "\x3%02d" partStyleColor) : encoded', True)
+                          else (style', encoded', False)
+                        Nothing -> (TxstForeColor partStyleColor : filter (not . isForeColor) style',
+                                    T.pack (printf "\x3%02d" partStyleColor) : encoded', True)
+                     else (style', encoded', False)
+                   Nothing -> (style', encoded', False) in
+            let (style', encoded') =
+                  case find isBackColor partStyle of
+                   Just (TxstBackColor partStyleColor) ->
+                     if partStyleColor `elem` [0 .. 15]
+                     then
+                       case find isBackColor style of
+                        Just (TxstBackColor styleColor) ->
+                          if partStyleColor /= styleColor
+                          then
+                            if hasForeColor
+                            then (TxstBackColor partStyleColor : filter (not . isBackColor) style,
+                                  T.pack (printf ",%02d" partStyleColor) : encoded)
+                            else (TxstBackColor partStyleColor : filter (not . isBackColor) style,
+                                  T.pack (printf "\x3,%02d" partStyleColor) : encoded)
+                          else (style, encoded)
+                        Nothing ->
+                          if hasForeColor
+                          then (TxstBackColor partStyleColor : filter (not . isBackColor) style,
+                                T.pack (printf ",%02d" partStyleColor) : encoded)
+                          else (TxstBackColor partStyleColor : filter (not . isBackColor) style,
+                                T.pack (printf "\x3,%02d" partStyleColor) : encoded)
+                     else (style, encoded)
+                   Nothing -> (style, encoded) in
+            encode' rest style' (part : encoded')
           else encode' rest style encoded
         encode' [] _ encoded = T.intercalate T.empty $ reverse encoded
