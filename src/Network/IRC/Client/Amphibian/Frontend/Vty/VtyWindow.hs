@@ -162,6 +162,7 @@ scrollPrev :: VtyWindow -> STM ()
 scrollPrev vtyWindow = do
   bufferLines <- readTVar $ vtwiBufferLines vtyWindow
   bufferPosition <- readTVar $ vtwiBufferPosition vtyWindow
+  width <- VF.getWidth $ vtwiFrontend vtyWindow
   scrollHeight <- VF.getScrollHeight (vtwiFrontend vtyWindow) vtyWindow
   newPosition <- case bufferPosition of
     VtbpFixed position -> findScroll vtyWindow bufferLines position 0 (scrollHeight `div` 2) scrollHeight
@@ -171,7 +172,8 @@ scrollPrev vtyWindow = do
   where findScroll vtyWindow bufferLines bufferPosition totalHeight checkHeight scrollHeight =
           if bufferPosition < S.length bufferLines - 1
           then do
-            lineHeight <- VF.formatLine (vtwiFrontend vtyWindow) (S.index bufferLines bufferPosition)
+            lineHeight <- length . VF.breakLines width <$> VF.formatLine (vtwiFrontend vtyWindow)
+                          (S.index bufferLines bufferPosition)
             if (totalHeight + lineHeight) < checkHeight
               then findScroll vtyWindow bufferLines (bufferPosition + 1) (totalHeight + lineHeight) checkHeight
                    scrollHeight
@@ -183,6 +185,7 @@ scrollNext :: VtyWindow -> STM ()
 scrollNext vtyWindow = do
   bufferLines <- readTVar $ vtwiBufferLines vtyWindow
   bufferPosition <- readTVar $ vtwiBufferPosition vtyWindow
+  width <- VF.getWidth $ vtwiFrontend vtyWindow
   scrollHeight <- VF.getScrollHeight (vtwiFrontend vtyWindow) vtyWindow
   newPosition <- case bufferPosition of
     VtbpFixed position -> findScroll vtyWindow bufferLines position 0 scrollHeight
@@ -192,7 +195,8 @@ scrollNext vtyWindow = do
   where findScroll vtyWindow bufferLines bufferPosition totalHeight scrollheight =
           if bufferPosition > 0
           then do
-            lineHeight <- VF.formatLine (vtwiFrontend vtyWindow) (S.index bufferLines bufferPosition)
+            lineHeight <- length . VF.breakLines width <$> VF.formatLine (vtwiFrontend vtyWindow)
+                          (S.index bufferLines bufferPosition)
             if (totalHeight + lineHeight) < scrollHeight `div` 2
               then findScroll vtyWindow bufferLines (bufferPosition - 1) (totalHeight + lineHeight) scrollHeight
               else return $ VtbpFixed bufferPosition
@@ -202,6 +206,7 @@ scrollNext vtyWindow = do
 normalizeBufferPosition :: VtyWindow -> VtyBufferPosition -> STM VtyBufferPosition
 normalizeBufferPosition vtyWindow (VtbpFixed position) = do
   bufferLines <- readTVar $ vtwiBufferLines vtyWindow
+  width <- VF.getWidth $ vtwiFrontend vtyWindow
   scrollHeight <- VF.getScrollHeight (vtwiFrontend vtyWindow) vtyWindow
   hasRoom <- checkHeight vtyWIndow bufferLines position 0 scrollHeight
   if hasRoom
@@ -212,7 +217,8 @@ normalizeBufferPosition vtyWindow (VtbpFixed position) = do
           then
             if bufferPosition >= 0
             then do
-              lineHeight <- VF.formatLine (vtwiFrontend vtyWindow) (S.index bufferLines bufferPosition)
+              lineHeight <- length . VF.breakLines width <$> VF.formatLine (vtwiFrontend vtyWindow)
+                            (S.index bufferLines bufferPosition)
               checkHeight vtyWindow bufferLines (bufferPosition - 1) (totalHeight + lineHeight) scrollHeight
             else return False
           else return True

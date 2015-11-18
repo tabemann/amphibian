@@ -212,7 +212,8 @@ encode (StyledText parts) = encode' parts [] []
             let (style', encoded') =
                   if ((TxstBold `elem` style) && (TxstBold `notElem` partStyle)) ||
                      ((TxstUnderline `elem` style) && (TxstUnderline `notElem` partStyle)) ||
-                     (any isForeColor style && not (any isForeColor partStyle))
+                     (any isForeColor style && not (any isForeColor partStyle)) ||
+                     (any isBackColor style && not (any isBackColor partStyle))
                   then ([], T.singleton '\xF' : encoded)
                   else (style, encoded) in
             let (style, encoded) =

@@ -31,6 +31,8 @@ import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Frontend.Vty.Types
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frontend as F
+import qualified Network.IRC.Client.Amphibian.Frame as Fr
+import qualified Network.IRC.Client.Amphibian.StyledText as ST
 import Control.Monad (join,
                       forM_)
 import Control.Monad.IO.Class (liftIO)
@@ -52,6 +54,8 @@ import qualified Graphics.Vty as V
 import qualified Graphics.Vty.Config as VC
 import qualified Graphics.Vty.Input as VI
 import qualified Graphics.Vty.Image as VIm
+import Graphics.Vty.Image ((<|>),
+                           (<->))
 import qualified Graphics.Vty.Picture as VP
 import qualified Graphics.Vty.Attributes as VA
 import qualified Data.Map.Strict as M
@@ -73,12 +77,41 @@ getWidth :: VtyFrontend -> STM Int
 getWidth = readTVar . vtfrWidth
 
 -- | Get buffer height.
-getScrollHeight :: VtyFrontend -> STM Int
-getScrollHeight vtyFrontend = do
+getScrollHeight :: VtyFrontend -> VtyWindow -> STM Int
+getScrollHeight vtyFrontend vtyWindow = do
+  width <- readTVar $ vtfrWidth vtyFrontend
   height <- readTVar $ vtfrHeight vtyFrontend
-  if height > 4
-    then return $ height - 4
-    else return 0
+  topic <- Fr.getTopic $ vtwiFrame vtyWindow
+  case topic of
+   Just topic ->
+     let topicHeight = breakLines width topic in
+     if height > 3 + topicHeight
+     then return $ height - (3 + topicHeight)
+     else return 0
+   Nothing ->
+     if height > 3
+     then return $ height - 3
+     else return 0
+
+-- | Break text into lines.
+breakLines :: Int -> StyledText -> [StyledText]
+breakLines width (StyledText styledText) = breakLines' width styledText 0 [] []
+  where breakLines' width (StyledTextElement style part : rest) widthCount
+          lineParts@(StyledTextElement lastStyle lastPart : lineRest) otherParts =
+            case T.uncons part of
+             Just (char, partRest) ->
+               let charWidth = VIm.safeWcWidth char in
+               if widthCount + charWidth <= width
+               then if style == lastStyle
+                    then breakLines' width (StyledTextElement style partRest : rest) (widthCount + charWidth)
+                         (StyledTextElement lastStyle (T.snoc lastPart char) : lineRest) otherParts
+                    else breakLines' width (StyledTextElement style partRest : rest) (widthCount + charWidth)
+                         (StyledTextElement style (T.singleton char) : lineParts) otherParts
+               else breakLines' width (StyledTextElement style partRest : rest) charWidth
+                    [StyledTextElement style (T.singleton char)] (StyledText (reverse lineParts) : otherParts)
+             Nothing -> breakLines' width rest widthCount lineParts otherParts
+        breakLines' _ [] _ lineParts@(_ : _) otherParts = reverse $ Styledtext (reverse lineParts) : otherParts
+        breakLines' _ [] _ [] otherParts = reverse otherParts
 
 -- | Get interface.
 getInterface :: VtyFrontend -> Interface
@@ -248,7 +281,10 @@ unregisterWindow vtyFrontend vtyWindow = do
 -- | Redraw Vty frontend.
 redraw :: VtyFrontend -> AM ()
 redraw vtyFrontend = do
-  let header
+  join . liftIO . atomically $ do
+    width <- readTVar $ vtfrWidth vtyFrontend
+    height <- readTVar $ vtfrHeight vtyFrontend
+    currentWindow <- readTVar $ vtfrCurrentWindow vtyFrontend
 
 -- | Handle Vty event.
 handleVty :: VtyFrontend -> STM (AM Bool)
@@ -303,7 +339,10 @@ handleInput vtyFrontend keyCombo = do
 -- | Convert a style into a Vty style.
 convertStyle :: [TextStyle] -> VA.Attr
 convertStyle style = convertStyle' style VA.defAttr
-  where convertStyle' (TxstColor color : rest) attr = convertStyle' rest (attr `VA.withForeColor` convertColor color)
+  where convertStyle' (TxstForeColor color : rest) attr =
+          convertStyle' rest (attr `VA.withForeColor` convertColor color)
+        convertStyle' (TxstBackColor color : rest) attr =
+          convertStyle' rest (attr `VA.withBackColor` convertColor color)
         convertStyle' (TxstBold : rest) attr = convertStyle' rest (attr `VA.withStyle` VA.bold)
         convertStyle' (TxstUnderline : rest) attr = convertStyle' rest (attr `VA.withStyle` VA.underline)
         convertStyle' [] attr = attr
