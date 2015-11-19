@@ -18,6 +18,7 @@ module Network.IRC.Client.Amphibian.Frontend.Vty.VtyWindow
 
 import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Frontend.Vty.Types
+import Network.IRC.Client.Amphibian.Frontend.Vty.Utilities
 import qualified Network.IRC.Client.Amphibian.Frame as F
 import qualified Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend as VF
 import qualified Network.IRC.Client.Amphibian.StyledText as ST
@@ -107,7 +108,7 @@ moveLeft vtyWindow = do
   if inputCursorPosition > 0
     then do inputVisiblePosition <- readTVar $ vtwiInputVisiblePosition vtyWindow
             writeTVar (vtwiInputCursorPosition vtyWindow) (inputCursorPosition - 1)
-            if (inputCursorPosition - 1) < vtwInputVisiblePosition
+            if (inputCursorPosition - 1) < vtwiInputVisiblePosition
               then do writeTVar (vtwiInputVisiblePosition vtyWindow) (inputCursorPosition - 1)
               else return ()
     else return ()
@@ -119,10 +120,18 @@ moveRight vtyWindow = do
   if inputCursorPosition < (ST.length inputText) - 1
     then do inputVisiblePosition <- readTVar $ vtwiInputVisiblePosition vtyWindow
             width <- VF.getWidth $ vtwiFrontend vtyWindow
-            writeTVar (vtwiInputCursorPosition vtyWindow) (inputCursorPosition + 1)
-            if (inputCursorPosition + 1) > (vtwInputVisiblePosition + width - 1)
-              then do writeTVar (vtwiInputVisiblePosition vtyWindow) (inputCursorPosition - (width - 1))
-              else return()
+            writeTVar (vtwiInputCursorPosition vtyWindow) $ inputCursorPosition + 1
+            case fitWidth width . T.drop inputVisiblePosition $ ST.removeStyle inputText of
+             Just (_, visibleLength)
+               | inputCursorPosition + 1 >= vtwiInputVisiblePosition + visibleLenth ->
+                   let revInputText = T.drop ((ST.length inputText - (inputCursorPosition + 1)) - 1)
+                       (T.reverse (ST.removeStyle inputText)) in
+                   case fitWidth width revInputText of
+                    Just (_, newVisibleLength) ->
+                      writeTVar (vtwiInputVisiblePosition vtyWindow) (inputCursorPosition - (newVisibleLength - 1))
+                    Nothing -> return ()
+               | otherwise -> return ()
+             Nothing -> return ()
     else return ()
 
 -- | Move to the previous input.

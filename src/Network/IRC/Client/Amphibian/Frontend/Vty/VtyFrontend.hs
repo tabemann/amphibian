@@ -29,6 +29,7 @@ module Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend
 
 import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Frontend.Vty.Types
+import Network.IRC.Client.Amphibian.Frontend.Vty.Utilities
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frontend as F
 import qualified Network.IRC.Client.Amphibian.Frame as Fr
@@ -92,26 +93,6 @@ getScrollHeight vtyFrontend vtyWindow = do
      if height > 3
      then return $ height - 3
      else return 0
-
--- | Break text into lines.
-breakLines :: Int -> StyledText -> [StyledText]
-breakLines width (StyledText styledText) = breakLines' width styledText 0 [] []
-  where breakLines' width (StyledTextElement style part : rest) widthCount
-          lineParts@(StyledTextElement lastStyle lastPart : lineRest) otherParts =
-            case T.uncons part of
-             Just (char, partRest) ->
-               let charWidth = VIm.safeWcWidth char in
-               if widthCount + charWidth <= width
-               then if style == lastStyle
-                    then breakLines' width (StyledTextElement style partRest : rest) (widthCount + charWidth)
-                         (StyledTextElement lastStyle (T.snoc lastPart char) : lineRest) otherParts
-                    else breakLines' width (StyledTextElement style partRest : rest) (widthCount + charWidth)
-                         (StyledTextElement style (T.singleton char) : lineParts) otherParts
-               else breakLines' width (StyledTextElement style partRest : rest) charWidth
-                    [StyledTextElement style (T.singleton char)] (StyledText (reverse lineParts) : otherParts)
-             Nothing -> breakLines' width rest widthCount lineParts otherParts
-        breakLines' _ [] _ lineParts@(_ : _) otherParts = reverse $ Styledtext (reverse lineParts) : otherParts
-        breakLines' _ [] _ [] otherParts = reverse otherParts
 
 -- | Get interface.
 getInterface :: VtyFrontend -> Interface
