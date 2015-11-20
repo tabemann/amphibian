@@ -35,7 +35,8 @@ import qualified Network.IRC.Client.Amphibian.Frontend as F
 import qualified Network.IRC.Client.Amphibian.Frame as Fr
 import qualified Network.IRC.Client.Amphibian.StyledText as ST
 import Control.Monad (join,
-                      forM_)
+                      forM_,
+                      mapM)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
 import Control.Concurrent.STM (STM,
@@ -266,6 +267,57 @@ redraw vtyFrontend = do
     width <- readTVar $ vtfrWidth vtyFrontend
     height <- readTVar $ vtfrHeight vtyFrontend
     currentWindow <- readTVar $ vtfrCurrentWindow vtyFrontend
+    currentWindowIndex <- readTVar $ vtfrCurrentWindowIndex vtyFrontend
+    inputText <- readTVar $ vtwiInputText currentWindow
+    inputCursorPosition <- readTVar $ vtwiInputCursorPosition currentWindow
+    inputVisiblePosition <- readTVar $ vtwiInputVisiblePosition currentWindow
+    title <- Fr.getTitle $ vtwiFrame currentWindow
+    topic <- Fr.getTopic $ vtwiFrame currentWindow
+    nick <- Fr.getNick $ vtwiFrame currentWindow
+    name <- Fr.getName $ vtwiFrame currentWindow
+    bufferLines <- readTVar $ vtwiBufferLines currentWindow
+    bufferLines' <- mapM (formatLine vtyFrontend) bufferLines
+    bufferPosition <- readTVar $ vtwiBufferPosition currentWindow
+    let titleImageBackground = VIm.charFill (convertStyle [TxstForeColor 1, TxstBackColor 12]) width 1 in
+    let titleImage =
+          VIm.cropRight width . convertStyledTextLine . ST.setBaseForeColor 1 $ ST.setBaseBackColor 12 title in
+    let topicImage = convertStyledTextLines . ST.setBaseForeColor 1 $ ST.setBaseBackColor 12 topic in
+    let topicImageBackground = VIm.pad 0 1 0 0 $ VIm.charFill (convertStyle [TxstForeColor 1, TxstBackColor 12])
+                               width (VIm.imageHeight topicImage) in
+    let topicImage' = VIm.pad 0 1 0 0 topicImage in
+    let scrollImage =
+          case bufferPosition of
+           VtbpFixed position ->
+             let scrollImage =
+                   fixedScrollImage width ((height - 2) - VIm.imageHeight topicImage') bufferLines' position
+                   VIm.emptyImage in
+             let scrollImage' = VIm.cropBottom ((height - 2) - VIm.imageHeight topicImage') scrollImage in
+             VIm.pad 0 (VIm.imageHeight topicImage') 0 0 scrollImage'
+           VtbpDynamic ->
+             let scrollImage =
+                   dynamicScrollImage width ((height - 2) - VIm.imageHeight topicImage') bufferLines' 0
+                   VIm.emptyImage in
+             let scrollImage' = VIm.cropTop ((height - 2) - VIm.imageHeight topicImage') scrollImage'
+             VIm.pad 0 ((height - 2) - VIm.imageHeight scrollImage') 0 0 scrollImage' in
+    let descrImageBackground =
+          VIm.pad 0 (height - 2) 0 0 $ VIm.charFill (convertStyle [TxstForeColor 1, TxstBackColor 12]) width 1 in
+    let inputLineImage =
+          let visibleInputText = ST.drop inputVisiblePosition inputText in
+          let visibleInputText' =
+                case fitWidth width $ ST.removeStyle visibleInputText of
+                 Just (_, visibleInputLength) -> ST.take visibleInputLength visibleInputText
+                 Nothing -> visibleInputText in
+          VIm.pad 0 (height - 1) 0 0 $ convertStyledTextLine visibleInputText' in
+  where fixedScrollImage width height bufferLines position image
+          | position >= 0 && VIm.imageHeight image < height =
+              fixedScrollImage width height bufferLines (position - 1)
+              (image <-> convertStyledTextLines width (S.index bufferLines position))
+          | otherwise = image
+        dynamicScrollImage width height bufferLines position image
+          | position < S.length bufferLines && VIm.imageHeight image < height =
+              dynamicScrollImage width height bufferLines (position + 1)
+              (convertStyledTextLines width (S.index bufferLines position) <-> image)
+          | otherwise = image
 
 -- | Handle Vty event.
 handleVty :: VtyFrontend -> STM (AM Bool)
@@ -317,16 +369,22 @@ handleInput vtyFrontend keyCombo = do
           else return True
         handleUnmappedKey' [] _ _ = return True
 
+-- | Create an image from styled text broken up into lines.
+convertStyledTextLines :: Int -> StyledText -> VIm.Image
+convertStyledTextLines width styledText = VIm.vertCat . map convertStyledTextLine $ breakLines width styledText
+
+-- | Create an image from a line of styled text.
+convertStyledTextLine :: StyledText -> VIm.Image
+convertStyledTextLine (StyledText xs) =
+  foldl' (\image (StyledTextElement style text) -> image <|> VIm.text' (convertStyle style) text) VIm.emptyImage xs
+
 -- | Convert a style into a Vty style.
 convertStyle :: [TextStyle] -> VA.Attr
-convertStyle style = convertStyle' style VA.defAttr
-  where convertStyle' (TxstForeColor color : rest) attr =
-          convertStyle' rest (attr `VA.withForeColor` convertColor color)
-        convertStyle' (TxstBackColor color : rest) attr =
-          convertStyle' rest (attr `VA.withBackColor` convertColor color)
-        convertStyle' (TxstBold : rest) attr = convertStyle' rest (attr `VA.withStyle` VA.bold)
-        convertStyle' (TxstUnderline : rest) attr = convertStyle' rest (attr `VA.withStyle` VA.underline)
-        convertStyle' [] attr = attr
+convertStyle style = foldl' convertStyle' VA.defAddr style
+  where convertStyle' attr (TxstForeColor color) = attr `VA.withForeColor` convertColor color
+        convertStyle' attr (TxstBackColor color) = attr `VA.withBackColor` convertColor color
+        convertStyle' attr TxstBold = attr `VA.withStyle` VA.bold
+        convertStyle' attr TxstUnderline = attr `VA.withStyle` VA.underline
 
 -- | Convert a color into a Vty ANSI color.
 convertColor :: Int -> VA.Color

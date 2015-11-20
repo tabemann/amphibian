@@ -15,6 +15,8 @@ module Network.IRC.Client.Amphibian.StyledText
         append,
         appendUnstyled,
         insertUnstyled,
+        take,
+        drop,
         splitAt,
         concat,
         intercalate,
@@ -97,16 +99,34 @@ insertUnstyled insertIndex insertedText styledText =
   let (beforeStyledText, afterStyledText) = splitAt insertIndex styledText in
   append (appendUnstyled beforeStyledText insertedText) afterStyledText
 
--- | Split unstyled text at a index.
+-- | Take n characters from styled text.
+take :: Int -> StyledText -> StyledText
+take count (StyledText xs) = take' count xs []
+  where take' count (x@(StyledTextElement style text) : rest) prev
+          | count < T.length text =
+              StyledText . reverse $ StyledTextElement style (T.take count text) : prev
+          | otherwise = take' (count - T.length text) rest (x : prev)
+        take' _  [] prev = StyledText $ reverse prev
+
+-- | Drop n characters from styled text.
+drop :: Int -> StyledText -> StyledText
+drop count (StyledText xs) = drop' count xs
+  where drop' count (StyledTextElement style text : rest)
+          | count < T.length text =
+            StyledText $ StyledTextElement style (T.drop count text) : rest
+          | otherwise = drop' (count - T.length text) rest
+        drop' _ [] = StyledText []
+
+-- | Split styled text at a index.
 splitAt :: Int -> StyledText -> (StyledText, StyledText)
-splitAt (StyledText xs) index = splitAt' xs index []
-  where splitAt' (x@(StyledTextElement style text) : rest) index prev =
-          if index < T.length text
-          then let (before, after) = T.splitAt index text in
-                (StyledText . reverse $ StyledTextElement style before : prev,
-                 StyledText $ StyledTextElement style after : rest)
-          else splitAt' rest (index - T.length text) (x : prev)
-        splitAt' [] _ prev = (StyledText $ reverse prev, StyledText [])
+splitAt index (StyledText xs) = splitAt' index xs []
+  where splitAt' index (x@(StyledTextElement style text) : rest) prev
+          | index < T.length text =
+              let (before, after) = T.splitAt index text in
+              (StyledText . reverse $ StyledTextElement style before : prev,
+               StyledText $ StyledTextElement style after : rest)
+          | otherwise = splitAt' (index - T.length text) rest (x : prev)
+        splitAt' _ [] prev = (StyledText $ reverse prev, StyledText [])
 
 -- | Concatenate a list of styled text.
 concat :: [StyledText] -> StyledText
