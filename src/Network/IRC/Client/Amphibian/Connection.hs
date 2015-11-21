@@ -1,3 +1,33 @@
+-- Copyright (c) 2015, Travis Bemann
+-- All rights reserved.
+-- 
+-- Redistribution and use in source and binary forms, with or without
+-- modification, are permitted provided that the following conditions are met:
+-- 
+-- o Redistributions of source code must retain the above copyright notice, this
+--   list of conditions and the following disclaimer.
+-- 
+-- o Redistributions in binary form must reproduce the above copyright notice,
+--   this list of conditions and the following disclaimer in the documentation
+--   and/or other materials provided with the distribution.
+-- 
+-- o Neither the name of the copyright holder nor the names of its
+--   contributors may be used to endorse or promote products derived from
+--   this software without specific prior written permission.
+-- 
+-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+-- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+-- FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-- DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+-- SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+-- CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+-- OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+{-# LANGUAGE OverloadedStrings #-}
+
 module Network.IRC.Client.Amphibian.Connection
 
        (Connection,
@@ -167,7 +197,7 @@ lookupAddress host port connection = do
   let hints = S.defaultHints { addrFlags = [S.AI_CANONNAME, S.AI_NUMERICSERV] }
   addrs <- liftIO $ catch (Right <$> S.getAddrInfo (Just hints) (Just host)
                            (Just (show port)))
-           (\(e :: IOException) -> Left (Error [T.pack $ show e]))
+           (\(e :: IOException) -> Left $ Error [T.pack $ show e])
   case addrs of
     Right (addrs :: _) ->
       liftIO . atomically $
@@ -186,8 +216,8 @@ reverseLookupAddress addr connection = do
   host <- liftIO . catch (do (host, service) <- S.getNameInfo [] True False addr
                              case host of
                                Just host -> return $ Right host
-                               None -> return $ Left "host not returned")
-          (\(e :: IOException) -> Left (Error [T.pack $ show e]))
+                               None -> return . Left $ Error ["host not returned"])
+          (\(e :: IOException) -> Left $ Error [T.pack $ show e])
   case host of
     Right host ->
       liftIO . atomically $
@@ -227,7 +257,7 @@ handleSend connection sock recvMessagesAsync message response = do
       cancel recvMessagesAsync
       catch (do S.shutdown sock S.ShutdownBoth)
         (\(e :: IOException) -> return ())
-      atomically $ putTMVar response (Left (Error [T.pack $ show e]))
+      atomically . putTMVar response . Left $ Error [T.pack $ show e]
       S.close sock
       return False)
 
@@ -244,9 +274,8 @@ handleClose connection sock recvMessagesAsync response = do
                      S.close sock)
     (\(e :: IOException) ->
       atomically $ do
-        writeTChan (connEvents connection)
-          (ConnDisconnected (Left (Error [T.pack $ show e])))
-        putTMVar response (Left (Error [T.pack $ show e]))
+        writeTChan (connEvents connection) . ConnDisconnected . Left $ Error [T.pack $ show e]
+        putTMVar response . Left $ Error [T.pack $ show e]
       S.close sock)
 
 -- | Generate socket events.
@@ -271,8 +300,7 @@ recvMessages connection sock disconnected = do
                 catch (S.shutdown sock S.ShutdownBoth)
                   (\(e :: IOException) -> return ())
                 atomically $ do
-                  writeTChan (connEvents connection)
-                    (ConnDisconnected (Left (Error [T.pack $ show e])))
+                  writeTChan (connEvents connection) . ConnDisconnected . Left $ Error [T.pack $ show e]
                   putTMVar disconnected ()
                 S.close sock
                 return False)
@@ -357,10 +385,7 @@ nextItem =
 -- | Format a message as a ByteString.
 formatMessage :: IRCMessage -> B.ByteString
 formatMessage message = 
-  let prefix = maybe [] (\prefix -> [B.concat [BC.singleton ':', prefix]])
-               (ircmPrefix message)
-      comment = maybe [] (\comment -> [B.concat [BC.singleton ':', comment]])
-                (ircmComment message)
-  in BC.intercalate (BC.singleton ' ') $
-     prefix ++ [ircmCommand message] ++ ircmParameters message ++ comment
+  let prefix = maybe [] (\prefix -> [B.concat [":", prefix]]) $ ircmPrefix message
+      comment = maybe [] (\comment -> [B.concat [":", comment]]) $ ircmComment message
+  in BC.intercalate (BC.singleton ' ') $ prefix ++ [ircmCommand message] ++ ircmParameters message ++ comment
       

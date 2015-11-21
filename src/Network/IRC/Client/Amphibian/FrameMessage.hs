@@ -1,3 +1,33 @@
+-- Copyright (c) 2015, Travis Bemann
+-- All rights reserved.
+-- 
+-- Redistribution and use in source and binary forms, with or without
+-- modification, are permitted provided that the following conditions are met:
+-- 
+-- o Redistributions of source code must retain the above copyright notice, this
+--   list of conditions and the following disclaimer.
+-- 
+-- o Redistributions in binary form must reproduce the above copyright notice,
+--   this list of conditions and the following disclaimer in the documentation
+--   and/or other materials provided with the distribution.
+-- 
+-- o Neither the name of the copyright holder nor the names of its
+--   contributors may be used to endorse or promote products derived from
+--   this software without specific prior written permission.
+-- 
+-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+-- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+-- FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-- DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+-- SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+-- CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+-- OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+{-# LANGUAGE OverloadedStrings #-}
+
 module Network.IRC.Client.Amphibian.FrameMessage
 
        (lookupAddressMessage,
@@ -71,20 +101,20 @@ decode frame bytes = do
       config <- getConnectionConfig manager
       case config of
         Just config -> return $ (encoDecoder $ cocoEncoding config) bytes
-        Nothing -> lookupText $ T.pack "NO CONNECTION CONFIG SET"
-    Nothing -> lookupText $ T.pack "NO CONNECTION MANAGER SET"
+        Nothing -> lookupText "NO CONNECTION CONFIG SET"
+    Nothing -> lookupText "NO CONNECTION MANAGER SET"
       
 -- | Send a lookup hostname message to a specific frame.
 lookupHostnameMessage :: Frame -> HostName -> AM ()
 lookupHostnameMessage frame hostName = do
-  let textMap = HM.insert (T.pack "hostName") (formatString $ T.pack hostName) HM.empty
-  formatText <- lookupText $ T.pack "Looking up %hostName:s..."
+  let textMap = HM.insert "hostName" (formatString $ T.pack hostName) HM.empty
+  formatText <- lookupText "Looking up %hostName:s..."
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [TxstForeColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -93,20 +123,20 @@ lookupHostnameMessage frame hostName = do
 -- | Send a lookup address failed message to a specific frame.
 lookupAddressFailedMessage :: Frame -> Error -> AM ()
 lookupAddressFailedMessage frame (Error errorLines) = do
-  text <- lookupText $ T.pack "Address lookup failed"
+  text <- lookupText "Address lookup failed"
   time <- liftIO getCurrentTime
   let headLine =
         case errorLines of
          [] ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, ": ", line] }
       restLines =
         case errorLines of
           _ : rest -> map (makeRestLine time text) rest
@@ -117,27 +147,27 @@ lookupAddressFailedMessage frame (Error errorLines) = do
     F.notify frame [FrnoLookupAddressFailed]
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
-                frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
+                frliSource = ST.addStyle [TxstForeColor 13] "*",
+                frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) " ") line }
      
 -- | Send a reverse lookup failed message to a specific frame.
 reverseLookupFailedMessage :: Frame -> Error -> AM ()
 reverseLookupFailedMessage frame (Error errorLines) = do
-  text <- lookupText $ T.pack "Reverse hostname lookup failed"
+  text <- lookupText "Reverse hostname lookup failed"
   time <- liftIO getCurrentTime
   let headLine =
         case errorLines of
          [] ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, ": ", line] }
       restLines =
         case errorLines of
           _ : rest -> map (makeRestLine time text) rest
@@ -148,22 +178,22 @@ reverseLookupFailedMessage frame (Error errorLines) = do
     F.notify frame [FrnoReverseLookupFailed]
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
-                frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
+                frliSource = ST.addStyle [TxstForeColor 13] "*",
+                frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) " ") line }
 
 -- | Send a connecting message to a specific frame.
 connectingMessage :: Frame -> HostName -> Port -> AM ()
 connectingMessage frame hostName port = do
-  let textMap = HM.insert (T.pack "hostName") (formatString $ T.pack hostName) HM.empty
-  let textMap' = HM.insert (T.pack "port") (formatIntegral port) textMap
-  formatText <- lookupText $ T.pack "Connecting to %hostName:s port %port:d..."
+  let textMap = HM.insert "hostName" (formatString $ T.pack hostName) HM.empty
+  let textMap' = HM.insert "port" (formatIntegral port) textMap
+  formatText <- lookupText "Connecting to %hostName:s port %port:d..."
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [TxstForeColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -172,15 +202,15 @@ connectingMessage frame hostName port = do
 -- | Send a connected message to a specific frame.
 connectedMessage :: Frame -> HostName -> Port -> AM ()
 connectedMessage frame hostName port = do
-  let textMap = HM.insert (T.pack "hostName") (formatString $ T.pack hostName) HM.empty
-  let textMap' = HM.insert (T.pack "port") (formatIntegral port) textMap
-  formatText <- lookupText $ T.pack "Connected to %hostName:s port %port:d"
+  let textMap = HM.insert "hostName" (formatString $ T.pack hostName) HM.empty
+  let textMap' = HM.insert "port" (formatIntegral port) textMap
+  formatText <- lookupText "Connected to %hostName:s port %port:d"
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
   let hostName' = T.pack hostName
       line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [TxstForeColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -189,20 +219,20 @@ connectedMessage frame hostName port = do
 -- | Send a connect failed message to a specific frame.
 connectFailedMessage :: Frame -> Error -> AM ()
 connectFailedMessage frame (Error errorLines) = do
-  text <- lookupText $ T.pack "Connect failed"
+  text <- lookupText "Connect failed"
   time <- liftIO getCurrentTime
   let headLine =
         case errorLines of
          [] ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, ": ", line] }
       restLines =
         case errorLines of
           _ : rest -> map (makeRestLine time text) rest
@@ -213,19 +243,18 @@ connectFailedMessage frame (Error errorLines) = do
     F.notify frame [FrnoConnectFailed]
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
-                frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
+                frliSource = ST.addStyle [TxstForeColor 13] "*",
+                frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) " ") line }
 
 -- | Send a disconnect message to a specific frame.
 disconnectMessage :: Frame -> AM ()
 disconnectMessage frame = do
-  text <- lookupText $ T.pack "Disconnected"
+  text <- lookupText "Disconnected"
   time <- liftIO getCurrentTime
-  let hostName' = T.pack hostName
-      line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+  let line = FrameLine { frliTime = time,
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [] text }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -234,20 +263,20 @@ disconnectMessage frame = do
 -- | Send a disconnect error message to a specific frame.
 disconnectErrorMessage :: Frame -> Error -> AM ()
 disconnectErrorMessage frame (Error errorLines) = do
-  text <- lookupText $ T.pack "Disconnected"
+  text <- lookupText "Disconnected"
   time <- liftIO getCurrentTime
   let headLine =
         case errorLines of
          [] ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, ": ", line] }
       restLines =
         case errorLines of
           _ : rest -> map (makeRestLine time text) rest
@@ -258,22 +287,21 @@ disconnectErrorMessage frame (Error errorLines) = do
     F.notify frame [FrnoDisconnected]
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
-                frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
+                frliSource = ST.addStyle [TxstForeColor 13] "*",
+                frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) " ") line }
 
 -- | Send a password mismatch message to a specific frame.
 passwordMismatchMessage :: Frame -> Password -> AM ()
 passwordMismatchMessage frame password = do
   password' <- decode frame password
-  let textMap = HM.insert (T.pack "password") (formatString password') HM.empty
-  formatText <- lookupText $ T.pack "Password mismatch"
+  let textMap = HM.insert "password" (formatString password') HM.empty
+  formatText <- lookupText "Password mismatch"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
-  let hostName' = T.pack hostName
-      line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+  let line = FrameLine { frliTime = time,
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -282,12 +310,11 @@ passwordMismatchMessage frame password = do
 -- | Send a banned from server message to a specific frame.
 bannedFromServerMessage :: Frame -> AM ()
 bannedFromServerMessage frame = do
-  text <- lookupText $ T.pack "Banned from server"
+  text <- lookupText "Banned from server"
   time <- liftIO getCurrentTime
-  let hostName' = T.pack hostName
-      line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+  let line = FrameLine { frliTime = time,
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [] text }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -298,10 +325,9 @@ bannedFromServerCommentMessage :: Frame -> MessageComment -> AM ()
 bannedFromServerCommentMessage frame comment = do
   styledText <- ST.decode <$> decode frame comment
   time <- liftIO getCurrentTime
-  let hostName' = T.pack hostName
-      line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+  let line = FrameLine { frliTime = time,
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = styledText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -311,14 +337,13 @@ bannedFromServerCommentMessage frame comment = do
 welcomeMessage :: Frame -> Nick -> AM ()
 welcomeMessage frame nick = do
   nick' <- decode frame nick
-  let textMap = HM.insert (T.pack "nick") (formatString nick') HM.empty
-  formatText <- lookupText $ T.pack "Welcome to IRC %nick:s"
+  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  formatText <- lookupText "Welcome to IRC %nick:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
-  let hostName' = T.pack hostName
-      line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+  let line = FrameLine { frliTime = time,
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -329,10 +354,9 @@ welcomeCommentMessage :: Frame -> MessageComment -> AM ()
 welcomeCommentMessage frame comment = do
   styledText <- ST.decode <$> decode frame comment
   time <- liftIO getCurrentTime
-  let hostName' = T.pack hostName
-      line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+  let line = FrameLine { frliTime = time,
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = styledText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -342,14 +366,13 @@ welcomeCommentMessage frame comment = do
 attemptingNickMessage :: Frame -> Nick -> AM ()
 attemptingNickMessage frame nick = do
   nick' <- decode frame nick
-  let textMap = HM.insert (T.pack "nick") (formatString nick') HM.empty
-  formatText <- lookupText $ T.pack "Attempting to use nick %nick:s..."
+  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  formatText <- lookupText "Attempting to use nick %nick:s..."
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
-  let hostName' = T.pack hostName
-      line = FrameLine { frliTime = time,
-                         frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                         frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+  let line = FrameLine { frliTime = time,
+                         frliSource = ST.addStyle [TxstForeColor 13] "*",
+                         frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                          frliBody = ST.addStyle [TxstForeColor 13] formattedText }
   liftIO . atomically $ do
     F.outputLine frame line
@@ -359,14 +382,14 @@ attemptingNickMessage frame nick = do
 malformedNickMessage :: Frame -> Nick -> AM ()
 malformedNickMessage frame nick = do
   nick' <- decode frame nick
-  let textMap = HM.insert (T.pack "nick") (formatString nick') HM.empty
-  formatText <- lookupText $ T.pack "Malformed nick %nick:s"
+  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  formatText <- lookupText "Malformed nick %nick:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
     F.notify frame [FrnoDisconnected]
 
@@ -374,14 +397,14 @@ malformedNickMessage frame nick = do
 joinedMessage :: Frame -> ChannelName -> AM ()
 joinedMessage frame name = do
   name' <- decode frame name
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  formatText <- lookupText $ T.pack "Now talking on %channel:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  formatText <- lookupText "Now talking on %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime time,
-                                     frliSource = ST.addStyle [TxstForeColor 3] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 3] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 3] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 3] "*",
                                      frliBody = ST.addStyle [TxstForeColor 3] formattedText }
     F.notify frame [FrnoJoined]
 
@@ -389,14 +412,14 @@ joinedMessage frame name = do
 partedMessage :: Frame -> ChannelName -> AM ()
 partedMessage frame name = do
   name' <- decode frame name
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  formatText <- lookupText $ T.pack "You have left channel %channel:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  formatText <- lookupText "You have left channel %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 7] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 7] "*",
                                      frliBody = ST.addStyle [TxstForeColor 7] formattedText }
     F.notify frame [FrnoParted]
 
@@ -405,18 +428,18 @@ partedCommentMessage :: Frame -> ChannelName -> MessageComment -> AM ()
 partedCommentMessage frame name comment = do
   name' <- decode frame name
   comment' <- ST.decode <$> decode frame comment
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  formatText <- lookupText $ T.pack "You have left channel %channel:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  formatText <- lookupText "You have left channel %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 7] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 7] "*",
                                      frliBody = ST.concat [ST.addStyle [TxstForeColor 7] formattedText,
-                                                           ST.addStyle [TxstForeColor 7] $ T.pack " (",
+                                                           ST.addStyle [TxstForeColor 7] " (",
                                                            ST.mergeStyle [TxstForeColor 7] commment',
-                                                           ST.addStyle [TxstForeColor 7] $ T.singleton ')'] }
+                                                           ST.addStyle [TxstForeColor 7] ")"] }
                                                            
     F.notify frame [FrnoParted]
 
@@ -424,14 +447,14 @@ partedCommentMessage frame name comment = do
 noTopicMessage :: Frame -> ChannelName -> AM ()
 noTopicMessage frame name = do
   name' <- decode frame name
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  formatText <- lookupText $ T.pack "No topic is set for %channel:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  formatText <- lookupText "No topic is set for %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
     F.notify frame [FrnoNoTopic]  
 
@@ -440,14 +463,14 @@ topicMessage :: Frame -> ChannelName -> ChannelTopic -> AM ()
 topicMessage frame name topic = do
   name' <- decode frame name
   topic' <- ST.decode <$> decode frame topic
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  formatText <- lookupText $ T.pack "Topic for %channel:s is"
-  let formattedText = format (T.append formatText $ T.pack ": ") textMap
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  formatText <- lookupText "Topic for %channel:s is"
+  let formattedText = format (T.append formatText ": ") textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.concat [ST.addStyle [TxstForeColor 13] formattedText,
                                                            ST.mergeStyle [TxstForeColor 13] topic'] }
     F.notify frame [FrnoTopic]
@@ -459,16 +482,16 @@ topicWhoTimeMessage frame name user time = do
   name' <- decode frame name
   user' <- decode frame user
   timeText <- T.pack $ formatTime timeLocale "%c" time
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  let textMap' = HM.insert (T.pack "user") (formatString user') textMap
-  let textMap = HM.insert (T.pack "time") (formatString timeText) textMap'
-  formatText <- lookupText $ T.pack "Topic for %channel:s set by %user:s at %time:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap' = HM.insert "user" (formatString user') textMap
+  let textMap = HM.insert "time" (formatString timeText) textMap'
+  formatText <- lookupText "Topic for %channel:s set by %user:s at %time:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [TxstForeColor 13] formattedText }
     F.notify frame [FrnoTopicWhoTime]
 
@@ -486,15 +509,15 @@ namesDisplayMessage :: Frame -> ChannelName -> [(Nick, UserStatus)] -> AM ()
 namesDisplayMessage frame name statusNicks = do
   name' <- decode frame name
   statusNicks' <- mapM convertNick statusNicks
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  formatText <- lookupText $ T.pack "Users on %channel:s"
-  let formattedText = format (T.append formatText $ T.pack ": ") textMap
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  formatText <- lookupText "Users on %channel:s"
+  let formattedText = format (T.append formatText ": ") textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.setUsers frame statusNicks'
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [TxstForeColor 10] formattedText }
     F.notify frame [FrnoNames]
   where convertNick (nick, status) = do
@@ -507,16 +530,16 @@ recvJoinMessage frame name nick user = do
   name' <- decode frame name
   nick' <- decode frame nick
   user' <- decode frame user
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  let textMap' = HM.insert (T.pack "nick") (formatString nick') textMap
-  let textMap = HM.insert (T.pack "user") (formatString user') textMap'
-  formatText <- lookupText $ T.pack "%nick:s (%user:s) has joined %channel:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap' = HM.insert "nick" (formatString nick') textMap
+  let textMap = HM.insert "user" (formatString user') textMap'
+  formatText <- lookupText "%nick:s (%user:s) has joined %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 3] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 3] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 3] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 3] "*",
                                      frliBody = ST.addStyle [TxstForeColor 3] formattedText }
     F.notify frame [FrnoRecvJoin]
 
@@ -526,16 +549,16 @@ recvPartMessage frame name nick user = do
   name' <- decode frame name
   nick' <- decode frame nick
   user' <- decode frame user
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  let textMap' = HM.insert (T.pack "nick") (formatString nick') textMap
-  let textMap = HM.insert (T.pack "user") (formatString user') textMap'
-  formatText <- lookupText $ T.pack "%nick:s (%user:s) has left %channel:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap' = HM.insert "nick" (formatString nick') textMap
+  let textMap = HM.insert "user" (formatString user') textMap'
+  formatText <- lookupText "%nick:s (%user:s) has left %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 7] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 7] "*",
                                      frliBody = ST.addStyle [TxstForeColor 7] formattedText }
     F.notify frame [FrnoRecvPart]
 
@@ -546,20 +569,20 @@ recvPartCommentMessage frame nick user comment = do
   nick' <- decode frame nick
   user' <- decode frame user
   comment' <- ST.decode <$> decode frame comment
-  let textMap = HM.insert (T.pack "channel") (formatString name') HM.empty
-  let textMap' = HM.insert (T.pack "nick") (formatString nick') textMap
-  let textMap = HM.insert (T.pack "user") (formatString user') textMap'
-  formatText <- lookupText $ T.pack "%nick:s (%user:s) has left %channel:s"
+  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap' = HM.insert "nick" (formatString nick') textMap
+  let textMap = HM.insert "user" (formatString user') textMap'
+  formatText <- lookupText "%nick:s (%user:s) has left %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 7] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 7] "*",
                                      frliBody = ST.concat [ST.addStyle [TxstForeColor 7] formattedText,
-                                                           ST.addStyle [TxstForeColor 7] $ T.pack " (",
+                                                           ST.addStyle [TxstForeColor 7] " (",
                                                            ST.mergeStyle [TxstForeColor 7] commment',
-                                                           ST.addStyle [TxstForeColor 7] $ T.singleton ')'] }
+                                                           ST.addStyle [TxstForeColor 7] ")"] }
                                                            
     F.notify frame [FrnoRecvPart]
 
@@ -568,15 +591,15 @@ recvQuitMessage :: Frame -> Nick -> FullName -> AM ()
 recvQuitMessage frame nick user = do
   nick' <- decode frame nick
   user' <- decode frame user
-  let textMap = HM.insert (T.pack "nick") (formatString nick') HM.empty
-  let textMap' = HM.insert (T.pack "user") (formatString user') textMap
-  formatText <- lookupText $ T.pack "%nick:s (%user:s) has quit"
+  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  let textMap' = HM.insert "user" (formatString user') textMap
+  formatText <- lookupText "%nick:s (%user:s) has quit"
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 7] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 7] "*",
                                      frliBody = ST.addStyle [TxstForeColor 7] formattedText }
     F.notify frame [FrnoRecvPart]
 
@@ -586,19 +609,19 @@ recvQuitCommentMessage frame nick user comment = do
   nick' <- decode frame nick
   user' <- decode frame user
   comment' <- ST.decode <$> decode frame comment
-  let textMap = HM.insert (T.pack "nick") (formatString nick') HM.empty
-  let textMap' = HM.insert (T.pack "user") (formatString user') textMap
-  formatText <- lookupText $ T.pack "%nick:s (%user:s) has quit"
+  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  let textMap' = HM.insert "user" (formatString user') textMap
+  formatText <- lookupText "%nick:s (%user:s) has quit"
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 7] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 7] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 7] "*",
                                      frliBody = ST.concat [ST.addStyle [TxstForeColor 7] formattedText,
-                                                           ST.addStyle [TxstForeColor 7] $ T.pack " (",
+                                                           ST.addStyle [TxstForeColor 7] " (",
                                                            ST.mergeStyle [TxstForeColor 7] commment',
-                                                           ST.addStyle [TxstForeColor 7] $ T.singleton ')'] }
+                                                           ST.addStyle [TxstForeColor 7] ")"] }
                                                            
     F.notify frame [FrnoRecvPart]
 
@@ -608,15 +631,15 @@ recvNickMessage :: Frame -> Nick -> Nick-> AM ()
 recvNickMessage frame oldNick newNick = do
   oldNick' <- decode frame oldNick
   newNick' <- decode frame newNick
-  let textMap = HM.insert (T.pack "oldNick") (formatString oldNick') HM.empty
-  let textMap' = HM.insert (T.pack "newNick") (formatString newNick') textMap
-  formatText <- lookupText $ T.pack "%oldNick:s is now known as %newNick:s"
+  let textMap = HM.insert "oldNick" (formatString oldNick') HM.empty
+  let textMap' = HM.insert "newNick" (formatString newNick') textMap
+  formatText <- lookupText "%oldNick:s is now known as %newNick:s"
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
     F.notify frame [FrnoRecvNick]
 
@@ -625,16 +648,16 @@ recvTopicMessage :: Frame -> Nick -> ChannelTopic -> AM ()
 recvTopicMessage frame nick topic = do
   nick' <- decode frame nick
   topic' <- ST.decode <$> decode frame topic
-  let textMap = HM.insert (T.pack "nick") (formatString nick') HM.empty
-  formatText <- lookupText $ T.pack "%nick:s has changed the topic to"
+  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  formatText <- lookupText "%nick:s has changed the topic to"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.concat [ST.addStyle [] formattedText,
-                                                           ST.addStyle [] $ T.pack ": ",
+                                                           ST.addStyle [] ": ",
                                                            topic'] }
                                                            
     F.notify frame [FrnoRecvTopic]
@@ -654,9 +677,9 @@ recvMessageMessage frame nick comment private = do
       F.outputLine frame $ FrameLine { frliTime = time,
                                        frliSource = ST.addStyle [TxstBold, TxstForeColor 5] nick',
                                        frliAltSource =
-                                         ST.concat [ST.addStyle [TxstForeColor 5] $ T.singleton '<',
+                                         ST.concat [ST.addStyle [TxstForeColor 5] "<",
                                                     ST.addStyle [TxstBold, TxstForeColor 5] nick',
-                                                    ST.addStyle [TxstForeColor 5] $ T.singleton '>'],
+                                                    ST.addStyle [TxstForeColor 5] ">"],
                                        frliBody = ST.mergeStyle [TxstForeColor 5] comment' }
       case private of
         FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage, FrnoRecvMention]
@@ -666,9 +689,9 @@ recvMessageMessage frame nick comment private = do
       F.outputLine frame $ FrameLine { frliTime = time,
                                        frliSource = ST.addStyle [TxstForeColor 12] nick',
                                        frliAltSource =
-                                         ST.concat [ST.addStyle [TxstForeColor 13] $ T.singleton '<',
+                                         ST.concat [ST.addStyle [TxstForeColor 13] "<",
                                                     ST.addStyle [TxstBold, TxstForeColor 12] nick',
-                                                    ST.addStyle [TxstForeColor 13] $ T.singleton '>'],
+                                                    ST.addStyle [TxstForeColor 13] ">"],
                                        frliBody = comment' }
       case private of
         FrmtPrivate -> F.notify frame [FrnoRecvPrivateMessage]
@@ -685,8 +708,8 @@ recvActionMessage frame nick comment private = do
   comment' <- ST.decode <$> decode frame comment
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 12] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 12] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 12] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 12] "*",
                                      frliBody = ST.concat [ST.addStyle [TxstForeColor 12] nick',
                                                            ST.addStyle [] T.singleton ' ',
                                                            comment'] }
@@ -703,15 +726,15 @@ recvNoticeMessage frame nick comment private target = do
   let line =
     if nick /= T.empty
     then FrameLine { frliTime = time,
-                     frliSource = ST.concat [ST.addStyle [TxstForeColor 12] $ T.singleton '-',
+                     frliSource = ST.concat [ST.addStyle [TxstForeColor 12] "-",
                                              ST.addStyle [TxstForeColor 13] nick',
-                                             ST.addStyle [TxstForeColor 12] $ T.singleton '-'],
-                     frliAltSource = ST.concat [ST.addStyle [TxstForeColor 12] $ T.singleton '-',
+                                             ST.addStyle [TxstForeColor 12] "-"],
+                     frliAltSource = ST.concat [ST.addStyle [TxstForeColor 12] "-",
                                                 ST.addStyle [TxstForeColor 13] nick',
-                                                ST.addStyle [TxstForeColor 12] $ T.singleton '-'],
+                                                ST.addStyle [TxstForeColor 12] "-"],
                      frliBody = comment' }
     else FrameLine { frliTime = time,
-                     frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                     frliSource = ST.addStyle [TxstForeColor 13] "*",
                      frliBody = comment' }
   liftIO . atomically $ do
     case target of
@@ -736,8 +759,8 @@ motdMessage frame lines = do
   liftIO . atomically $ mapM_ (F.outputLine frame . formatLine time color) lines
   where formatLine time color line =
           FrameLine { frliTime = time,
-                      frliSource = ST.addStyle [TxstForeColor color] $ T.singleton '*',
-                      frliAltSource = ST.addStyle [TxstForeColor color] $ T.singleton '*',
+                      frliSource = ST.addStyle [TxstForeColor color] "*",
+                      frliAltSource = ST.addStyle [TxstForeColor color] "*",
                       frliBody = line }
     
 
@@ -752,9 +775,9 @@ selfMessageMessage frame nick comment = do
   liftIO . atomically $
     F.outputLine frame $ FrameLine { frliTime = time,
                                      frliSource = ST.addStyle [TxstForeColor color] nick',
-                                     frliAltSource = ST.concat [ST.addStyle [TxstForeColor color] $ T.singleton '<',
+                                     frliAltSource = ST.concat [ST.addStyle [TxstForeColor color] "<",
                                                                 ST.addStyle [TxstForeColor color] nick',
-                                                                St.addStyle [TxstForeColor color] $ T.singleton '>'],
+                                                                St.addStyle [TxstForeColor color] ">"],
                                      frliBody = ST.setBaseForeColor color comment' }
 
 -- | Send a self action message to a specific frame.
@@ -765,8 +788,8 @@ selfActionMessage frame nick comment = do
   comment' <- ST.decode <$> decode frame comment
   liftIO . atomically $
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [TxstForeColor 12] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [TxstForeColor 12] $ T.singleton '*',
+                                     frliSource = ST.addStyle [TxstForeColor 12] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 12] "*",
                                      frliBody = ST.concat [ST.addStyle [TxstForeColor 12] nick',
                                                            ST.addStyle [] T.singleton ' ',
                                                            comment'] }
@@ -779,25 +802,25 @@ selfNoticeMessage frame nick comment = do
   comment' <- ST.decode <$> decode frame comment
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.concat [ST.addStyle [TxstForeColor 9] $ T.singleton '-',
+                                     frliSource = ST.concat [ST.addStyle [TxstForeColor 9] "-",
                                                              ST.addStyle [TxstForeColor 9] nick',
-                                                             ST.addStyle [TxstForeColor 9] $ T.singleton '-'],
-                                     frliAltSource = ST.concat [ST.addStyle [TxstForeColor 9] $ T.singleton '-',
+                                                             ST.addStyle [TxstForeColor 9] "-"],
+                                     frliAltSource = ST.concat [ST.addStyle [TxstForeColor 9] "-",
                                                                 ST.addStyle [TxstForeColor 9] nick',
-                                                                ST.addStyle [TxstForeColor 9] $ T.singleton '-'],
+                                                                ST.addStyle [TxstForeColor 9] "-"],
                                      frliBody = comment' }
 
 -- | Send an unkown command message to a frame.
 unknownCommandMessage :: Frame -> T.Text -> AM ()
 unknownCommandMessage frame command = do
-  let textMap = HM.insert (T.pack "command") (formatString command) HM.empty
-  formatText <- lookupText $ T.pack "Unknown command \"%command:s\""
+  let textMap = HM.insert "command" (formatString command) HM.empty
+  formatText <- lookupText "Unknown command \"%command:s\""
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] $ T.singleton '*',
-                                     frliAltSource = ST.addStyle [Txst 13] $ T.singleton '*',
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
 
 -- | Send an arbitrary error message to a frame.
@@ -808,14 +831,14 @@ errorMessage frame text (Error errorLines) = do
         case errorLines of
          [] ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                        frliBody = ST.addStyle [] text }
          line : _ ->
            FrameLine { frliTime = time,
-                       frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, T.pack ": ", line] }
+                       frliSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                       frliBody = ST.addStyle [] $ T.intercalate T.empty [text, ": ", line] }
       restLines =
         case errorLines of
           _ : rest -> map (makeRestLine time text) rest
@@ -826,6 +849,6 @@ errorMessage frame text (Error errorLines) = do
     F.notify frame [FrnoError]
   where makeRestLine time messageText line =
     FrameLine { frliTime = time,
-                frliSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliAltSource = ST.addStyle [TxstForeColor 13] $ T.singleton '*',
-                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) (T.singleton ' ')) line }
+                frliSource = ST.addStyle [TxstForeColor 13] "*",
+                frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                frliBody = ST.addStyle [] $ T.append (T.replicate (T.length messageText + 2) " ") line }

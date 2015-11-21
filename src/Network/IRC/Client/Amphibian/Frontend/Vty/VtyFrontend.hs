@@ -1,3 +1,33 @@
+-- Copyright (c) 2015, Travis Bemann
+-- All rights reserved.
+-- 
+-- Redistribution and use in source and binary forms, with or without
+-- modification, are permitted provided that the following conditions are met:
+-- 
+-- o Redistributions of source code must retain the above copyright notice, this
+--   list of conditions and the following disclaimer.
+-- 
+-- o Redistributions in binary form must reproduce the above copyright notice,
+--   this list of conditions and the following disclaimer in the documentation
+--   and/or other materials provided with the distribution.
+-- 
+-- o Neither the name of the copyright holder nor the names of its
+--   contributors may be used to endorse or promote products derived from
+--   this software without specific prior written permission.
+-- 
+-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+-- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+-- FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-- DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+-- SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+-- CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+-- OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+{-# LANGUAGE OverloadedStrings #-}
+
 module Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend
 
        (VtyFrontend,
@@ -36,9 +66,11 @@ import qualified Network.IRC.Client.Amphibian.Frame as Fr
 import qualified Network.IRC.Client.Amphibian.StyledText as ST
 import Control.Monad (join,
                       forM_,
-                      mapM)
+                      mapM,
+                      foldM)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
+import Data.Foldable (toList)
 import Control.Concurrent.STM (STM,
                                TVar,
                                TChan,
@@ -110,7 +142,7 @@ getWindows = readTVar . vtfrWindows
 -- | Format line.
 formatLine :: VtyFrontend -> FrameLine -> STM StyledText
 formatLine vtyFrontend line = do
-  return $ ST.concat [frliAltSource line, ST.addStyle [] $ T.singleton ' ', frliBody line]
+  return $ ST.concat [frliAltSource line, ST.addStyle [] " ", frliBody line]
 
 -- | Create a new Vty frontend.
 new :: Interface -> STM VtyFrontend
@@ -264,10 +296,12 @@ unregisterWindow vtyFrontend vtyWindow = do
 redraw :: VtyFrontend -> AM ()
 redraw vtyFrontend = do
   join . liftIO . atomically $ do
+    vty <- readTVar $ vtfrVty vtyFrontend
     width <- readTVar $ vtfrWidth vtyFrontend
     height <- readTVar $ vtfrHeight vtyFrontend
     currentWindow <- readTVar $ vtfrCurrentWindow vtyFrontend
     currentWindowIndex <- readTVar $ vtfrCurrentWindowIndex vtyFrontend
+    windows <- readTVar $ vtfrWindows vtyFrontend
     inputText <- readTVar $ vtwiInputText currentWindow
     inputCursorPosition <- readTVar $ vtwiInputCursorPosition currentWindow
     inputVisiblePosition <- readTVar $ vtwiInputVisiblePosition currentWindow
@@ -278,36 +312,72 @@ redraw vtyFrontend = do
     bufferLines <- readTVar $ vtwiBufferLines currentWindow
     bufferLines' <- mapM (formatLine vtyFrontend) bufferLines
     bufferPosition <- readTVar $ vtwiBufferPosition currentWindow
-    let titleImageBackground = VIm.charFill (convertStyle [TxstForeColor 1, TxstBackColor 12]) width 1 in
-    let titleImage =
-          VIm.cropRight width . convertStyledTextLine . ST.setBaseForeColor 1 $ ST.setBaseBackColor 12 title in
-    let topicImage = convertStyledTextLines . ST.setBaseForeColor 1 $ ST.setBaseBackColor 12 topic in
-    let topicImageBackground = VIm.pad 0 1 0 0 $ VIm.charFill (convertStyle [TxstForeColor 1, TxstBackColor 12])
-                               width (VIm.imageHeight topicImage) in
+    let notifiedWindowIndicesFold prev (index, window) = do
+          hasNotifications <- (> 0) . length <$> Fr.getNotifications $ vtwiFrame window
+          if hasNotifications
+            then return $ index : prev
+            else return prev in
+    notifiedWindowIndices <- reverse <$> foldM notifiedWindowIndicesFold [] . zip [0 ..] $ toList windows
+    let invAttr = convertStyle [TxstForeColor 0, TxstBackColor 2] in
+    let setBaseInvStyle = ST.setBaseForeColor 0 . ST.setBaseBackColor 2 in
+    let titleImageBackground = VIm.charFill invAttr ' ' width 1 in
+    let titleImage = VIm.cropRight width . convertStyledTextLine $ setBaseInvStyle title in
+    let topicImage = VIm.cropBottom (max 0 $ height - 1) . convertStyledTextLines $ setBaseInvStyle topic in
+    let topicImageBackground = VIm.pad 0 1 0 0 $ VIm.charFill invAttr ' ' width (VIm.imageHeight topicImage) in
     let topicImage' = VIm.pad 0 1 0 0 topicImage in
     let scrollImage =
           case bufferPosition of
            VtbpFixed position ->
              let scrollImage =
-                   fixedScrollImage width ((height - 2) - VIm.imageHeight topicImage') bufferLines' position
+                   fixedScrollImage width (max 0 $ (height - 2) - VIm.imageHeight topicImage') bufferLines' position
                    VIm.emptyImage in
-             let scrollImage' = VIm.cropBottom ((height - 2) - VIm.imageHeight topicImage') scrollImage in
+             let scrollImage' = VIm.cropBottom (max 0 $ (height - 2) - VIm.imageHeight topicImage') scrollImage in
              VIm.pad 0 (VIm.imageHeight topicImage') 0 0 scrollImage'
            VtbpDynamic ->
              let scrollImage =
-                   dynamicScrollImage width ((height - 2) - VIm.imageHeight topicImage') bufferLines' 0
+                   dynamicScrollImage width (max 0 $ (height - 2) - VIm.imageHeight topicImage') bufferLines' 0
                    VIm.emptyImage in
-             let scrollImage' = VIm.cropTop ((height - 2) - VIm.imageHeight topicImage') scrollImage'
+             let scrollImage' = VIm.cropTop (max 0 $ (height - 2) - VIm.imageHeight topicImage') scrollImage'
              VIm.pad 0 ((height - 2) - VIm.imageHeight scrollImage') 0 0 scrollImage' in
+    let descrImageLeft =
+          VIm.text' invAttr $ T.concat [" [", T.pack $ show currentWindowIndex, "] ", nick, " ", name, " "]
+    let findNotifiedWindows (index : rest) total prev =
+          let indexLength = VIm.safeWcswidth $ show index in
+          let indexLength' = if prev == [] then indexLength else indexLength + VIm.safeWcswidth ", " in
+          if total + indexLength' <= width - VIm.imageWidth descrImageLeft
+          then findNotifiedWindows rest (total + indexLength') (index : prev)
+          else reverse prev
+        findNotifiedWindows [] _ prev = reverse prev in
+    let descrImageRightParts =
+          map (T.pack . show) $ findNotifiedWindows nodifiedWindowIndices (VIm.safeWcswidth "[] ") [] in
+    let descrImageRight = VIm.text' invAttr $ T.concat ["[", T.intercalate ", " descrImageRightParts, "] "] in
+    let descrPadWidth = (width - VIm.imageWidth descrLeft) - VIm.imageWidth descrRight in
+    let descrImage = VIm.horizJoin [descrImageLeft, VIm.charFill invAttr ' ' descrPadWidth 1, descrImageRight] in
+    let descrImage' = VIM.pad 0 (max 0 $ height - 2) 0 0 VIm.cropRight width descrImage
     let descrImageBackground =
-          VIm.pad 0 (height - 2) 0 0 $ VIm.charFill (convertStyle [TxstForeColor 1, TxstBackColor 12]) width 1 in
+          VIm.pad 0 (height - 2) 0 0 $ VIm.charFill invAttr ' ' width 1 in
     let inputLineImage =
           let visibleInputText = ST.drop inputVisiblePosition inputText in
           let visibleInputText' =
                 case fitWidth width $ ST.removeStyle visibleInputText of
                  Just (_, visibleInputLength) -> ST.take visibleInputLength visibleInputText
                  Nothing -> visibleInputText in
-          VIm.pad 0 (height - 1) 0 0 $ convertStyledTextLine visibleInputText' in
+          VIm.pad 0 (max 0 $ height - 1) 0 0 $ convertStyledTextLine visibleInputText' in
+    let cursorX = VIm.safeWcswidth . T.unnpack . ST.removeStyle .
+                  ST.take (inputCursorPosition - inputVisiblePosition) $ ST.drop inputVisiblePosition inputText
+    let picture = VP.Picture { picCursor = VP.Cursor cursorX (height - 1),
+                               picLayers = [titleImage,
+                                            topicImage',
+                                            scrollImage,
+                                            descrImage',
+                                            inputLineImage,
+                                            titleImageBackground,
+                                            topicImagePackground,
+                                            descrImageBackground],
+                               picBackground = VP.ClearBackground } in
+    case vty of
+     Just vty -> return $ liftIO $ V.update vty picture
+     Nothing -> return $ return ()
   where fixedScrollImage width height bufferLines position image
           | position >= 0 && VIm.imageHeight image < height =
               fixedScrollImage width height bufferLines (position - 1)

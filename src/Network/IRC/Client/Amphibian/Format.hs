@@ -1,3 +1,33 @@
+-- Copyright (c) 2015, Travis Bemann
+-- All rights reserved.
+-- 
+-- Redistribution and use in source and binary forms, with or without
+-- modification, are permitted provided that the following conditions are met:
+-- 
+-- o Redistributions of source code must retain the above copyright notice, this
+--   list of conditions and the following disclaimer.
+-- 
+-- o Redistributions in binary form must reproduce the above copyright notice,
+--   this list of conditions and the following disclaimer in the documentation
+--   and/or other materials provided with the distribution.
+-- 
+-- o Neither the name of the copyright holder nor the names of its
+--   contributors may be used to endorse or promote products derived from
+--   this software without specific prior written permission.
+-- 
+-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+-- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+-- FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-- DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+-- SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+-- CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+-- OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+{-# LANGUAGE OverloadedStrings #-}
+
 module Network.IRC.Client.Amphibian.Format
 
        (format)
@@ -14,13 +44,13 @@ import qualified Data.HashMap.Strict as HM
 format :: T.Text -> FormatMap -> T.Text
 format formatString map = format' formatString map T.empty
   where format' formatString map acc =
-          let (before, after) = T.breakOn (T.singleton '%') formatString in
+          let (before, after) = T.breakOn "%" formatString in
           case T.uncons after of
             Just ('%', rest) ->
               let acc = T.append acc before in
               case T.uncons rest of
                 Just ('%', rest) -> format' rest map (T.snoc acc '%')
-                _ -> let (before, after) = T.breakOn (T.singleton ':') rest in
+                _ -> let (before, after) = T.breakOn ":" rest in
                      case T.uncons after of
                        Just (':', rest) ->
                          case HM.lookup before map of
@@ -32,11 +62,11 @@ format formatString map = format' formatString map T.empty
 
 -- | Map entry not found string.
 mapEntryNotFound :: T.Text
-mapEntryNotFound = T.pack "<MAP ENTRY NOT FOUND>"
+mapEntryNotFound = "<MAP ENTRY NOT FOUND>"
 
 -- | Bad formatting string.
 badFormatting :: T.Text
-badFormatting = T.pack "<BAD FORMATTING STRING>"
+badFormatting = "<BAD FORMATTING STRING>"
 
 -- | Format a string.
 formatString :: (IsString a, Show a) => a -> T.Text -> (T.Text, T.Text)

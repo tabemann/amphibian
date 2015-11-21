@@ -1,3 +1,33 @@
+-- Copyright (c) 2015, Travis Bemann
+-- All rights reserved.
+-- 
+-- Redistribution and use in source and binary forms, with or without
+-- modification, are permitted provided that the following conditions are met:
+-- 
+-- o Redistributions of source code must retain the above copyright notice, this
+--   list of conditions and the following disclaimer.
+-- 
+-- o Redistributions in binary form must reproduce the above copyright notice,
+--   this list of conditions and the following disclaimer in the documentation
+--   and/or other materials provided with the distribution.
+-- 
+-- o Neither the name of the copyright holder nor the names of its
+--   contributors may be used to endorse or promote products derived from
+--   this software without specific prior written permission.
+-- 
+-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+-- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+-- FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-- DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+-- SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+-- CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+-- OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+{-# LANGUAGE OverloadedStrings #-}
+
 module Network.IRC.Client.Amphibian.Commands
        (cmd_PASS,
         cmd_NICK,
@@ -200,594 +230,595 @@ module Network.IRC.Client.Amphibian.Commands
 
 import Network.IRC.Client.Amphibian.Types
 import qualified Data.ByteString as B
-import qualified Data.ByteString.UTF8 as BUTF8
 
 cmd_PASS :: MessageCommand
-cmd_PASS = BUTF8.fromString "PASS"
+cmd_PASS = "PASS"
 
 cmd_NICK :: MessageCommand
-cmd_NICK = BUTF8.fromString "NICK"
+cmd_NICK = "NICK"
 
 cmd_USER :: MessageCommand
-cmd_USER = BUTF8.fromString "USER"
+cmd_USER = "USER"
 
 cmd_OPER :: MessageCommand
-cmd_OPER = BUTF8.fromString "OPER"
+cmd_OPER = "OPER"
 
 cmd_MODE :: MessageCommand
-cmd_MODE = BUTF8.fromString "MODE"
+cmd_MODE = "MODE"
 
 cmd_QUIT :: MessageCommand
-cmd_QUIT = BUTF8.fromString "QUIT"
+cmd_QUIT = "QUIT"
 
 cmd_ERROR :: MessageCommand
-cmd_ERROR = BUTF8.fromString "ERROR"
+cmd_ERROR = "ERROR"
 
 cmd_SQUIT :: MessageCommand
-cmd_SQUIT = BUTF8.fromString "SQUIT"
+cmd_SQUIT = "SQUIT"
 
 cmd_JOIN :: MessageCommand
-cmd_JOIN = BUTF8.fromString "JOIN"
+cmd_JOIN = "JOIN"
 
 cmd_PART :: MessageCommand
-cmd_PART = BUTF8.fromString "PART"
+cmd_PART = "PART"
 
 cmd_PRIVMSG :: MessageCommand
-cmd_PRIVMSG = BUTF8.fromString "PRIVMSG"
+cmd_PRIVMSG = "PRIVMSG"
 
 cmd_NOTICE :: MessageCommand
-cmd_NOTICE = BUTF8.fromString "NOTICE"
+cmd_NOTICE = "NOTICE"
 
 cmd_NAMES :: MessageCommand
-cmd_NAMES = BUTF8.fromString "NAMES"
+cmd_NAMES = "NAMES"
 
 cmd_PING :: MessageCommand
-cmd_PING = BUTF8.fromString "PING"
+cmd_PING = "PING"
 
 cmd_PONG :: MessageCommand
-cmd_PONG = BUTF8.fromString "PONG"
+cmd_PONG = "PONG"
 
 rpl_WELCOME :: MessageCommand
-rpl_WELCOME = BUTF8.fromString "001"
+rpl_WELCOME = "001"
 
 rpl_YOURHOST :: MessageCommand
-rpl_YOURHOST = BUTF8.fromString "002"
+rpl_YOURHOST = "002"
 
 rpl_CREATED :: MessageCommand
-rpl_CREATED = BUTF8.fromString "003"
+rpl_CREATED = "003"
 
 rpl_MYINFO :: MessageCommand
-rpl_MYINFO = BUTF8.fromString "004"
+rpl_MYINFO = "004"
 
 rpl_BOUNCE :: MessageCommand
-rpl_BOUNCE = BUTF8.fromString "005"
+rpl_BOUNCE = "005"
 
 rpl_USERHOST :: MessageCommand
-rpl_USERHOST = BUTF8.fromString "302"
+rpl_USERHOST = "302"
 
 rpl_ISON :: MessageCommand
-rpl_ISON = BUTF8.fromString "303"
+rpl_ISON = "303"
 
 rpl_AWAY :: MessageCommand
-rpl_AWAY = BUTF8.fromString "301"
+rpl_AWAY = "301"
 
 rpl_UNAWAY :: MessageCommand
-rpl_UNAWAY = BUTF8.fromString "305"
+rpl_UNAWAY = "305"
 
 rpl_NOAWAY :: MessageCommand
-rpl_NOAWAY = BUTF8.fromString "306"
+rpl_NOAWAY = "306"
 
 rpl_WHOISUSER :: MessageCommand
-rpl_WHOISUSER = BUTF8.fromString "311"
+rpl_WHOISUSER = "311"
 
 rpl_WHOISSERVER :: MessageCommand
-rpl_WHOISSERVER = BUTF8.fromString "312"
+rpl_WHOISSERVER = "312"
 
 rpl_WHOISOPERATOR :: MessageCommand
-rpl_WHOISOPERATOR = BUTF8.fromString "313"
+rpl_WHOISOPERATOR = "313"
 
 rpl_WHOISIDLE :: MessageCommand
-rpl_WHOISIDLE = BUTF8.fromString "317"
+rpl_WHOISIDLE = "317"
 
 rpl_ENDOFWHOIS :: MessageCommand
-rpl_ENDOFWHOIS = BUTF8.fromString "318"
+rpl_ENDOFWHOIS = "318"
 
 rpl_WHOISCHANNELS :: MessageCommand
-rpl_WHOISCHANNELS = BUTF8.fromString "319"
+rpl_WHOISCHANNELS = "319"
 
 rpl_WHOWASUSER :: MessageCommand
-rpl_WHOWASUSER = BUTF8.fromString "314"
+rpl_WHOWASUSER = "314"
 
 rpl_ENDOFWHOWAS :: MessageCommand
-rpl_ENDOFWHOWAS = BUTF8.fromString "369"
+rpl_ENDOFWHOWAS = "369"
 
 rpl_LISTSTART :: MessageCommand
-rpl_LISTSTART = BUTF8.fromString "321"
+rpl_LISTSTART = "321"
 
 rpl_LIST :: MessageCommand
-rpl_LIST = BUTF8.fromString "322"
+rpl_LIST = "322"
 
 rpl_LISTEND :: MessageCommand
-rpl_LISTEND = BUTF8.fromString "323"
+rpl_LISTEND = "323"
 
 rpl_UNIQOPIS :: MessageCommand
-rpl_UNIQOPIS = BUTF8.fromString "325"
+rpl_UNIQOPIS = "325"
 
 rpl_CHANNELMODEIS :: MessageCommand
-rpl_CHANNELMODEIS = BUTF8.fromString "324"
+rpl_CHANNELMODEIS = "324"
 
 rpl_NOTOPIC :: MessageCommand
-rpl_NOTOPIC = BUTF8.fromString "331"
+rpl_NOTOPIC = "331"
 
 rpl_TOPIC :: MessageCommand
-rpl_TOPIC = BUTF8.fromString "332"
+rpl_TOPIC = "332"
 
 rpl_TOPICWHOTIME :: MessageCommand
-rpl_TOPICWHOTIME = BUTF8.fromString "333"
+rpl_TOPICWHOTIME = "333"
 
 rpl_INVITING :: MessageCommand
-rpl_INVITING = BUTF8.fromString "341"
+rpl_INVITING = "341"
 
 rpl_SUMMONING :: MessageCommand
-rpl_SUMMONING = BUTF8.fromString "342"
+rpl_SUMMONING = "342"
 
 rpl_INVITELIST :: MessageCommand
-rpl_INVITELIST = BUTF8.fromString "346"
+rpl_INVITELIST = "346"
 
 rpl_ENDOFINVITELIST :: MessageCommand
-rpl_ENDOFINVITELIST = BUTF8.fromString "347"
+rpl_ENDOFINVITELIST = "347"
 
 rpl_EXCEPTLIST :: MessageCommand
-rpl_EXCEPTLIST = BUTF8.fromString "348"
+rpl_EXCEPTLIST = "348"
 
 rpl_ENDOFEXCEPTLIST :: MessageCommand
-rpl_ENDOFEXCEPTLIST = BUTF8.fromString "349"
+rpl_ENDOFEXCEPTLIST = "349"
 
 rpl_VERSION :: MessageCommand
-rpl_VERSION = BUTF8.fromString "351"
+rpl_VERSION = "351"
 
 rpl_WHOREPLY :: MessageCommand
-rpl_WHOREPLY = BUTF8.fromString "352"
+rpl_WHOREPLY = "352"
 
 rpl_ENDOFWHO :: MessageCommand
-rpl_ENDOFWHO = BUTF8.fromString "315"
+rpl_ENDOFWHO = "315"
 
 rpl_NAMREPLY :: MessageCommand
-rpl_NAMREPLY = BUTF8.fromString "353"
+rpl_NAMREPLY = "353"
 
 rpl_ENDOFNAMES :: MessageCommand
-rpl_ENDOFNAMES = BUTF8.fromString "366"
+rpl_ENDOFNAMES = "366"
 
 rpl_LINKS :: MessageCommand
-rpl_LINKS = BUTF8.fromString "364"
+rpl_LINKS = "364"
 
 rpl_ENDOFLINKS :: MessageCommand
-rpl_ENDOFLINKS = BUTF8.fromString "365"
+rpl_ENDOFLINKS = "365"
 
 rpl_BANLIST :: MessageCommand
-rpl_BANLIST = BUTF8.fromString "367"
+rpl_BANLIST = "367"
 
 rpl_ENDOFBANLIST :: MessageCommand
-rpl_ENDOFBANLIST = BUTF8.fromString "368"
+rpl_ENDOFBANLIST = "368"
 
 rpl_INFO :: MessageCommand
-rpl_INFO = BUTF8.fromString "371"
+rpl_INFO = "371"
 
 rpl_ENDOFINFO :: MessageCommand
-rpl_ENDOFINFO = BUTF8.fromString "374"
+rpl_ENDOFINFO = "374"
 
 rpl_MOTDSTART :: MessageCommand
-rpl_MOTDSTART = BUTF8.fromString "375"
+rpl_MOTDSTART = "375"
 
 rpl_MOTD :: MessageCommand
-rpl_MOTD = BUTF8.fromString "372"
+rpl_MOTD = "372"
 
 rpl_ENDOFMOTD :: MessageCommand
-rpl_ENDOFMOTD = BUTF8.fromString "376"
+rpl_ENDOFMOTD = "376"
 
 rpl_YOUREOPER :: MessageCommand
-rpl_YOUREOPER = BUTF8.fromString "381"
+rpl_YOUREOPER = "381"
 
 rpl_REHASHING :: MessageCommand
-rpl_REHASHING = BUTF8.fromString "382"
+rpl_REHASHING = "382"
 
 rpl_YOURESERVICE :: MessageCommand
-rpl_YOURESERVICE = BUTF8.fromString "383"
+rpl_YOURESERVICE = "383"
 
 rpl_TIME :: MessageCommand
-rpl_TIME = BUTF8.fromString "391"
+rpl_TIME = "391"
 
 rpl_USERSSTART :: MessageCommand
-rpl_USERSSTART = BUTF8.fromString "392"
+rpl_USERSSTART = "392"
 
 rpl_USERS :: MessageCommand
-rpl_USERS = BUTF8.fromString "393"
+rpl_USERS = "393"
 
 rpl_ENDOFUSERS :: MessageCommand
-rpl_ENDOFUSERS = BUTF8.fromString "394"
+rpl_ENDOFUSERS = "394"
 
 rpl_NOUSERS :: MessageCommand
-rpl_NOUSERS = BUTF8.fromString "395"
+rpl_NOUSERS = "395"
 
 rpl_TRACELINK :: MessageCommand
-rpl_TRACELINK = BUTF8.fromString "200"
+rpl_TRACELINK = "200"
 
 rpl_TRACECONNECTING :: MessageCommand
-rpl_TRACECONNECTING = BUTF8.fromString "201"
+rpl_TRACECONNECTING = "201"
 
 rpl_TRACEHANDSHAKE :: MessageCommand
-rpl_TRACEHANDSHAKE = BUTF8.fromString "202"
+rpl_TRACEHANDSHAKE = "202"
 
 rpl_TRACEUNKNOWN :: MessageCommand
-rpl_TRACEUNKNOWN = BUTF8.fromString "203"
+rpl_TRACEUNKNOWN = "203"
 
 rpl_TRACEOPERATOR :: MessageCommand
-rpl_TRACEOPERATOR = BUTF8.fromString "204"
+rpl_TRACEOPERATOR = "204"
 
 rpl_TRACEUSER :: MessageCommand
-rpl_TRACEUSER = BUTF8.fromString "205"
+rpl_TRACEUSER = "205"
 
 rpl_TRACESERVER :: MessageCommand
-rpl_TRACESERVER = BUTF8.fromString "206"
+rpl_TRACESERVER = "206"
 
 rpl_TRACESERVICE :: MessageCommand
-rpl_TRACESERVICE = BUTF8.fromString "207"
+rpl_TRACESERVICE = "207"
 
 rpl_TRACENEWTYPE :: MessageCommand
-rpl_TRACENEWTYPE = BUTF8.fromString "208"
+rpl_TRACENEWTYPE = "208"
 
 rpl_TRACECLASS :: MessageCommand
-rpl_TRACECLASS = BUTF8.fromString "209"
+rpl_TRACECLASS = "209"
 
 rpl_TRACERECONNECT :: MessageCommand
-rpl_TRACERECONNECT = BUTF8.fromString "210"
+rpl_TRACERECONNECT = "210"
 
 rpl_TRACELOG :: MessageCommand
-rpl_TRACELOG = BUTF8.fromString "261"
+rpl_TRACELOG = "261"
 
 rpl_TRACEEND :: MessageCommand
-rpl_TRACEEND = BUTF8.fromString "262"
+rpl_TRACEEND = "262"
 
 rpl_STATSLINKINFO :: MessageCommand
-rpl_STATSLINKINFO = BUTF8.fromString "211"
+rpl_STATSLINKINFO = "211"
 
 rpl_STATSCOMMANDS :: MessageCommand
-rpl_STATSCOMMANDS = BUTF8.fromString "212"
+rpl_STATSCOMMANDS = "212"
 
 rpl_ENDOFSTATS :: MessageCommand
-rpl_ENDOFSTATS = BUTF8.fromString "219"
+rpl_ENDOFSTATS = "219"
 
 rpl_STATSUPTIME :: MessageCommand
-rpl_STATSUPTIME = BUTF8.fromString "242"
+rpl_STATSUPTIME = "242"
 
 rpl_STATSOLINE :: MessageCommand
-rpl_STATSOLINE = BUTF8.fromString "243"
+rpl_STATSOLINE = "243"
 
 rpl_UMODEIS :: MessageCommand
-rpl_UMODEIS = BUTF8.fromString "221"
+rpl_UMODEIS = "221"
 
 rpl_SERVLIST :: MessageCommand
-rpl_SERVLIST = BUTF8.fromString "234"
+rpl_SERVLIST = "234"
 
 rpl_SERVLISTEND :: MessageCommand
-rpl_SERVLISTEND = BUTF8.fromString "235"
+rpl_SERVLISTEND = "235"
 
 rpl_LUSERCLIENT :: MessageCommand
-rpl_LUSERCLIENT = BUTF8.fromString "251"
+rpl_LUSERCLIENT = "251"
 
 rpl_LUSEROP :: MessageCommand
-rpl_LUSEROP = BUTF8.fromString "252"
+rpl_LUSEROP = "252"
 
 rpl_LUSERUNKNOWN :: MessageCommand
-rpl_LUSERUNKNOWN = BUTF8.fromString "253"
+rpl_LUSERUNKNOWN = "253"
 
 rpl_LUSERCHANNELS :: MessageCommand
-rpl_LUSERCHANNELS = BUTF8.fromString "254"
+rpl_LUSERCHANNELS = "254"
 
 rpl_LUSERME :: MessageCommand
-rpl_LUSERME = BUTF8.fromString "255"
+rpl_LUSERME = "255"
 
 rpl_ADMINME :: MessageCommand
-rpl_ADMINME = BUTF8.fromString "256"
+rpl_ADMINME = "256"
 
 rpl_ADMINLOC1 :: MessageCommand
-rpl_ADMINLOC1 = BUTF8.fromString "257"
+rpl_ADMINLOC1 = "257"
 
 rpl_ADMINLOC2 :: MessageCommand
-rpl_ADMINLOC2 = BUTF8.fromString "258"
+rpl_ADMINLOC2 = "258"
 
 rpl_ADMINEMAIL :: MessageCommand
-rpl_ADMINEMAIL = BUTF8.fromString "259"
+rpl_ADMINEMAIL = "259"
 
 rpl_TRYAGAIN :: MessageCOmmand
-rpl_TRYAGAIN = BUTF8.fromString "263"
+rpl_TRYAGAIN = "263"
 
 err_NOSUCHNICK :: MessageCommand
-err_NOSUCHNICK = BUTF8.fromString "401"
+err_NOSUCHNICK = "401"
 
 err_NOSUCHSERVER :: MessageCommand
-err_NOSUCHSERVER = BUTF8.fromString "402"
+err_NOSUCHSERVER = "402"
 
 err_NOSUCHCHANNEL :: MessageCommand
-err_NOSUCHCHANNEL = BUTF8.fromString "403"
+err_NOSUCHCHANNEL = "403"
 
 err_CANNOTSENDTOCHAN :: MessageCommand
-err_CANNOTSENDTOCHAN = BUTF8.fromString "404"
+err_CANNOTSENDTOCHAN = "404"
 
 err_TOOMANYCHANNELS :: MessageCommand
-err_TOOMANYCHANNELS = BUTF8.fromString "405"
+err_TOOMANYCHANNELS = "405"
 
 err_WASNOSUCHNICK :: MessageCommand
-err_WASNOSUCHNICK = BUTF8.fromString "406"
+err_WASNOSUCHNICK = "406"
 
 err_TOOMANYTARGETS :: MessageCommand
-err_TOOMANYTARGETS = BUTF8.fromString "407"
+err_TOOMANYTARGETS = "407"
 
 err_NOSUCHSERVICE :: MessageCommand
-err_NOSUCHSERVICE = BUTF8.fromString "408"
+err_NOSUCHSERVICE = "408"
 
 err_NOORIGIN :: MessageCommand
-err_NOORIGIN = BUTF8.fromString "409"
+err_NOORIGIN = "409"
 
 err_NORECIPIENT :: MessageCommand
-err_NORECIPIENT = BUTF8.fromString "411"
+err_NORECIPIENT = "411"
 
 err_NOTEXTTOSEND :: MessageCommand
-err_NOTEXTTOSEND = BUTF8.fromString "412"
+err_NOTEXTTOSEND = "412"
 
 err_NOTOPLEVEL :: MessageCommand
-err_NOTOPLEVEL = BUTF8.fromString "413"
+err_NOTOPLEVEL = "413"
 
 err_WILDTOPLEVEL :: MessageCommand
-err_WILDTOPLEVEL = BUTF8.fromString "414"
+err_WILDTOPLEVEL = "414"
 
 err_BADMASK :: MessageCommand
-err_BADMASK = BUTF8.fromString "415"
+err_BADMASK = "415"
 
 err_UNKNOWNCOMMAND :: MessageCommand
-err_UNKNOWNCOMMAND = BUTF8.fromString "421"
+err_UNKNOWNCOMMAND = "421"
 
 err_NOMOTD :: MessageCommand
-err_NOMOTD = BUTF8.fromString "422"
+err_NOMOTD = "422"
 
 err_NOADMININFO :: MessageCommand
-err_NOADMININFO = BUTF8.fromString "423"
+err_NOADMININFO = "423"
 
 err_FILEERROR :: MessageCommand
-err_FILEERROR = BUTF8.fromString "424"
+err_FILEERROR = "424"
 
 err_NONICKNAMEGIVEN :: MessageCommand
-err_NONICKNAMEGIVEN = BUTF8.fromString "431"
+err_NONICKNAMEGIVEN = "431"
 
 err_ERRONEUSNICKNAME :: MessageCommand
-err_ERRONEUSNICKNAME = BUTF8.fromString "432"
+err_ERRONEUSNICKNAME = "432"
 
 err_NICKNAMEINUSE :: MessageCommand
-err_NICKNAMEINUSE = BUTF8.fromString "433"
+err_NICKNAMEINUSE = "433"
 
 err_NICKCOLLISION :: MessageCommand
-err_NICKCOLLISION = BUTF8.fromString "436"
+err_NICKCOLLISION = "436"
 
 err_UNAVAILRESOURCE :: MessageCommand
-err_UNAVAILRESOURCE = BUTF8.fromString "437"
+err_UNAVAILRESOURCE = "437"
 
 err_USERNOTINCHANNEL :: MessageCommand
-err_USERNOTINCHANNEL = BUTF8.fromString "441"
+err_USERNOTINCHANNEL = "441"
 
 err_NOTONCHANNEL :: MessageCommand
-err_NOTONCHANNEL = BUTF8.fromString "442"
+err_NOTONCHANNEL = "442"
 
 err_USERONCHANNEL :: MessageCommand
-err_USERONCHANNEL = BUTF8.fromString "443"
+err_USERONCHANNEL = "443"
 
 err_NOLOGIN :: MessageCommand
-err_NOLOGIN = BUTF8.fromString "444"
+err_NOLOGIN = "444"
 
 err_SUMMONDISABLED :: MessageCommand
-err_SUMMONDISABLED = BUTF8.fromString "445"
+err_SUMMONDISABLED = "445"
 
 err_USERSDISABLED :: MessageCommand
-err_USERSDISABLED = BUTF8.fromString "446"
+err_USERSDISABLED = "446"
 
 err_NOTREGISTERED :: MessageCommand
-err_NOTREGISTERED = BUTF8.fromString "451"
+err_NOTREGISTERED = "451"
 
 err_NEEDMOREPARAMS :: MessageCommand
-err_NEEDMOREPARAMS = BUTF8.fromString "461"
+err_NEEDMOREPARAMS = "461"
 
 err_ALREADYREGISTERED :: MessageCommand
-err_ALREADYREGISTERED = BUTF8.fromString "462"
+err_ALREADYREGISTERED = "462"
 
 err_NOPERMFORHOST :: MessageCommand
-err_NOPERMFORHOST = BUTF8.fromString "463"
+err_NOPERMFORHOST = "463"
 
 err_PASSWDMISMATCH :: MessageCommand
-err_PASSWDMISMATCH = BUTF8.fromString "464"
+err_PASSWDMISMATCH = "464"
 
 err_YOUREBANNEDCREEP :: MessageCommand
-err_YOUREBANNEDCREEP = BUTF8.fromString "465"
+err_YOUREBANNEDCREEP = "465"
 
 err_YOUWILLBEBANNED :: MessageCommand
-err_YOUWILLBEBANNED = BUTF8.fromString "466"
+err_YOUWILLBEBANNED = "466"
 
 err_KEYSET :: MessageCommand
-err_KEYSET = BUTF8.fromString "467"
+err_KEYSET = "467"
 
 err_CHANNELISFULL :: MessageCommand
-err_CHANNELISFULL = BUTF8.fromString "471"
+err_CHANNELISFULL = "471"
 
 err_UNKNOWNMODE :: MessageCommand
-err_UNKNOWNMODE = BUTF8.fromString "472"
+err_UNKNOWNMODE = "472"
 
 err_INVITEONLYCHAN :: MessageCommand
-err_INVITEONLYCHAN = BUTF8.fromString "473"
+err_INVITEONLYCHAN = "473"
 
 err_BANNEDFROMCHAN :: MessageCommand
-err_BANNEDFROMCHAN = BUTF8.fromString "474"
+err_BANNEDFROMCHAN = "474"
 
 err_BADCHANNELKEY :: MessageCommand
-err_BADCHANNELKEY = BUTF8.fromString "475"
+err_BADCHANNELKEY = "475"
 
 err_BADCHANMASK :: MessageCommand
-err_BADCHANMASK = BUTF8.fromString "476"
+err_BADCHANMASK = "476"
 
 err_NOCHANMODES :: MessageCommand
-err_NOCHANMODES = BUTF8.fromString "477"
+err_NOCHANMODES = "477"
 
 err_BANLISTFULL :: MessageCommand
-err_BANLISTFULL = BUTF8.fromString "478"
+err_BANLISTFULL = "478"
 
 err_NOPRIVILEGES :: MessageCommand
-err_NOPRIVILEGES = BUTF8.fromString "481"
+err_NOPRIVILEGES = "481"
 
 err_CHANOPRIVSNEEDED :: MessageCommand
-err_CHANOPRIVSNEEDED = BUTF8.fromString "482"
+err_CHANOPRIVSNEEDED = "482"
 
 err_CANTKILLSERVER :: MessageCommand
-err_CANTKILLSERVER = BUTF8.fromString "483"
+err_CANTKILLSERVER = "483"
 
 err_RESTRICTED :: MessageCommand
-err_RESTRICTED = BUTF8.fromString "484"
+err_RESTRICTED = "484"
 
 err_UNIQOPPRIVSNEEDED :: MessageCommand
-err_UNIQOPPRIVSNEEDED = BUTF8.fromString "485"
+err_UNIQOPPRIVSNEEDED = "485"
 
 err_NOOPERHOST :: MessageCommand
-err_NOOPERHOST = BUTF8.fromString "491"
+err_NOOPERHOST = "491"
 
 err_UMODEUNKNOWNFLAG :: MessageCommand
-err_UMODEUNKNOWNFLAG = BUTF8.fromString "501"
+err_UMODEUNKNOWNFLAG = "501"
 
 err_USERSDONTMATCH :: MessageCommand
-err_USERSDONTMATCH = BUTF8.fromString "502"
+err_USERSDONTMATCH = "502"
 
 -- Nonstandard reply and error codes
 
 rpl_SERVICEINFO :: MessageCommand
-rpl_SERVICEINFO = BUTF8.fromString "231"
+rpl_SERVICEINFO = "231"
 
 rpl_ENDOFSERVICES :: MessageCommand
-rpl_ENDOFSERVICES = BUTF8.fromString "232"
+rpl_ENDOFSERVICES = "232"
 
 rpl_SERVICE :: MessageCommand
-rpl_SERVICE = BUTF8.fromString "233"
+rpl_SERVICE = "233"
 
 rpl_NONE :: MessageCommand
-rpl_NONE = BUTF8.fromString "300"
+rpl_NONE = "300"
 
 rpl_WHOISCHANOP :: MessageCommand
-rpl_WHOISCHANOP = BUTF8.fromString "316"
+rpl_WHOISCHANOP = "316"
 
 rpl_KILLDONE :: MessageCommand
-rpl_KILLDONE = BUTF8.fromString "361"
+rpl_KILLDONE = "361"
 
 rpl_CLOSING :: MessageCommand
-rpl_CLOSING = BUTF8.fromString "362"
+rpl_CLOSING = "362"
 
 rpl_CLOSEEND :: MessageCommand
-rpl_CLOSEEND = BUTF8.fromString "363"
+rpl_CLOSEEND = "363"
 
 rpl_INFOSTART :: MessageCommand
-rpl_INFOSTART = BUTF8.fromString "373"
+rpl_INFOSTART = "373"
 
 rpl_MYPORTIS :: MessageCommand
-rpl_MYPORTIS = BUTF8.fromString "384"
+rpl_MYPORTIS = "384"
 
 rpl_STATSCLINE :: MessageCommand
-rpl_STATSCLINE = BUTF8.fromString "213"
+rpl_STATSCLINE = "213"
 
 rpl_STATSNLINE :: MessageCommand
-rpl_STATSNLINE = BUTF8.fromString "214"
+rpl_STATSNLINE = "214"
 
 rpl_STATSILINE :: MessageCommand
-rpl_STATSILINE = BUTF8.fromString "215"
+rpl_STATSILINE = "215"
 
 rpl_STATSKLINE :: MessageCommand
-rpl_STATSKLINE = BUTF8.fromString "216"
+rpl_STATSKLINE = "216"
 
 rpl_STATSQLINE :: MessageCommand
-rpl_STATSQLINE = BUTF8.fromString "217"
+rpl_STATSQLINE = "217"
 
 rpl_STATSYLINE :: MessageCommand
-rpl_STATSYLINE = BUTF8.fromString "218"
+rpl_STATSYLINE = "218"
 
 rpl_STATSIAUTH :: MessageCommand
-rpl_STATSIAUTH = BUTF8.fromString "239"
+rpl_STATSIAUTH = "239"
 
 rpl_STATSVLINE :: MessageCommand
-rpl_STATSVLINE = BUTF8.fromString "240"
+rpl_STATSVLINE = "240"
 
 rpl_STATSLLINE :: MessageCommand
-rpl_STATSLLINE = BUTF8.fromString "241"
+rpl_STATSLLINE = "241"
 
 rpl_STATSUPTIME :: MessageCommand
-rpl_STATSUPTIME = BUTF8.fromString "242"
+rpl_STATSUPTIME = "242"
 
 rpl_STATSOLINE :: MessageCommand
-rpl_STATSOLINE = BUTF8.fromString "243"
+rpl_STATSOLINE = "243"
 
 rpl_STATSHLINE :: MessageCommand
-rpl_STATSHLINE = BUTF8.fromString "244"
+rpl_STATSHLINE = "244"
 
 rpl_STATSSLINE :: MessageCommand
-rpl_STATSSLINE = BUTF8.fromString "245"
+rpl_STATSSLINE = "245"
 
 rpl_STATSPING :: MessageCommand
-rpl_STATSPING = BUTF8.fromString "246"
+rpl_STATSPING = "246"
 
 rpl_STATSBLINE :: MessageCommand
-rpl_STATSBLINE = BUTF8.fromString "247"
+rpl_STATSBLINE = "247"
 
 rpl_STATSGLINE :: MessageCommand
-rpl_STATSGLINE = BUTF8.fromString "247"
+rpl_STATSGLINE = "247"
 
 rpl_STATSXLINE :: MessageCommand
-rpl_STATSXLINE = BUTF8.fromString "247"
+rpl_STATSXLINE = "247"
 
 rpl_STATSDEFINE :: MessageCommand
-rpl_STATSDEFINE = BUTF8.fromString "248"
+rpl_STATSDEFINE = "248"
 
 rpl_STATSULINE :: MessageCommand
-rpl_STATSULINE = BUTF8.fromString "248"
+rpl_STATSULINE = "248"
 
 rpl_STATSDEBUG :: MessageCommand
-rpl_STATSDEBUG = BUTF8.fromString "249"
+rpl_STATSDEBUG = "249"
 
 rpl_STATSDLINE :: MessageCommand
-rpl_STATSDLINE = BUTF8.fromString "250"
+rpl_STATSDLINE = "250"
 
 rpl_STATSCONN :: MessageCommand
-rpl_STATSCONN = BUTF8.fromString "250"
+rpl_STATSCONN = "250"
 
 err_NOSERVICEHOST :: MessageCommand
-err_NOSERVICEHOST = BUTF8.fromString "492"
+err_NOSERVICEHOST = "492"
 
 err_OTHER :: MessageCommand
-err_OTHER = BUTF8.fromString "500"
+err_OTHER = "500"
+
+-- CTCP requests/replies
 
 ctcp_ACTION :: CtcpCommand
-ctcp_ACTION = BUTF8.fromString "ACTION"
+ctcp_ACTION = "ACTION"
 
 ctcp_FINGER :: CtcpCommand
-ctcp_FINGER = BUTF8.fromString "FINGER"
+ctcp_FINGER = "FINGER"
 
 ctcp_VERSION :: CtcpCommand
-ctcp_VERSION = BUTF8.fromString "VERSION"
+ctcp_VERSION = "VERSION"
 
 ctcp_SOURCE :: CtcpCommand
-ctcp_SOURCE = BUTF8.fromString "SOURCE"
+ctcp_SOURCE = "SOURCE"
 
 ctcp_USERINFO :: CtcpCommand
-ctcp_USERINFO = BUTF8.fromString "USERINFO"
+ctcp_USERINFO = "USERINFO"
 
 ctcp_CLIENTINFO :: CtcpCommand
-ctcp_CLIENTINFO = BUTF8.fromString "CLIENTINFO"
+ctcp_CLIENTINFO = "CLIENTINFO"
 
 ctcp_ERRMSG :: CtcpCommand
-ctcp_ERRMSG = BUTF8.fromString "ERRMSG"
+ctcp_ERRMSG = "ERRMSG"
 
 ctcp_PING :: CtcpCommand
-ctcp_PING = BUTF8.fromString "PING"
+ctcp_PING = "PING"
 
 ctcp_TIME :: CtcpCommand
-ctcp_TIME = BUTF8.fromString "TIME"
+ctcp_TIME = "TIME"
