@@ -53,6 +53,8 @@ module Network.IRC.Client.Amphibian.Frontend.Vty.VtyFrontend
         unregisterWindowServer,
         registerWindow,
         unregisterWindow,
+        prevWindow,
+        nextWindow,
         redraw)
 
        where
@@ -73,6 +75,7 @@ import Data.Functor ((<$>))
 import Data.Foldable (toList)
 import Control.Concurrent.STM (STM,
                                TVar,
+                               TMVar,
                                TChan,
                                atomically,
                                orElse,
@@ -80,6 +83,9 @@ import Control.Concurrent.STM (STM,
                                newTVar,
                                readTVar,
                                writeTVar,
+                               newTMVar,
+                               putTMVar,
+                               takeTMVar,
                                readTChan)
 import Control.Concurrent.Async (Async,
                                  async)
@@ -151,10 +157,11 @@ new intf = do
   frontendSubscription <- newTVar Nothing
   running <- newTVar False
   vty <- newTVar Nothing
-  vtyEvents <- newTVar Nothing
+  vtyMutex <- newTMVar ()
   currentWindow <- newTVar Nothing
   currentWindowIndex <- newTVar Nothing
   windows <- newTVar []
+  windowServer <- newTVar Nothing
   keyMappings <- newTVar M.empty
   unmappedKeyHandlers <- newTVar []
   return $ VtyFrontend { vtfrInterface = intf,
@@ -162,12 +169,13 @@ new intf = do
                          vtfrFrontendSubscription = frontendSubscription,
                          vtfrRunning = running,
                          vtfrVty = vty,
-                         vtfrVtyEvents = vtyEvents,
+                         vtfrVtyMutex = vtyMutex,
                          vtfrCurrentWindow = currentWindow,
                          vtfrCurrentWindowIndex = currentWindowIndex,
+                         vtfrWindows = windows,
+                         vtfrWindowServer = windowServer,
                          vtfrKeyMappings = keyMappings,
-                         vtfrUnmappedKeyHandlers = unmappedKeyHandlers,
-                         vtfrWindows = windows }
+                         vtfrUnmappedKeyHandlers = unmappedKeyHandlers }
 
 -- | Start a Vty frontend.
 start :: VtyFrontend -> AM ()
@@ -181,8 +189,8 @@ start vtyFrontend = do
         then do
           writeTVar (vtfrRunning vtyFrontend) True
           writeTVar (vtfrFrontend vtyFrontend) $ Just frontend
-          subscription <- F.subscribeOutput frontend
-          writeTVar (vtfrFrontendSubscription vtyFrontend) $ Just subscription
+          frontendSubscription <- F.subscribeOutput frontend
+          writeTVar (vtfrFrontendSubscription vtyFrontend) $ Just frontendSubscription
           return $ liftIO . async $ runAM (start' vtyFrontend) (vtfrInterface vtyFrontend)
         else return $ return ()
   where start' vtyFrontend = do
@@ -230,12 +238,6 @@ unregisterUnmappedKeyHandler handler = do
   keyHandlers <- readTVar . vtfrUnmappedKeyHandlers $ vtkhFrontend handler
   writeTVar (vtfrUnmappedKeyHandlers vtyFrontend) $ filter (/= handler) keyHandlers
 
--- | Run the Vty frontend.
-runVtyFrontend :: VtyFrontend -> AM ()
-runVtyFrontend vtyFrontend = do
-  continue <- join . liftIO . atomically $ do
-    handleFrontend vtyFrontend `orElse` handleVty vtyFrontend
-
 -- | Register window server.
 registerWindowServer :: VtyFrontend -> VtyWindowServer -> STM ()
 registerWindowServer vtyFrontend vtyWindowServer = do
@@ -281,21 +283,69 @@ unregisterWindow vtyFrontend vtyWindow = do
               then do writeTVar (vtfrCurrentWindowIndex vtyFrontend) . Just $ index - 1
                       let newCurrentWindow = S.index windows $ index - 1
                       writeTVar (vtfrCurrentWindow vtyFrontend) $ Just newCurrentWindow
-                      F.setFocus (vtwiFrame newCurrentWindow) True
+                      Fr.setFocus (vtwiFrame newCurrentWindow) True
               else if S.length windows > 1
                    then do writeTVar (vtfrCurrentWindowIndex vtyFrontend) $ Just 0
                            let newCurrentWIndow = S.index windows 1
                            writeTVar (vtfrCurrentWindow vtyFrontend) $ Just newCurrentWindow
-                           F.setFocus (vtwiFrame newCurrentWindow) True
+                           Fr.setFocus (vtwiFrame newCurrentWindow) True
                    else do writeTVar (vtfrCurrentWindowIndex vtyFrontend) Nothing
                            writeTVar (vtfrCurrentWindow vtyFrontend) Nothing
+        | otherwise -> do
+            currentWindowIndex <- readTVar $ vtfrCurrentWindowIndex vtyFrontend
+            case currentWindowIndex of
+             Just currentWindowIndex
+               | index < currentWindowIndex ->
+                   writeTVar (vtfrCurrentWindowIndex vtyFrontend) . Just $ currentWindowIndex - 1
+             _ -> return ()
       _ -> return ()
    Nothing -> return ()
+
+-- | Change to the previous window.
+prevWindow :: VtyFrontend -> STM ()
+prevWindow vtyFrontend = do
+  currentWindow <- readTVar $ vtfrCurrentWindow vtyFrontend
+  currentWindowIndex <- readTVar $ vtfrCurrentWindowIndex vtfrFrontend
+  windows <- readTVar $ vtfrWindows vtrFrontend
+  if S.length windows > 1
+    then case (currentWindow, currentWindowIndex) of
+          (Just currentWindow, Just currentWindowIndex) ->
+            Fr.setFocus (vtwiFrame currentWindow) False
+            let newCurrentWindowIndex = if currentWindowIndex > 0
+                                        then currentWindowIndex - 1
+                                        else S.length windows - 1 in
+            let newCurrentWindow = S.index newCurrentWindowIndex in
+            Fr.setFocus (vtwiFrame newCurrentWindow) True
+            writeTVar (vtfrCurrentWindow vtyFrontend) $ Just newCurrentWindow
+            writeTVar (vtfrCurrentWindowIndex vtyFrontend) $ Just newCurrentWindowIndex
+         _ -> return ()
+    else return ()
+
+-- | Change to the next window.
+nextWindow :: VtyFrontend -> STM ()
+nextWindow vtyFrontend = do
+  currentWindow <- readTVar $ vtfrCurrentWindow vtyFrontend
+  currentWindowIndex <- readTVar $ vtfrCurrentWindowIndex vtfrFrontend
+  windows <- readTVar $ vtfrWindows vtrFrontend
+  if S.length windows > 1
+    then case (currentWindow, currentWindowIndex) of
+          (Just currentWindow, Just currentWindowIndex) ->
+            Fr.setFocus (vtwiFrame currentWindow) False
+            let newCurrentWindowIndex = if currentWindowIndex < S.length windows - 1
+                                        then currentWindowIndex + 1
+                                        else 0 in
+            let newCurrentWindow = S.index newCurrentWindowIndex in
+            Fr.setFocus (vtwiFrame newCurrentWindow) True
+            writeTVar (vtfrCurrentWindow vtyFrontend) $ Just newCurrentWindow
+            writeTVar (vtfrCurrentWindowIndex vtyFrontend) $ Just newCurrentWindowIndex
+         _ -> return ()
+    else return ()
 
 -- | Redraw Vty frontend.
 redraw :: VtyFrontend -> AM ()
 redraw vtyFrontend = do
   join . liftIO . atomically $ do
+    takeTMVar $ vtfrVtyMutex vtyFrontend
     vty <- readTVar $ vtfrVty vtyFrontend
     width <- readTVar $ vtfrWidth vtyFrontend
     height <- readTVar $ vtfrHeight vtyFrontend
@@ -376,7 +426,8 @@ redraw vtyFrontend = do
                                             descrImageBackground],
                                picBackground = VP.ClearBackground } in
     case vty of
-     Just vty -> return $ liftIO $ V.update vty picture
+     Just vty -> return $ do liftIO $ V.update vty picture
+                             liftIO . atomically . putTMVar $ vtfrVtyMutex vtyFrontend ()
      Nothing -> return $ return ()
   where fixedScrollImage width height bufferLines position image
           | position >= 0 && VIm.imageHeight image < height =
@@ -388,6 +439,37 @@ redraw vtyFrontend = do
               dynamicScrollImage width height bufferLines (position + 1)
               (convertStyledTextLines width (S.index bufferLines position) <-> image)
           | otherwise = image
+
+-- | Run the Vty frontend.
+runVtyFrontend :: VtyFrontend -> AM ()
+runVtyFrontend vtyFrontend = do
+  continue <- join . liftIO . atomically $ handleFrontend vtyFrontend `orElse` handleVty vtyFrontend
+  if continue
+    then runVtyFrontend vtyFrontend
+    else return ()
+
+-- | Handle frontend event.
+handleFrontend :: VtyFrontend -> STM (AM Bool)
+handleFrontend vtyFrontend = do
+  subscription <- readTVar $ vtfrFrontendSubscription vtyFrontend
+  case subscription of
+   Just subscription -> do
+     event <- F.recvOutput subscription
+     case event of
+      FroeStop -> do
+        vty <- readTVar $ vtfrVty vtyFrontend
+        writeTVar (vtfrVty vtyFrontend) Nothing
+        frontend <- readTVar $ vtfrFrontend vtyFrontend
+        case frontend of
+         Just frontend -> F.stopped frontend
+         Nothing -> return ()
+        return $ do
+          case vty of
+           Just vty -> V.shutdown vty
+           Nothing -> return ()
+           liftIO . atomically $ do
+          return True
+   Nothing -> retry
 
 -- | Handle Vty event.
 handleVty :: VtyFrontend -> STM (AM Bool)

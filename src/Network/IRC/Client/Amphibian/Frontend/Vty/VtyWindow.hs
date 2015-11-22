@@ -31,10 +31,6 @@
 module Network.IRC.Client.Amphibian.Frontend.Vty.VtyWindow
 
        (VtyWindow,
-        VtyWindowStartResponse,
-        new,
-        start,
-        waitStart,
         enterChar,
         enterLine,
         moveLeft,
@@ -69,47 +65,6 @@ import Data.Functor ((<$>))
 import qualified Data.Text as T
 import qualified Data.Sequence as S
 import Data.Sequence ((<|))
-
--- | Create a new window.
-new :: VtyFrontend -> Frame -> STM VtyWindow
-new vtyFrontend frame = do
-  subscription <- F.subscribeOutput frame
-  active <- newTVar Bool
-  bufferLines <- newTVar S.empty
-  bufferPosition <- newTVar VtbpDynamic
-  prevInputBufffer <- newTVar S.empty
-  prevInputPosition <- newTVar (-1)
-  inputText <- newTVar ST.empty
-  inputCursorPosition <- newTVar 0
-  inputVisiblePosition <- newTVar 0
-  return $ VtyWindow { vtwiFrontend = vtyFrontend,
-                       vtwiFrame = frame,
-                       vtwiSubscription = subscription,
-                       vtwiActive = active,
-                       vtwiBufferLines = bufferLines,
-                       vtwiBufferPosition = bufferPosition,
-                       vtwiPrevInputBuffer = prevInputBuffer,
-                       vtwiPrevInputPosition = prevInputPosition,
-                       vtwiInputText = inputText,
-                       vtwiInputCursorPosition = inputCursorPosition,
-                       vtwiInputVisiblePosition = inputVisiblePosition }
-
--- | Start handling frame output events for a window.
-start :: VtyWindow -> STM ()
-start vtyWIndow = do
-  response <- newEmptyTMVar
-  let response' = VtyWindowStartResponse response
-  windowServer <- VF.getWindowServer $ vtwiFrontend vtyWindow
-  case windowServer of
-   Just windowServer -> writeTQueue (vtwsActions windowServer) $ VtwsStartWindow vtyWindow response'
-   Nothing -> do
-     errorText <- I.lookupText (VF.getInterface $ vtwiFrontend vtyWIndow) "Window server is not registered"
-     putTMVar response . Left $ Error [errorText]
-  return response'
-
--- | Wait for response to starting handling frame output events for a window.
-waitStart :: VtyWindowStartResponse -> STM (Either Error ())
-waitStart (VtyWindowStartResponse resonse) = readTMVar response
 
 -- | Enter a character in the input for a window.
 enterChar :: VtyWindow -> Char -> STM ()

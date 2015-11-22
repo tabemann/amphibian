@@ -804,11 +804,11 @@ data FrontendInputSubscription = FrontendInputSubscription (TChan FrontendInputE
 data FrontendOutputSubscription = FrontendOutputSubscription (TChan FrontendOutputEvent)
 
 -- | Frontend input events.
-data FrontendInputEvent = FrieStop
+data FrontendInputEvent = FrieStopped
                         deriving Eq
 
 -- | Frontend output events.
-data FrontendOutputEvent = FroeStopped
+data FrontendOutputEvent = FroeStop
                          deriving Eq
 
 -- | Frame.

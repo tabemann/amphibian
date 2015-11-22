@@ -58,6 +58,8 @@ installHandlers vtyFrontend = do
   VF.registerKeyHandler vtyFrontend VI.KDown [] handleDown
   VF.registerKeyHandler vtyFrontend VI.KPageUp [] handlePageUp
   VF.registerKeyHandler vtyFrontend VI.KPageDown [] handlePageDown
+  VF.registerKeyHandler vtyFrontend (VI.KChar 'p') [VI.MCtrl] handlePrevWindow
+  VF.registerKeyHandler vtyFrontend (VI.KChar 'n') [VI.MCtrl] handleNextWindow
 
 -- | Handle unmapped key.
 handleUnmapped :: VtyFrontend -> VI.Key -> [VI.Modifier] -> AM ()
@@ -165,3 +167,18 @@ handlePageDown vtyFrontend _ _ = do
      Nothing -> return $ return ()
   return True
 
+-- | Handle previous window.
+handlePrevWindow :: VtyFrontend -> VI.Key -> [VI.Modifier] -> AM ()
+handlePrevWindow vtyFrontend _ _ = do
+  join . liftIO . atomically $ do
+    VF.prevWindow vtyFrontend
+    return $ VF.redraw vtyFrontend
+  return True
+
+-- | Handle next window.
+handleNextWindow :: VtyFrontend -> VI.Key -> [VI.Modifier] -> AM ()
+handleNextWindow vtyFrontend _ _ = do
+  join . liftIO . atomically $ do
+    VF.nextWindow vtyFrontend
+    return $ VF.redraw vtyFrontend
+  return True

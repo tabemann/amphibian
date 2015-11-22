@@ -54,6 +54,7 @@ data VtyFrontend =
                 vtfrFrontendSubscription :: TVar (Maybe FrontendOutputSubscription),
                 vtfrRunning :: TVar Bool,
                 vtfrVty :: TVar (Maybe Vty),
+                vtfrVtyMutex :: TMVar (),
                 vtfrHeight :: TVar Int,
                 vtfrWidth :: TVar Int,
                 vtfrCurrentWindow :: TVar (Maybe VtyWindow),
@@ -82,20 +83,17 @@ data VtyWindow =
 -- | Vty window server type.
 data VtyWindowServer =
   VtyWindowServer { vtwsFrontend :: VtyFrontend,
+                    vtwsInterfaceSubscription :: InterfaceSubscription,
                     vtwsRunning :: TVar Bool,
                     vtwsActions :: TQueue VtyWindowServerAction }
   deriving Eq
 
 -- | Vty window server action type.
-data VtyWindowServerAction = VtwsStartWindow VtyWindow VtyWindowStartResponse
-                           | VtwsStop VtyWindowServerStopResponse
+data VtyWindowServerAction = VtwsStop VtyWindowServerStopResponse
                            deriving Eq
 
 -- | Vty window server stop response type.
 newtype VtyWindowServerStopResponse = VtyWindowServerStopResponse (TMVar (Either Error ()))
-
--- | Vty window start response type.
-newtype VtyWindowStartResponse = VtyWindowStartResponse (TMVar (Either Error ()))
 
 -- | Vty buffer position type.
 data VtyBufferPosition = VtbpFixed Int
