@@ -427,7 +427,7 @@ redraw vtyFrontend = do
                                picBackground = VP.ClearBackground } in
     case vty of
      Just vty -> return $ do liftIO $ V.update vty picture
-                             liftIO . atomically . putTMVar $ vtfrVtyMutex vtyFrontend ()
+                             liftIO . atomically $ putTMVar (vtfrVtyMutex vtyFrontend) ()
      Nothing -> return $ return ()
   where fixedScrollImage width height bufferLines position image
           | position >= 0 && VIm.imageHeight image < height =
