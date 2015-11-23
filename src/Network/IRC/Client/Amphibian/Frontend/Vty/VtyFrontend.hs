@@ -390,7 +390,7 @@ redraw vtyFrontend = do
              let scrollImage' = VIm.cropTop (max 0 $ (height - 2) - VIm.imageHeight topicImage') scrollImage'
              VIm.pad 0 ((height - 2) - VIm.imageHeight scrollImage') 0 0 scrollImage' in
     let descrImageLeft =
-          VIm.text' invAttr $ T.concat [" [", T.pack $ show currentWindowIndex, "] ", nick, " ", name, " "]
+          VIm.text' invAttr $ T.concat [" [", T.pack $ show currentWindowIndex, "] ", nick, " ", name, " "] in
     let findNotifiedWindows (index : rest) total prev =
           let indexLength = VIm.safeWcswidth $ show index in
           let indexLength' = if prev == [] then indexLength else indexLength + VIm.safeWcswidth ", " in
@@ -414,7 +414,7 @@ redraw vtyFrontend = do
                  Nothing -> visibleInputText in
           VIm.pad 0 (max 0 $ height - 1) 0 0 $ convertStyledTextLine visibleInputText' in
     let cursorX = VIm.safeWcswidth . T.unnpack . ST.removeStyle .
-                  ST.take (inputCursorPosition - inputVisiblePosition) $ ST.drop inputVisiblePosition inputText
+                  ST.take (inputCursorPosition - inputVisiblePosition) $ ST.drop inputVisiblePosition inputText in
     let picture = VP.Picture { picCursor = VP.Cursor cursorX (height - 1),
                                picLayers = [titleImage,
                                             topicImage',

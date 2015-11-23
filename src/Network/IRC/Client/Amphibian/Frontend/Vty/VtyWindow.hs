@@ -31,6 +31,7 @@
 module Network.IRC.Client.Amphibian.Frontend.Vty.VtyWindow
 
        (VtyWindow,
+        close,
         enterChar,
         enterLine,
         moveLeft,
@@ -65,6 +66,12 @@ import Data.Functor ((<$>))
 import qualified Data.Text as T
 import qualified Data.Sequence as S
 import Data.Sequence ((<|))
+
+-- | Close a window.
+close :: VtyWindow -> STM ()
+close vtyWindow = do
+  F.closed $ vtwiFrame vtyWindow
+  VF.unregisterWindow (vtwiFrontend vtyWindow) vtyWindow
 
 -- | Enter a character in the input for a window.
 enterChar :: VtyWindow -> Char -> STM ()

@@ -45,9 +45,16 @@ module Network.IRC.Client.Amphibian.StyledText
         append,
         appendUnstyled,
         insertUnstyled,
+        reverse,
         take,
+        takeEnd,
         drop,
+        dropEnd,
+        takeWhile,
+        dropWhile,
         splitAt,
+        span,
+        break,
         concat,
         intercalate,
         isForeColor,
@@ -129,6 +136,13 @@ insertUnstyled insertIndex insertedText styledText =
   let (beforeStyledText, afterStyledText) = splitAt insertIndex styledText in
   append (appendUnstyled beforeStyledText insertedText) afterStyledText
 
+-- | Reverse styled text.
+reverse :: StyledText -> StyledText
+reverse (StyledText xs) = reverse' xs []
+  where reverse' (StyledTextElement style text : rest) prev =
+          reverse' rest (StyledTextElement style (T.reverse text) : rest)
+        reverse' [] prev = StyledText prev
+
 -- | Take n characters from styled text.
 take :: Int -> StyledText -> StyledText
 take count (StyledText xs) = take' count xs []
@@ -138,6 +152,10 @@ take count (StyledText xs) = take' count xs []
           | otherwise = take' (count - T.length text) rest (x : prev)
         take' _  [] prev = StyledText $ reverse prev
 
+-- | Take n characters from the end of styled text.
+takeEnd :: Int -> StyledText -> StyledText
+takeEnd count styledText = reverse . take count $ reverse styledText
+
 -- | Drop n characters from styled text.
 drop :: Int -> StyledText -> StyledText
 drop count (StyledText xs) = drop' count xs
@@ -146,6 +164,30 @@ drop count (StyledText xs) = drop' count xs
             StyledText $ StyledTextElement style (T.drop count text) : rest
           | otherwise = drop' (count - T.length text) rest
         drop' _ [] = StyledText []
+
+-- | Drop n characters from theend of styled text.
+dropEnd :: Int -> StyledText -> StyledText
+dropEnd count styledText = reverse . drop count $ reverse styledText
+
+-- | Get the prefix fitting a predicate of styled text.
+takeWhile :: (Char -> Bool) -> StyledText -> StyledText
+takeWhile f (StyledText xs) = takeWhile' f xs []
+  where takeWhile' f (this@(StyledTextElement style text) : rest) prev =
+          let before = T.takeWhile f text in
+          if T.length text /= T.length before
+          then StyledText . reverse $ StyledTextElement style before : prev
+          else takeWhile' f rest (this : prev)
+        takeWhile' _ [] prev = StyledText $ reverse prev
+
+-- | Get the remainder not fitting a predicate  of styled text.
+dropWhile :: (Char -> Bool) -> StyledText -> StyledText
+dropWhile f (StyledText xs) = dropWhile' f xs
+  where dropWhile' f (this@(StyledTextElement style text) : rest) =
+          let after = T.dropWhile f text in
+          if T.length after > 0
+          then StyledText $ StyledTextElement style after : rest
+          else span' f rest
+        dropWhile' _ [] = StyledText []
 
 -- | Split styled text at a index.
 splitAt :: Int -> StyledText -> (StyledText, StyledText)
@@ -157,6 +199,21 @@ splitAt index (StyledText xs) = splitAt' index xs []
                StyledText $ StyledTextElement style after : rest)
           | otherwise = splitAt' (index - T.length text) rest (x : prev)
         splitAt' _ [] prev = (StyledText $ reverse prev, StyledText [])
+
+-- | Get the prefix fitting a predicate and remainder of styled text.
+span :: (Char -> Bool) -> StyledText -> (StyledText, StyledText)
+span f (StyledText xs) = span' f xs []
+  where span' f (this@(StyledTextElement style text) : rest) prev =
+          let (before, after) = T.span f text in
+          if T.length after > 0
+          then (StyledText . reverse $ StyledTextElement style before : prev,
+                StyledText $ StyledTextElement style after : rest)
+          else span' f rest (this : prev)
+        span' _ [] prev = (StyledText $ reverse prev, StyledText [])
+
+-- | Get the prefix not fitting a predicate and remainder of styled text.
+break :: (Char -> Bool) -> StyledText -> (StyledText, StyledText)
+break f styledText = span (not . f) styledText
 
 -- | Concatenate a list of styled text.
 concat :: [StyledText] -> StyledText
