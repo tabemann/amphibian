@@ -69,10 +69,17 @@ badFormatting :: T.Text
 badFormatting = "<BAD FORMATTING STRING>"
 
 -- | Format a string.
-formatString :: (IsString a, Show a) => a -> T.Text -> (T.Text, T.Text)
+formatString :: String -> T.Text -> (T.Text, T.Text)
 formatString x formatting =
   case parseFormat formatting ParseString of
     Just (formatString, rest) -> (T.pack $ printf formatString x, rest)
+    Nothing -> (badFormatting, formatting)
+
+-- | Format text.
+formatText :: T.Text -> T.Text -> (T.Text, T.Text)
+formatText x formatting =
+  case parseFormat formatting ParseString of
+    Just (formatString, rest) -> (T.pack . printf formatString $ T.unpack x, rest)
     Nothing -> (badFormatting, formatting)
 
 -- | Format an integer.

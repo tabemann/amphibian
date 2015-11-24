@@ -2,7 +2,9 @@
 
 module Network.IRC.Client.Amphibian.FrameMessage
 
-       (lookupAddressMessage,
+       (setName,
+        setTitle,
+        lookupAddressMessage,
         lookupAddressFailedMessage,
         reverseLookupFailedMessage,
         connectingMessage,
@@ -75,11 +77,35 @@ decode frame bytes = do
         Just config -> return $ (encoDecoder $ cocoEncoding config) bytes
         Nothing -> lookupText "NO CONNECTION CONFIG SET"
     Nothing -> lookupText "NO CONNECTION MANAGER SET"
-      
+
+-- | Set name of frame.
+setName :: Frame -> B.ByteString -> AM ()
+setName frame name = do
+  name' <- decode frame name
+  liftIO . atomically $ F.setName frame name'
+
+-- | Set title of frame.
+setTitle :: Frame -> Maybe T.Text -> Maybe B.ByteString -> AM ()
+setTitle frame (Just serverName) (Just nickOrChannel) = do
+  nickOrChannel' <- decode frame nickOrChannel
+  let textMap = HM.insert "server" (formatText serverName) HM.empty
+  let textMap' = HM.insert "nickOrChannel" (formatText nickOrChannel') textMap
+  formatText <- lookupText "Amphibian: %server:s / %nickOrChannel:s"
+  let formattedText = format formatText textMap'
+  liftIO . atomically $ F.setTitle frame formattedText
+setTitle frame (Just serverName) Nothing = do
+  let textMap = HM.insert "server" (formatText serverName) HM.empty
+  formatText <- lookupText "Amphibian: %server:s"
+  let formattedText = format formatText textMap
+  liftIO . atomically $ F.setTitle frame formattedText
+setTitle frame Nothing _ = do
+  text <- lookupText "Amphibian: no server"
+  liftIO . atomically $ F.setTitle frame text
+
 -- | Send a lookup hostname message to a specific frame.
 lookupHostnameMessage :: Frame -> HostName -> AM ()
 lookupHostnameMessage frame hostName = do
-  let textMap = HM.insert "hostName" (formatString $ T.pack hostName) HM.empty
+  let textMap = HM.insert "hostName" (formatText $ T.pack hostName) HM.empty
   formatText <- lookupText "Looking up %hostName:s..."
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -156,7 +182,7 @@ reverseLookupFailedMessage frame (Error errorLines) = do
 -- | Send a connecting message to a specific frame.
 connectingMessage :: Frame -> HostName -> Port -> AM ()
 connectingMessage frame hostName port = do
-  let textMap = HM.insert "hostName" (formatString $ T.pack hostName) HM.empty
+  let textMap = HM.insert "hostName" (formatText $ T.pack hostName) HM.empty
   let textMap' = HM.insert "port" (formatIntegral port) textMap
   formatText <- lookupText "Connecting to %hostName:s port %port:d..."
   let formattedText = format formatText textMap'
@@ -172,7 +198,7 @@ connectingMessage frame hostName port = do
 -- | Send a connected message to a specific frame.
 connectedMessage :: Frame -> HostName -> Port -> AM ()
 connectedMessage frame hostName port = do
-  let textMap = HM.insert "hostName" (formatString $ T.pack hostName) HM.empty
+  let textMap = HM.insert "hostName" (formatText $ T.pack hostName) HM.empty
   let textMap' = HM.insert "port" (formatIntegral port) textMap
   formatText <- lookupText "Connected to %hostName:s port %port:d"
   let formattedText = format formatText textMap'
@@ -264,7 +290,7 @@ disconnectErrorMessage frame (Error errorLines) = do
 passwordMismatchMessage :: Frame -> Password -> AM ()
 passwordMismatchMessage frame password = do
   password' <- decode frame password
-  let textMap = HM.insert "password" (formatString password') HM.empty
+  let textMap = HM.insert "password" (formatText password') HM.empty
   formatText <- lookupText "Password mismatch"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -306,7 +332,7 @@ let       line = FrameLine { frliTime = time,
 welcomeMessage :: Frame -> Nick -> AM ()
 welcomeMessage frame nick = do
   nick' <- decode frame nick
-  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
   formatText <- lookupText "Welcome to IRC %nick:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -335,7 +361,7 @@ welcomeCommentMessage frame comment = do
 attemptingNickMessage :: Frame -> Nick -> AM ()
 attemptingNickMessage frame nick = do
   nick' <- decode frame nick
-  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
   formatText <- lookupText "Attempting to use nick %nick:s..."
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -351,7 +377,7 @@ attemptingNickMessage frame nick = do
 malformedNickMessage :: Frame -> Nick -> AM ()
 malformedNickMessage frame nick = do
   nick' <- decode frame nick
-  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
   formatText <- lookupText "Malformed nick %nick:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -366,7 +392,7 @@ malformedNickMessage frame nick = do
 joinedMessage :: Frame -> ChannelName -> AM ()
 joinedMessage frame name = do
   name' <- decode frame name
-  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap = HM.insert "channel" (formatText name') HM.empty
   formatText <- lookupText "Now talking on %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -381,7 +407,7 @@ joinedMessage frame name = do
 partedMessage :: Frame -> ChannelName -> AM ()
 partedMessage frame name = do
   name' <- decode frame name
-  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap = HM.insert "channel" (formatText name') HM.empty
   formatText <- lookupText "You have left channel %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -397,7 +423,7 @@ partedCommentMessage :: Frame -> ChannelName -> MessageComment -> AM ()
 partedCommentMessage frame name comment = do
   name' <- decode frame name
   comment' <- ST.decode <$> decode frame comment
-  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap = HM.insert "channel" (formatText name') HM.empty
   formatText <- lookupText "You have left channel %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -416,7 +442,7 @@ partedCommentMessage frame name comment = do
 noTopicMessage :: Frame -> ChannelName -> AM ()
 noTopicMessage frame name = do
   name' <- decode frame name
-  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap = HM.insert "channel" (formatText name') HM.empty
   formatText <- lookupText "No topic is set for %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -432,7 +458,7 @@ topicMessage :: Frame -> ChannelName -> ChannelTopic -> AM ()
 topicMessage frame name topic = do
   name' <- decode frame name
   topic' <- ST.decode <$> decode frame topic
-  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap = HM.insert "channel" (formatText name') HM.empty
   formatText <- lookupText "Topic for %channel:s is"
   let formattedText = format (T.append formatText ": ") textMap
   time <- liftIO getCurrentTime
@@ -451,9 +477,9 @@ topicWhoTimeMessage frame name user time = do
   name' <- decode frame name
   user' <- decode frame user
   timeText <- T.pack $ formatTime timeLocale "%c" time
-  let textMap = HM.insert "channel" (formatString name') HM.empty
-  let textMap' = HM.insert "user" (formatString user') textMap
-  let textMap = HM.insert "time" (formatString timeText) textMap'
+  let textMap = HM.insert "channel" (formatText name') HM.empty
+  let textMap' = HM.insert "user" (formatText user') textMap
+  let textMap = HM.insert "time" (formatText timeText) textMap'
   formatText <- lookupText "Topic for %channel:s set by %user:s at %time:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -478,7 +504,7 @@ namesDisplayMessage :: Frame -> ChannelName -> [(Nick, UserStatus)] -> AM ()
 namesDisplayMessage frame name statusNicks = do
   name' <- decode frame name
   statusNicks' <- mapM convertNick statusNicks
-  let textMap = HM.insert "channel" (formatString name') HM.empty
+  let textMap = HM.insert "channel" (formatText name') HM.empty
   formatText <- lookupText "Users on %channel:s"
   let formattedText = format (T.append formatText ": ") textMap
   time <- liftIO getCurrentTime
@@ -499,9 +525,9 @@ recvJoinMessage frame name nick user = do
   name' <- decode frame name
   nick' <- decode frame nick
   user' <- decode frame user
-  let textMap = HM.insert "channel" (formatString name') HM.empty
-  let textMap' = HM.insert "nick" (formatString nick') textMap
-  let textMap = HM.insert "user" (formatString user') textMap'
+  let textMap = HM.insert "channel" (formatText name') HM.empty
+  let textMap' = HM.insert "nick" (formatText nick') textMap
+  let textMap = HM.insert "user" (formatText user') textMap'
   formatText <- lookupText "%nick:s (%user:s) has joined %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -518,9 +544,9 @@ recvPartMessage frame name nick user = do
   name' <- decode frame name
   nick' <- decode frame nick
   user' <- decode frame user
-  let textMap = HM.insert "channel" (formatString name') HM.empty
-  let textMap' = HM.insert "nick" (formatString nick') textMap
-  let textMap = HM.insert "user" (formatString user') textMap'
+  let textMap = HM.insert "channel" (formatText name') HM.empty
+  let textMap' = HM.insert "nick" (formatText nick') textMap
+  let textMap = HM.insert "user" (formatText user') textMap'
   formatText <- lookupText "%nick:s (%user:s) has left %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -538,9 +564,9 @@ recvPartCommentMessage frame nick user comment = do
   nick' <- decode frame nick
   user' <- decode frame user
   comment' <- ST.decode <$> decode frame comment
-  let textMap = HM.insert "channel" (formatString name') HM.empty
-  let textMap' = HM.insert "nick" (formatString nick') textMap
-  let textMap = HM.insert "user" (formatString user') textMap'
+  let textMap = HM.insert "channel" (formatText name') HM.empty
+  let textMap' = HM.insert "nick" (formatText nick') textMap
+  let textMap = HM.insert "user" (formatText user') textMap'
   formatText <- lookupText "%nick:s (%user:s) has left %channel:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -560,8 +586,8 @@ recvQuitMessage :: Frame -> Nick -> FullName -> AM ()
 recvQuitMessage frame nick user = do
   nick' <- decode frame nick
   user' <- decode frame user
-  let textMap = HM.insert "nick" (formatString nick') HM.empty
-  let textMap' = HM.insert "user" (formatString user') textMap
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
+  let textMap' = HM.insert "user" (formatText user') textMap
   formatText <- lookupText "%nick:s (%user:s) has quit"
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
@@ -578,8 +604,8 @@ recvQuitCommentMessage frame nick user comment = do
   nick' <- decode frame nick
   user' <- decode frame user
   comment' <- ST.decode <$> decode frame comment
-  let textMap = HM.insert "nick" (formatString nick') HM.empty
-  let textMap' = HM.insert "user" (formatString user') textMap
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
+  let textMap' = HM.insert "user" (formatText user') textMap
   formatText <- lookupText "%nick:s (%user:s) has quit"
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
@@ -600,8 +626,8 @@ recvNickMessage :: Frame -> Nick -> Nick-> AM ()
 recvNickMessage frame oldNick newNick = do
   oldNick' <- decode frame oldNick
   newNick' <- decode frame newNick
-  let textMap = HM.insert "oldNick" (formatString oldNick') HM.empty
-  let textMap' = HM.insert "newNick" (formatString newNick') textMap
+  let textMap = HM.insert "oldNick" (formatText oldNick') HM.empty
+  let textMap' = HM.insert "newNick" (formatText newNick') textMap
   formatText <- lookupText "%oldNick:s is now known as %newNick:s"
   let formattedText = format formatText textMap'
   time <- liftIO getCurrentTime
@@ -617,7 +643,7 @@ recvTopicMessage :: Frame -> Nick -> ChannelTopic -> AM ()
 recvTopicMessage frame nick topic = do
   nick' <- decode frame nick
   topic' <- ST.decode <$> decode frame topic
-  let textMap = HM.insert "nick" (formatString nick') HM.empty
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
   formatText <- lookupText "%nick:s has changed the topic to"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
@@ -782,7 +808,7 @@ selfNoticeMessage frame nick comment = do
 -- | Send an unkown command message to a frame.
 unknownCommandMessage :: Frame -> T.Text -> AM ()
 unknownCommandMessage frame command = do
-  let textMap = HM.insert "command" (formatString command) HM.empty
+  let textMap = HM.insert "command" (formatText command) HM.empty
   formatText <- lookupText "Unknown command \"%command:s\""
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime

@@ -423,7 +423,8 @@ data ConnectionManager =
 
 -- | Connection manager setup
 data ConnectionManagerSetup =
-  ConnectionManagerSetup { comaName :: Name,
+  ConnectionManagerSetup { comaServerName :: ServerName,
+                           comaName :: Name,
                            comaOriginalHost :: HostName,
                            comaPort :: Port,
                            comaUserName :: UserName,
@@ -432,22 +433,25 @@ data ConnectionManagerSetup =
                            comaMode :: [UserMode] }
   deriving Eq
 
--- | Name
+-- | Server name.
+type ServerName = Text
+
+-- | Name.
 type Name = ByteString
 
--- | Username
+-- | Username.
 type UserName = ByteString
 
--- | Nick
+-- | Nick.
 type Nick = ByteString
 
--- | Password
+-- | Password.
 type Password = ByteString
 
--- | User mode
+-- | User mode.
 type UserMode = ByteString
 
--- | Full nick user hostname string
+-- | Full nick user hostname string.
 type FullName = ByteString
 
 -- | Connection manager subscription.
@@ -510,6 +514,7 @@ data ConnectionManagerEvent = ComaLookupAddress HostName
                             | ComaMotd [MessageComment]
                             | ComaRecvCtcpRequest Nick ChannelNameOrNick MessageComment
                             | ComaRecvCtcpReply Nick ChannelNameOrNick MessageComment
+                            | ComaRecvSelfNick Nick Nick
                             | ComaSelfMessage Nick ChannelNameOrNick MessageComment
                             | ComaSelfNotice Nick ChannelNameOrNick MessageComment
                             | ComaSelfCtcpRequest Nick ChannelNameOrNick MessageComment
@@ -655,7 +660,7 @@ data ChannelAction = ChanStop ChannelStopResponse
                    deriving Eq
 
 -- | Channel event.
-data ChannelEvent = (ChanDisconnected error)
+data ChannelEvent = ChanDisconnected (Either Error ())
                   | ChanJoined
                   | ChanParted (Maybe MessageComment)
                   | ChanNoTopic

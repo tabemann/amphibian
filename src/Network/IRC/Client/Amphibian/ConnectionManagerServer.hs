@@ -239,24 +239,21 @@ handleEvent manager = do
 
 -- | Handle message.
 handleMessage :: ConnectionManager -> IRCMessage -> STM (AM Bool)
-handleMessage manager message@(IRCMessage { ircmCommand = command }) = do
-  if command == cmd_NICK
-  then handleNick manager message
-  else if command == cmd_PRIVMSG
-  then handlePrivMsg manager message
-  else if command == cmd_NOTICE
-  then handleNotice manager message
-  else if command == cmd_PING
-  then handlePing manager message
-  else return $ return True
+handleMessage manager message@(IRCMessage { ircmCommand = command })
+  | command == cmd_NICK = handleNick manager message
+  | command == cmd_PRIVMSG = handlePrivMsg manager message
+  | command == cmd_NOTICE = handleNotice manager message
+  | command == cmd_PING = handlePing manager message
+  | otherwise = return $ return True
 
 -- | Handle nick message.
 handleNick :: ConnectionManager -> IRCMessage -> STM (AM Bool)
 handleNick manager message = do
   currentNick <- getNick manager
   case (extractNick $ ircmPrefix message, ircmParameters message) of
-    (Just oldNick, [newNick]) | oldNick == currentNick ->
+    (Just oldNick, [newNick]) | oldNick == currentNick -> do
       setNick manager newNick
+      writeTChan (comaEvents manager) $ ComaRecvSelfNick oldNick newNick
     _ -> return ()
   return $ return True
 
@@ -292,7 +289,7 @@ handlePrivMsg manager message = do
   else return $ return True
 
 -- | Handle NOTICE message.
-HandleNotice :: ConnectionManager -> IRCMessage -> STM (AM Bool)
+handleNotice :: ConnectionManager -> IRCMessage -> STM (AM Bool)
 handleNotice manager message = do
   currentNick <- getNick manager
   isCtcp <- case (extractNick $ ircmPrefix prefix, ircmParameters message, ircmComment message) of
@@ -548,28 +545,29 @@ doSend :: ConnectionManager -> IRCMessage -> AM (Either Error ())
 doSend manager message = do
   connection <- liftIO . atomically . readTVar $ comaConnection manager
   case connection of
-    Just connection ->
+    Just connection -> do
       response <- liftIO . atomically $ C.send connection message
-      response' <- liftIO . atomically $ do C.waitSend response  
-      case (extractNick $ ircmPrefix message, ircmParameters message, ircmComment message) of
-        (Just nick, [dest], Just comment) ->
-          case checkCtcp comment of
-            Just comment ->
-              if ircmCommand message == cmd_PRIVMSG
-              then liftIO. atomically . writeTChan (comaEvents manager) $
-                     ComaSelfCtcpRequest nick (parseChannelNameOrNick dest) comment
-              else if ircmCommand message == cmd_NOTICE
-              then liftIO . atomically . writeTChan (comaEvents manager) $
-                     ComaSelfCtcpReply nick (parseChannelNameOrNick dest) comment
-              else return ()
-            _ ->
-              if ircmCommand message == cmd_PRIVMSG
-              then liftIO. atomically . writeTChan (comaEvents manager) $
-                     ComaSelfMessage nick (parseChannelNameOrNick dest) comment
-              else if ircmCommand message == cmd_NOTICE
-              then liftIO . atomically . writeTChan (comaEvents manager) $
-                     ComaSelfNotice nick (parseChannelNameOrNick dest) comment
-              else return ()
+      response' <- liftIO . atomically $ do C.waitSend response
+      nick <- liftIO . atomically . readTVar $ comaNick manager
+      case (ircmParameters message, ircmComment message) of
+       ([dest], Just comment) ->
+         case checkCtcp comment of
+          Just comment
+            | ircmCommand message == cmd_PRIVMSG ->
+              liftIO. atomically . writeTChan (comaEvents manager) $
+              ComaSelfCtcpRequest nick (parseChannelNameOrNick dest) comment
+            | ircmCommand message == cmd_NOTICE ->
+              liftIO . atomically . writeTChan (comaEvents manager) $
+              ComaSelfCtcpReply nick (parseChannelNameOrNick dest) comment
+            | otherwise -> return ()
+          _
+            | ircmCommand message == cmd_PRIVMSG ->
+              liftIO. atomically . writeTChan (comaEvents manager) $
+              ComaSelfMessage nick (parseChannelNameOrNick dest) comment
+            | ircmCommand message == cmd_NOTICE ->
+                liftIO . atomically . writeTChan (comaEvents manager) $
+                ComaSelfNotice nick (parseChannelNameOrNick dest) comment
+            | otherwise -> return ()
         _ ->
       return response'
     Nothing -> do

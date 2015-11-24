@@ -201,7 +201,7 @@ handleUserEvent :: UserDisplay -> UserDisplayFrameMapping -> STM (AM Bool)
 handleUserEvent display mapping = do
   event <- U.recv $ udfmSubscription mapping
   let frame = udfmFrame mapping
-      channel = udfmUser mapping
+      user = udfmUser mapping
   case event of
     UserDisconnected (Left error) ->
       return $ do
