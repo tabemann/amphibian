@@ -195,73 +195,78 @@ handleConnectionEvent display mapping = do
   let frame = codfFrame mapping
       manager = codfConnectionManager mapping
   case event of
-    ComaLookupAddress hostName ->
-      return $ do
-        FM.lookupAddressMessage frame hostName
-        return True
-    ComaLookupAddressFailed error ->
-      return $ do
-        FM.lookupAddressFailedMessage frame error
-        return True
-    ComaReverseLookupFailed error ->
-      return $ do
-        FM.reverseLookupFailedMessage frame error
-        return True
-    ComaConnecting hostName port ->
-      return $ do
-        FM.connectingMessage frame hostName port
-        return True
-    ComaConnected hostName port ->
-      return $ do
-        FM.connectedMessage frame hostName port
-        return True
-    ComaConnectFailed error ->
-      return $ do
-        FM.connectFailedMessage error
-        return True
-    ComaDisconnected (Left error) ->
-      return $ do
-        FM.disconnectErrorMessage frame error
-        return True
-    ComaDisconnected (Right ()) ->
-      return $ do
-        FM.disconnectMessage frame
-        return True
-    ComaPasswordMismatch password ->
-      return $ do
-        FM.passwordMismatchMessage frame password
-        return True
-    ComaBannedFromServer (Just comment) ->
-      return $ do
-        FM.bannedFromServerCommentMessage frame comment
-        return True
-    ComaBannedFromServer Nothing ->
-      return $ do
-        FM.bannedFromServerMessage frame
-        returnTrue
-    ComaWelcome (Just comment) ->
-      return $ do
+   ComaLookupAddress hostName ->
+     return $ do
+       FM.lookupAddressMessage frame hostName
+       return True
+   ComaLookupAddressFailed error ->
+     return $ do
+       FM.lookupAddressFailedMessage frame error
+       return True
+   ComaReverseLookupFailed error ->
+     return $ do
+       FM.reverseLookupFailedMessage frame error
+       return True
+   ComaConnecting hostName port ->
+     return $ do
+       FM.connectingMessage frame hostName port
+       return True
+   ComaConnected hostName port ->
+     return $ do
+       FM.connectedMessage frame hostName port
+       return True
+   ComaConnectFailed error ->
+     return $ do
+       FM.connectFailedMessage error
+       return True
+   ComaDisconnected (Left error) ->
+     return $ do
+       FM.disconnectErrorMessage frame error
+       return True
+   ComaDisconnected (Right ()) ->
+     return $ do
+       FM.disconnectMessage frame
+       return True
+   ComaPasswordMismatch password ->
+     return $ do
+       FM.passwordMismatchMessage frame password
+       return True
+   ComaBannedFromServer (Just comment) ->
+     return $ do
+       FM.bannedFromServerCommentMessage frame comment
+       return True
+   ComaBannedFromServer Nothing ->
+     return $ do
+       FM.bannedFromServerMessage frame
+       returnTrue
+   ComaWelcome (Just comment) ->
+     return $ do
        FM.welcomeCommentMessage frame comment
        return True
-    ComaWelcome Nothing -> do
-      nick <- CM.getNick manager
-      return $ do
-        FM.welcomeMessage frame nick
-        return True
-    ComaAttemptingNick nick ->
-      return $ do
-        FM.attemptingNickMessage frame nick
-        return True
-    ComaMalformedNick nick ->
-      return $ do
-        FM.malformedNickMessage frame nick
-        return True
-    ComaRecvNotice nick comment ->
-      return $ do
-        FM.recvNoticeMessage frame nick comment True FrmtPrivate FrtaLastFocused
-        return True
-    ComaMotd lines ->
-      return $ do
-        FM.motdMessage frame lines
-        return True
-    _ -> return $ return True    
+   ComaWelcome Nothing -> do
+     nick <- CM.getNick manager
+     return $ do
+       FM.welcomeMessage frame nick
+       return True
+   ComaAttemptingNick nick ->
+     return $ do
+       FM.attemptingNickMessage frame nick
+       return True
+   ComaMalformedNick nick ->
+     return $ do
+       FM.malformedNickMessage frame nick
+       return True
+   ComaRecvNotice nick comment ->
+     return $ do
+       FM.recvNoticeMessage frame nick comment True FrmtPrivate FrtaLastFocused
+       return True
+   ComaRecvSelfNick oldNick newNick ->
+     return $ do
+       FM.setNick frame newNick
+       FM.recvSelfNickMessage frame oldNick newNick
+       return True
+   ComaMotd lines ->
+     return $ do
+       FM.motdMessage frame lines
+       return True
+   _ -> return $ return True    

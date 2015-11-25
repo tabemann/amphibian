@@ -202,102 +202,109 @@ handleChannelEvent display mapping = do
   let frame = cdfmFrame mapping
       channel = cdfmChannel mapping
   case event of
-    ChanDisconnected (Left error) ->
-      return $ do
-        FM.disconnectErrorMessage frame error
+   ChanDisconnected (Left error) ->
+     return $ do
+       FM.disconnectErrorMessage frame error
+       return True
+   ChanDisconnected (Right ()) ->
+     return $ do
+       FM.disconnectMessage frame
+       return True
+   ChanJoined ->
+     return $ do
+       FM.joinedMessage frame $ C.getName channel
+       return True
+   ChanParted (Just comment) ->
+     return $ do
+       FM.partedCommentMessage frame (C.getName channel) comment
+       return True
+   ChanParted Nothing ->
+     return $ do
+       FM.partedMessage frame channel
+       return True
+   ChanNoTopic ->
+     return $ do
+       FM.noTopicMessage frame (C.getName channel)
+       return True
+   ChanTopic topic ->
+     return $ do
+       FM.topicMessage frame (C.getName channel) topic
+       return True
+   ChanTopicWhoTime fullName time ->
+     return $ do
+       FM.topicWhoTimeMessage frame (C.getName channel) fullName time
+       return True
+   ChanNames names ->
+     return $ do
+       FM.namesMessage frame names
         return True
-    ChanDisconnected (Right ()) ->
-      return $ do
-        FM.disconnectMessage frame
-        return True
-    ChanJoined ->
-      return $ do
-        FM.joinedMessage frame $ C.getName channel
-        return True
-    ChanParted (Just comment) ->
-      return $ do
-        FM.partedCommentMessage frame (C.getName channel) comment
-        return True
-    ChanParted Nothing ->
-      return $ do
-        FM.partedMessage frame channel
-        return True
-    ChanNoTopic ->
-      return $ do
-        FM.noTopicMessage frame (C.getName channel)
-        return True
-    ChanTopic topic ->
-      return $ do
-        FM.topicMessage frame (C.getName channel) topic
-        return True
-    ChanTopicWhoTime fullName time ->
-      return $ do
-        FM.topicWhoTimeMessage frame (C.getName channel) fullName time
-        return True
-    ChanNames names ->
-      return $ do
-        FM.namesMessage frame names
-        return True
-    ChanRecvJoin nick fullName ->
-      return $ do
-        FM.recvJoinMessage frame (C.getname channel) nick fullName
-        return True
-    ChanRecvPart nick fullName (Just comment) ->
-      return $ do
-        FM.recvPartCommentMessage frame (C.getName channel) nick fullName comment
-        FM.namesMessage frame (C.getNames channel)
-        return True
-    ChanRecvPart nick fullName Nothing ->
-      return $ do
-        FM.recvPartMessage frame (C.getName channel) nick fullName
-        FM.namesMessage frame (C.getNames channel)
-        return True
-    ChanRecvMessage nick comment ->
-      return $ do
-        FM.recvMessageMessage frame nick comment FrmtChannel
-        return True
-    ChanRecvNotice nick comment ->
-      return $ do
-        FM.recvNoticeMessage frame nick comment FrmtChannel FrtaSpecific
-        return True
-    ChanRecvNick oldNick newNick ->
-      return $ do
-        FM.recvNickMessage frame oldNick newNick
-        return True
-    ChanRecvTopic nick topic ->
-      return $ do
-        FM.recvTopicMessage frame nick topic
-        return True
-    ChanRecvQuit nick fullName (Just comment) ->
-      return $ do
-        FM.recvQuitCommentMessage frame nick fullName comment
-        FM.namesMessage frame (C.getNames channel)
-        return True
-    ChanRecvQuit nick fullName Nothing ->
-      return $ do
-        FM.recvQuitMessage frame nick fullName
-        FM.namesMessage frame (C.getNames channel)
-        return True
-    ChanRecvCtcpRequest nick comment ->
-      case parseCtcp comment of
-        Just (command, Just comment) | command == ctcp_ACTION ->
-          return $ do
-            FM.recvActionMessage frame nick comment FrmtChannel
-            return True
-        _ -> return $ return True
-    ChanSelfMessage nick comment ->
-      return $ do
-        FM.selfMessageMessage frame nick comment
-        return True
-    ChanSelfNotice nick comment ->
-      return $ do
-        FM.selfNoticeMessage frame nick comment
-        return True
-    ChanSelfCtcpRequest nick comment ->
-      case parseCtcp comment of
-        Just (command, Just comment) | command == ctcp_ACTION ->
-          return $ do
-            FM.selfActionMessage frame nick comment FrmtChannel
-            return True
-        _ -> return $ return True
-    _ -> return $ return True
+   ChanRecvJoin nick fullName ->
+     return $ do
+       FM.recvJoinMessage frame (C.getname channel) nick fullName
+       return True
+   ChanRecvPart nick fullName (Just comment) ->
+     return $ do
+       FM.recvPartCommentMessage frame (C.getName channel) nick fullName comment
+       FM.namesMessage frame (C.getNames channel)
+       return True
+   ChanRecvPart nick fullName Nothing ->
+     return $ do
+       FM.recvPartMessage frame (C.getName channel) nick fullName
+       FM.namesMessage frame (C.getNames channel)
+       return True
+   ChanRecvMessage nick comment ->
+     return $ do
+       FM.recvMessageMessage frame nick comment FrmtChannel
+       return True
+   ChanRecvNotice nick comment ->
+     return $ do
+       FM.recvNoticeMessage frame nick comment FrmtChannel FrtaSpecific
+       return True
+   ChanRecvNick oldNick newNick ->
+     return $ do
+       FM.recvNickMessage frame oldNick newNick
+       return True
+   ChanRecvTopic nick topic ->
+     return $ do
+       FM.recvTopicMessage frame nick topic
+       return True
+   ChanRecvQuit nick fullName (Just comment) ->
+     return $ do
+       FM.recvQuitCommentMessage frame nick fullName comment
+       FM.namesMessage frame (C.getNames channel)
+       return True
+   ChanRecvQuit nick fullName Nothing ->
+     return $ do
+       FM.recvQuitMessage frame nick fullName
+       FM.namesMessage frame (C.getNames channel)
+       return True
+   ChanRecvCtcpRequest nick comment ->
+     case parseCtcp comment of
+      Just (command, Just comment)
+        | command == ctcp_ACTION ->
+            return $ do
+              FM.recvActionMessage frame nick comment FrmtChannel
+              return True
+      _ -> return $ return True
+   ChanRecvSelfNick oldNick newNick ->
+     return $ do
+       FM.setNick frame newNick
+       FM.recvSelfNickMessage frame oldNick newNick
+       return True
+   ChanSelfMessage nick comment ->
+     return $ do
+       FM.selfMessageMessage frame nick comment
+       return True
+   ChanSelfNotice nick comment ->
+     return $ do
+       FM.selfNoticeMessage frame nick comment
+       return True
+   ChanSelfCtcpRequest nick comment ->
+     case parseCtcp comment of
+      Just (command, Just comment)
+        | command == ctcp_ACTION ->
+            return $ do
+              FM.selfActionMessage frame nick comment FrmtChannel
+              return True
+      _ -> return $ return True
+   _ -> return $ return True

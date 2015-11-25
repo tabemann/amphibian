@@ -251,10 +251,13 @@ handleNick :: ConnectionManager -> IRCMessage -> STM (AM Bool)
 handleNick manager message = do
   currentNick <- getNick manager
   case (extractNick $ ircmPrefix message, ircmParameters message) of
-    (Just oldNick, [newNick]) | oldNick == currentNick -> do
-      setNick manager newNick
-      writeTChan (comaEvents manager) $ ComaRecvSelfNick oldNick newNick
-    _ -> return ()
+   (Just oldNick, [newNick])
+     | oldNick == currentNick -> do
+       setNick manager newNick
+       writeTChan (comaEvents manager) $ ComaRecvSelfNick oldNick newNick
+     | otherwise ->
+       writeTChan (comaEvents manager) $ ComaRecvNick oldNick newNick
+   _ -> return ()
   return $ return True
 
 -- | Handle PRIVMSG message.

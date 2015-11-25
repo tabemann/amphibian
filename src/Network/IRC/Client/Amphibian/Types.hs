@@ -514,6 +514,7 @@ data ConnectionManagerEvent = ComaLookupAddress HostName
                             | ComaMotd [MessageComment]
                             | ComaRecvCtcpRequest Nick ChannelNameOrNick MessageComment
                             | ComaRecvCtcpReply Nick ChannelNameOrNick MessageComment
+                            | ComaRecvNick Nick Nick
                             | ComaRecvSelfNick Nick Nick
                             | ComaSelfMessage Nick ChannelNameOrNick MessageComment
                             | ComaSelfNotice Nick ChannelNameOrNick MessageComment
@@ -677,6 +678,7 @@ data ChannelEvent = ChanDisconnected (Either Error ())
                   | ChanRecvQuit Nick FullName (Maybe MessageComment)
                   | ChanRecvCtcpRequest Nick MessageComment
                   | ChanRecvCtcpReply Nick MessageComment
+                  | ChanRecvSelfNick Nick Nick
                   | ChanSelfMessage Nick MessageComment
                   | ChanSelfNotice Nick MessageComment
                   | ChanSelfCtcpRequest Nick MessageComment
@@ -746,6 +748,7 @@ data UserEvent = UserDisconnected (Either Error ())
                | UserRecvQuit Nick FullName (Maybe MessageComment)
                | UserRecvCtcpRequest Nick MessageComment
                | UserRecvCtcpReply Nick MessageComment
+               | UserRecvSelfNick Nick Nick
                | UserSelfMessage Nick MessageComment
                | UserSelfNotice Nick MessageComment
                | UserSelfCtcpRequest Nick MessageComment

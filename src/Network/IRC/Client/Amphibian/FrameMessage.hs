@@ -2,7 +2,8 @@
 
 module Network.IRC.Client.Amphibian.FrameMessage
 
-       (setName,
+       (setNick,
+        setName,
         setTitle,
         lookupAddressMessage,
         lookupAddressFailedMessage,
@@ -36,6 +37,7 @@ module Network.IRC.Client.Amphibian.FrameMessage
         recvActionMessage,
         recvNoticeMessage,
         motdMessage,
+        recvSelfNickMessage,
         selfMessageMessage,
         selfActionMessage,
         selfNoticeMessage,
@@ -77,6 +79,12 @@ decode frame bytes = do
         Just config -> return $ (encoDecoder $ cocoEncoding config) bytes
         Nothing -> lookupText "NO CONNECTION CONFIG SET"
     Nothing -> lookupText "NO CONNECTION MANAGER SET"
+
+-- | Set nick of frame.
+setNick :: Frame -> Nick -> AM ()
+setNick frame nick = do
+  nick' <- decode frame nick
+  liftIO . atomically $ F.setNick frame nick'
 
 -- | Set name of frame.
 setName :: Frame -> B.ByteString -> AM ()
@@ -757,7 +765,24 @@ motdMessage frame lines = do
                       frliSource = ST.addStyle [TxstForeColor color] "*",
                       frliAltSource = ST.addStyle [TxstForeColor color] "*",
                       frliBody = line }
-    
+
+-- | Send a received self nick message to a specific frame.
+recvSelfNickMessage :: Frame -> Nick -> Nick -> AM ()
+recvSelfNickMessage frame oldNick newNick = do
+  oldNick' <- decode frame oldNick
+  newNick' <- decode frame newNick
+  let textMap = HM.insert "oldNick" (formatText oldNick') HM.empty
+  let textMap' = HM.insert "newNick" (formatText newNick') textMap
+  formatText <- lookupText "You are now known as %newNick:s"
+  let formattedText = format formatText textMap'
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliBody = ST.addStyle [] formattedText }
+    F.notify frame [FrnoRecvNick]
+
 
 -- | Send a self message message to a specific frame.
 selfMessageMessage :: Frame -> Nick -> MessageComment -> AM ()

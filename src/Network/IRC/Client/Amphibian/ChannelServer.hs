@@ -280,30 +280,30 @@ handleEvents :: Channel -> STM (AM Bool)
 handleEvents channel = do
   autoJoin <- readTVar $ chanAutoJoin channel
   if autoJoin
-  then do
-    event <- CM.recv $ chanConnectionManager channel
-    case event of
-      ComaMessage message@(IRCMessage { ircmCommand = command })
-        | command == cmd_JOIN -> handleJoin channel message
-        | command == cmd_PART -> handlePart channel message
-        | command == cmd_NICK -> handleNick channel message
-        | command == cmd_PRIVMSG -> handlePrivmsg channel message
-        | command == cmd_NOTICE -> handleNotice channel message
-        | command == cmd_TOPIC -> handleTopic channel messsage
-        | command == rpl_NAMREPLY -> handleRplNamreply channel message
-        | command == rpl_ENDOFNAMES -> handleRplEndofnames channel message
-        | command == rpl_NOTOPIC -> handleRplNotopic channel message
-        | command == rpl_TOPIC -> handleRplTopic channel message
-        | command == rpl_TOPICWHOTIME -> handleRplTopicWhoTime channel message
-        | command == cmd_QUIT -> handleQuit channel message
-      ComaRecvCtcpRequest nick dest comment -> handleRecvCtcpRequest channel nick dest comment
-      ComaRecvCtcpReply nick dest comment -> handleRecvCtcpReply channel nick dest comment
-      ComaSelfMessage nick dest comment -> handleSelfMessage channel nick dest comment
-      ComaSelfNotice nick dest comment -> handleSelfNotice channel nick dest comment
-      ComaSelfCtcpRequest nick dest comment -> handleSelfCtcpRequest channel nick dest comment
-      ComaSelfCtcpReply nick dest comment -> handleSelfCtcpReply channel nick dest comment
-      ComaDisconnected error -> writeTChan (chanEvents channel) (ChanDisconnected error)
-      _ -> return $ return True
+    then do event <- CM.recv $ chanConnectionManager channel
+            case event of
+             ComaMessage message@(IRCMessage { ircmCommand = command })
+               | command == cmd_JOIN -> handleJoin channel message
+               | command == cmd_PART -> handlePart channel message
+               | command == cmd_PRIVMSG -> handlePrivmsg channel message
+               | command == cmd_NOTICE -> handleNotice channel message
+               | command == cmd_TOPIC -> handleTopic channel messsage
+               | command == rpl_NAMREPLY -> handleRplNamreply channel message
+               | command == rpl_ENDOFNAMES -> handleRplEndofnames channel message
+               | command == rpl_NOTOPIC -> handleRplNotopic channel message
+               | command == rpl_TOPIC -> handleRplTopic channel message
+               | command == rpl_TOPICWHOTIME -> handleRplTopicWhoTime channel message
+               | command == cmd_QUIT -> handleQuit channel message
+             ComaRecvNick oldNick newNick -> handleRecvNick channel oldNick newNick
+             ComaRecvCtcpRequest nick dest comment -> handleRecvCtcpRequest channel nick dest comment
+             ComaRecvCtcpReply nick dest comment -> handleRecvCtcpReply channel nick dest comment
+             ComaRecvSelfNick oldNick newNick -> handleRecvSelfNick channel oldNick newNick
+             ComaSelfMessage nick dest comment -> handleSelfMessage channel nick dest comment
+             ComaSelfNotice nick dest comment -> handleSelfNotice channel nick dest comment
+             ComaSelfCtcpRequest nick dest comment -> handleSelfCtcpRequest channel nick dest comment
+             ComaSelfCtcpReply nick dest comment -> handleSelfCtcpReply channel nick dest comment
+             ComaDisconnected error -> writeTChan (chanEvents channel) (ChanDisconnected error)
+             _ -> return $ return True
   else return $ return True
 
 -- | Handle JOIN message.
@@ -343,22 +343,6 @@ handlePart channel message = do
         writeTChan (chanEvents channel) (ChanRecvPart nick (ircmPrefix prefix) (ircmComment comment))
         nicks <- filter (\(knownNick, _) -> knownNick /= nick) <$> readTVar $ chanNames channel
         writeTVar (chanNames channel) nicks
-    _ -> return ()
-  return $ return True
-
--- | Handle NICK message.
-handleNick :: Channel -> IRCMessage -> STM (AM Bool)
-handleNick channel message = do
-  case (extractNick $ ircmPrefix message, ircmParameters message) of
-    (Just oldNick, [newNick]) -> do
-      inChannel <- isNickInChannel channel oldNick
-      if inChannel
-      then do
-        oldNicks <- readTVar $ chanNames channel
-        let newNicks = map (\(nick, status) -> (if nick == oldNick then newNick else nick, status)) oldNicks
-        writeTVar (chanNames channel) newNicks
-        writeTChan (chanEvents channel) (ChanRecvNick oldNick newNick)
-      else return ()
     _ -> return ()
   return $ return True
 
@@ -517,6 +501,27 @@ handleRecvCtcpReply channel nick dest comment = do
   if dest == CnonChannelName name'
   then writeTChan (chanEvents channel) (ChanRecvCtcpReply nick comment)
   else return ()
+  return $ return True
+
+-- | Handle received nick message.
+handleRecvNick :: Channel -> Nick -> Nick -> STM (AM Bool)
+handleRecvNick channel oldNick newNick = do
+  inChannel <- isNickInChannel channel oldNick
+  if inChannel
+    then do oldNicks <- readTVar $ chanNames channel
+            let newNicks = map (\(nick, status) -> (if nick == oldNick then newNick else nick, status)) oldNicks
+            writeTVar (chanNames channel) newNicks
+            writeTChan (chanEvents channel) (ChanRecvNick oldNick newNick)
+    else return ()
+  return $ return True
+
+-- | Handle received self nick message.
+handleRecvSelfNick :: Channel -> Nick -> Nick -> STM (AM Bool)
+handleRecvSelfNick channel oldNick newNick = do
+  oldNicks <- readTVar $ chanNames channel
+  let newNicks = map (\(nick, status) -> (if nick == oldNick then newNick else nick, status)) oldNicks
+  writeTVar (chanNames channel) newNicks
+  writeTChan (chanEvents channel) (ChanRecvSelfNick oldNick newNick)
   return $ return True
 
 -- | Handle self message message.

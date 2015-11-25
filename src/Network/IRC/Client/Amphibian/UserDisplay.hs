@@ -203,54 +203,59 @@ handleUserEvent display mapping = do
   let frame = udfmFrame mapping
       user = udfmUser mapping
   case event of
-    UserDisconnected (Left error) ->
-      return $ do
-        disconnectErrorMessage frame error
-        return True
-    UserDisconnected (Right ()) ->
-      return $ do
-        disconnectMessage frame
-        return True
-    UserRecvMessage nick comment ->
-      return $ do
-        recvMessageMessage frame nick comment FrmtUser
-        return True
-    UserRecvNotice nick comment ->
-      return $ do
-        recvNoticeMessage frame nick comment FrmtUser FrtaSpecific
-        return True
-    UserRecvNick oldNick newNick ->
-      return $ do
-        recvNickMessage frame oldNick newNick
-        return True
-    UserRecvQuit nick fullName (Just comment) ->
-      return $ do
-        recvQuitCommentMessage frame nick fullName comment
-        return True
-    UserRecvQuit nick fullName Nothing ->
-      return $ do
-        recvQuitMessage frame nick fullName
-        return True
-    UserRecvCtcpRequest nick comment ->
-      case parseCtcp comment of
-        Just (command, Just comment) | command == ctcp_ACTION -> do
-          return $ do
-            FM.recvActionMessage frame nick comment FrmtPrivate
-            return True
-        _ -> return $ return True
-    UserSelfMessage nick comment ->
-      return $ do
-        selfMessageMessage frame nick comment
-        return True
-    UserSelfNotice nick comment ->
-      return $ do
-        selfNoticeMessage frame nick comment
-        return True
-    UserSelfCtcpRequest nick comment ->
-      case parseCtcp comment of
-        Just (command, Just comment) | command == ctcp_ACTION -> do
-          return $ do
-            FM.selfActionMessage frame nick comment FrmtPrivate
-            return True
-        _ -> return $ return True
-    _ -> return $ return True
+   UserDisconnected (Left error) ->
+     return $ do
+       disconnectErrorMessage frame error
+       return True
+   UserDisconnected (Right ()) ->
+     return $ do
+       disconnectMessage frame
+       return True
+   UserRecvMessage nick comment ->
+     return $ do
+       recvMessageMessage frame nick comment FrmtUser
+       return True
+   UserRecvNotice nick comment ->
+     return $ do
+       recvNoticeMessage frame nick comment FrmtUser FrtaSpecific
+       return True
+   UserRecvNick oldNick newNick ->
+     return $ do
+       recvNickMessage frame oldNick newNick
+       return True
+   UserRecvQuit nick fullName (Just comment) ->
+     return $ do
+       recvQuitCommentMessage frame nick fullName comment
+       return True
+   UserRecvQuit nick fullName Nothing ->
+     return $ do
+       recvQuitMessage frame nick fullName
+       return True
+   UserRecvCtcpRequest nick comment ->
+     case parseCtcp comment of
+      Just (command, Just comment) | command == ctcp_ACTION -> do
+        return $ do
+          FM.recvActionMessage frame nick comment FrmtPrivate
+          return True
+      _ -> return $ return True
+   UserRecvSelfNick oldNick newNick ->
+     return $ do
+       FM.setNick frame newNick
+       FM.recvSelfNickMessage frame oldNick newNick
+       return True
+   UserSelfMessage nick comment ->
+     return $ do
+       selfMessageMessage frame nick comment
+       return True
+   UserSelfNotice nick comment ->
+     return $ do
+       selfNoticeMessage frame nick comment
+       return True
+   UserSelfCtcpRequest nick comment ->
+     case parseCtcp comment of
+      Just (command, Just comment) | command == ctcp_ACTION -> do
+        return $ do
+          FM.selfActionMessage frame nick comment FrmtPrivate
+          return True
+      _ -> return $ return True
+   _ -> return $ return True
