@@ -44,7 +44,8 @@ module Network.IRC.Client.Amphibian.User
         waitMessage,
         notice,
         waitNotice,
-        getConnectionManager)
+        getConnectionManager,
+        getNick)
 
        where
 
@@ -164,8 +165,8 @@ waitNotice (UserNoticeResponse response) = readTMVar response
 
 -- | Get connection manager.
 getConnectionManager :: User -> ConnectionManager
-getConnectionManager user = userConnectionManager user
+getConnectionManager = userConnectionManager
 
 -- | Get nick.
 getNick :: User -> STM Nick
-getNick user = readTVar $ userNick user
+getNick = readTVar . userNick

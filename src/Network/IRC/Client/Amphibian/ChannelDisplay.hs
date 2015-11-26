@@ -47,6 +47,7 @@ import Network.IRC.Client.Amphibian.Commands
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frame as F
 import qualified Network.IRC.Client.Amphibian.Channel as C
+import qualified Network.IRC.Client.Amphibian.ConnectionManager as CM
 import qualified Network.IRC.Client.Amphibian.FrameMessage as FM
 import Control.Concurrrent.STM (STM,
                                 TVar,
@@ -69,6 +70,7 @@ import Control.Concurrent.Async (Async,
                                  cancel)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
+import Data.List (find)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.UTF8 as BUTF8
 
@@ -150,16 +152,14 @@ handleInterfaceEvent display = do
       else return ()
       mapping <- F.getMapping frame
       case mapping of
-        FrmaChannel channel -> addMappedFrame display Frame
-        _ -> return ()
-      return $ return True
+        FrmaChannel channel -> addMappedFrame display frame channel
+        _ -> return $ return True
     IntfFrameUnregistered frame -> do
       allFrames <- readTVar $ chdiAllFrames display
       if frame `elem` map chdfFrame allFrames
       then writeTVar (chdiAllFrames display) (filter (\frame' -> chdfFrame frame' /= frame) allFrames)
       else return ()
       removeMappedFrame display frame
-      return $ return True
     _ -> return $ return True
 
 -- | Handle frame event.
@@ -167,33 +167,51 @@ handleFrameEvent :: ChannelDisplay -> ChannelDisplayFrame -> STM (AM Bool)
 handleFrameEvent display frame = do
   event <- F.recvInput $ chdfSubscription frame
   case event of
-    FievMapping mapping -> do
-      case mapping of
-        FrmaChannel _ -> addMappedFrame display $ chdfFrame frame
-        _ -> removeMappedFrame display $ chdfFrame frame
-      return $ return True
-    _ -> return $ return True
+   FievMapping mapping -> do
+     case mapping of
+      FrmaChannel channel -> addMappedFrame display (chdfFrame frame) channel
+      _ -> removeMappedFrame display $ chdfFrame frame
+   _ -> return $ return True
 
 -- | Add frame to mapped frames.
-addMappedFrame :: ChannelDisplay -> Frame -> STM ()
-addMappedFrame display frame = do
+addMappedFrame :: ChannelDisplay -> Frame -> Channel -> STM (AM Bool)
+addMappedFrame display frame channel = do
   frames <- readTVar $ chdiFrames display
-  if frame `notElem` map cdfmFrame frames
-  then do
-    subscription <- C.subscribe channel
-    let mapping = ChannelDisplayFrameMapping { cdfmFrame = frame,
-                                               cdfmChannel = channel,
-                                               cdfmSubscription = subscription }
-    writeTVar (chdiFrames display) (mapping : frames)
-  else return ()
+  case find (\mapping -> cdfmFrame mapping == frame) frames of
+   Nothing -> addMappedFrame' display frame channel frames
+   Just mapping
+     | cdfmChannel mapping /= channel ->
+         let frames' = filter (\mapping -> cdfmFrame mapping /= frame) frames in
+         addMappedFrame' display frame channel frames'
+     | otherwise -> return $ return True
+  where addMappedFrame' display frame channel frames' = do
+          subscription <- C.subscribe channel
+          let mapping = ChannelDisplayFrameMapping { cdfmFrame = frame,
+                                                     cdfmChannel = channel,
+                                                     cdfmSubscription = subscription }
+          writeTVar (chdiFrames display) (mapping : frames)
+          name <- C.getName channel
+          let manager = C.getConnectionManager channel
+          nick <- CM.getNick manager
+          setup <- CM.getSetup manager
+          return $ do
+            FM.setNick frame nick
+            FM.setName frame name
+            FM.setTitle frame (Just $ comaServerName setup) (Just name)
+            return True
 
 -- | Remove frame from mapped frames.
-removeMappedFrame :: ChannelDisplay -> Frame -> STM ()
+removeMappedFrame :: ChannelDisplay -> Frame -> STM (AM Bool)
 removeMappedFrame display frame = do
-  frame <- readTVar $ chdiFrames display
+  frames <- readTVar $ chdiFrames display
   if frame `elem` map cdfmFrame frames
-  then writeTVar (chdiFrames display) (filter (\mapping -> cdfmFrame mapping /= frame) frames)
-  else return ()
+    then do writeTVar (chdiFrames display) (filter (\mapping -> cdfmFrame mapping /= frame) frames)
+            F.setNick frame Nothing
+            F.setName frame Nothing
+            return $ do
+              FM.setTitle frame Nothing Nothing
+              return True
+    else return $ return True
 
 -- | Handle connection event.
 handleChannelEvent :: ChannelDisplay -> ChannelDisplayFrameMapping -> STM (AM Bool)

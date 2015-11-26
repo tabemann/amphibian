@@ -357,8 +357,8 @@ redraw vtyFrontend = do
     inputVisiblePosition <- readTVar $ vtwiInputVisiblePosition currentWindow
     title <- Fr.getTitle $ vtwiFrame currentWindow
     topic <- Fr.getTopic $ vtwiFrame currentWindow
-    nick <- Fr.getNick $ vtwiFrame currentWindow
-    name <- Fr.getName $ vtwiFrame currentWindow
+    nick <- maybe "--" id <$> Fr.getNick $ vtwiFrame currentWindow
+    name <- maybe "--" id <$> Fr.getName $ vtwiFrame currentWindow
     bufferLines <- readTVar $ vtwiBufferLines currentWindow
     bufferLines' <- mapM (formatLine vtyFrontend) bufferLines
     bufferPosition <- readTVar $ vtwiBufferPosition currentWindow

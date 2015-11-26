@@ -64,6 +64,7 @@ import Control.Concurrent.Async (Async,
                                  async,
                                  cancel)
 import Data.Functor ((<$>))
+import Data.List (find)
 
 -- | Create a connection display.
 new :: Interface -> STM ConnectionDisplay
@@ -132,28 +133,25 @@ handleInterfaceEvent :: ConnectionDisplay -> STM (AM Bool)
 handleInterfaceEvent display = do
   event <- I.recv $ codiInterfaceSubscription display
   case event of
-    IntfFrameRegistered frame -> do
-      allFrames <- readTVar $ codiAllFrames display
-      if frame `notElem` map cdfrFrame allFrames
-      then do
-        frameSubscription <- F.subscribeInput frame
-        let frame' = ChannelDisplayFrame { cdfrFrame = frame,
-                                           cdrSubscription = frameSubscription }
-        writeTVar (codiAllFrames display) (frame' : allFrames)
-      else return ()
-      mapping <- F.getMapping frame
-      case mapping of
-        FrmaConnectionManager manager -> addMappedFrame display frame
-        _ -> return ()
-      return $ return True
-    IntfFrameUnregistered frame -> do
-      allFrames <- readTVar $ codiAllFrames
-      if frame `elem` map cdfrFrame allFrames
-      then writeTVar (codiAllFrames display) (filter (\frame' -> cdfrFrame frame' /= frame) allFrames)
-      else return ()
-      removeMappedFrame display frame
-      return $ return True
-    _ -> return $ return True
+   IntfFrameRegistered frame -> do
+     allFrames <- readTVar $ codiAllFrames display
+     if frame `notElem` map cdfrFrame allFrames
+       then do frameSubscription <- F.subscribeInput frame
+               let frame' = ChannelDisplayFrame { cdfrFrame = frame,
+                                                  cdrSubscription = frameSubscription }
+               writeTVar (codiAllFrames display) (frame' : allFrames)
+       else return ()
+     mapping <- F.getMapping frame
+     case mapping of
+      FrmaConnectionManager manager -> addMappedFrame display frame manager
+      _ -> return $ return True
+   IntfFrameUnregistered frame -> do
+     allFrames <- readTVar $ codiAllFrames
+     if frame `elem` map cdfrFrame allFrames
+       then writeTVar (codiAllFrames display) (filter (\frame' -> cdfrFrame frame' /= frame) allFrames)
+       else return ()
+     removeMappedFrame display frame
+   _ -> return $ return True
 
 -- | Handle frame event.
 handleFrameEvent :: ConnectionDisplay -> ConnectionDisplayFrame -> STM (AM Bool)
@@ -162,31 +160,47 @@ handleFrameEvent display frame = do
   case event of
     FievMapping mapping -> do
       case mapping of
-        FrmaConnectionManager _ -> addMappedFrame display $ cdfrFrame frame
+        FrmaConnectionManager manager -> addMappedFrame display (cdfrFrame frame) manager
         _ -> removeMappedFrame display $ cdfrFrame frame
-      return $ return True
     _ -> return $ return True
 
 -- | Add frame to mapped frames.
-addMappedFrame :: ConnectionDisplay -> Frame -> STM ()
-addMappedFrame display frame = do
+addMappedFrame :: ConnectionDisplay -> Frame -> ConnectionManager -> STM (AM Bool)
+addMappedFrame display frame manager = do
   frames <- readTVar $ codiFrames display
-  if frame `notElem` map codfFrame frames
-  then do
-    subscription <- CM.subscribe manager
-    let mapping = ConnectionDisplayFrameMapping { codfFrame = frame,
-                                                  codfConnectionManager = manager,
-                                                  codfSubscription = subscription }
-    writeTVar (codiFrames display) (mapping : frames)
-  else return ()
+  case find (\mapping -> codfFrame mapping == frame) frames of
+   Nothing -> addMappedFrame' display frame manager frames
+   Just mapping
+     | codfConnectionManager mapping /= manager ->
+       let frames' = filter (\mapping -> codfFrame mapping /= frame) frames in
+       addMappedFrame' display frame manager frames'
+     | otherwise = return $ return True
+  where addMappedFrame' display frame maanger frames = do
+          subscription <- CM.subscribe manager
+          let mapping = ConnectionDisplayFrameMapping { codfFrame = frame,
+                                                        codfConnectionManager = manager,
+                                                        codfSubscription = subscription }
+          writeTVar (codiFrames display) (mapping : frames)
+          nick <- CM.getNick manager
+          setup <- CM.getSetup manager
+          F.setName frame . Just $ comaServerName setup
+          return $ do
+            FM.setNick frame nick
+            FM.setTitle frame (Just $ comaServerName setup) Nothing
+            return True
 
 -- | Remove frame from mapped frames.
-removeMappedFrame :: ConnectionDisplay -> Frame -> STM ()
+removeMappedFrame :: ConnectionDisplay -> Frame -> STM (AM Bool)
 removeMappedFrame display frame = do
-  frame <- readTVar $ codiFrames display
+  frames <- readTVar $ codiFrames display
   if frame `elem` map codfFrame frames
-  then writeTVar (codiFrames display) (filter (\mapping -> codfFrame mapping /= frame) frames)
-  else return ()
+    then do writeTVar (codiFrames display) (filter (\mapping -> codfFrame mapping /= frame) frames)
+            F.setNick frame Nothing
+            F.setName frame Nothing
+            return $ do
+              FM.setTitle frame Nothing Nothing
+              return True
+    else return $ return True
 
 -- | Handle connection event.
 handleConnectionEvent :: ConnectionDisplay -> ConnectionDisplayFrameMapping -> STM (AM Bool)

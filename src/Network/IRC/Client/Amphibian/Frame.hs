@@ -94,7 +94,7 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 
 -- | Create a new frame.
-new :: Interface -> Maybe Frame -> FrameMapping -> T.Text -> T.Text -> T.Text -> STM Frame
+new :: Interface -> Maybe Frame -> FrameMapping -> Maybe T.Text -> Maybe T.Text -> T.Text -> STM Frame
 new intf parent mapping nick name title = do
   inputEvents <- newBroadcastTChan
   outputEvents <- newBroadcastTChan
@@ -224,21 +224,21 @@ outputLineLastFocused frame line = do
     Nothing -> outputLine frame line
 
 -- | Get the nick of a frame.
-getNick :: Frame -> STM T.Text
+getNick :: Frame -> STM (Maybe T.Text)
 getNick = readTVar . frameNick
 
 -- | Set the nick of a frame.
-setNick :: Frame -> T.Text -> STM ()
+setNick :: Frame -> Maybe T.Text -> STM ()
 setNick frame nick = do
   writeTVar (framNick frame) nick
   writeTChan (framOutputEvents frame) (FoevNick nick)
 
 -- | Get the name of a frame.
-getName :: Frame -> STM T.Text
+getName :: Frame -> STM (Maybe T.Text)
 getName = readTVar . frameName
 
 -- | Set the name of a frame.
-setName :: Frame -> T.Text -> STM ()
+setName :: Frame -> Maybe T.Text -> STM ()
 setName frame name = do
   writeTVar (framName frame) name
   writeTChan (framOutputEvents frame) (FoevName name)

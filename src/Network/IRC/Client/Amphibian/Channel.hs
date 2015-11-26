@@ -134,7 +134,7 @@ new intf manager name key = do
 
 -- | Get connection manager
 getConnectionManager :: Channel -> ConnectionManager
-getConnectionManager channel = chanConnectionManager channel
+getConnectionManager = chanConnectionManager
 
 -- | Get channel name.
 getName :: Channel -> STM ChannelName

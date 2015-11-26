@@ -826,8 +826,8 @@ data Frame = Frame { framInterface :: Interface,
                      framMapping :: TVar FrameMapping,
                      framTopic :: TVar (Maybe StyledText),
                      framUsers :: TVar (Maybe [(Text, UserStatus)]),
-                     framNick :: TVar Text,
-                     framName :: TVar Text,
+                     framNick :: TVar (Maybe Text),
+                     framName :: TVar (Maybe Text),
                      framTitle :: TVar Text,
                      framParent :: TVar (Maybe Frame),
                      framChildren :: TVar [Frame],
@@ -853,8 +853,8 @@ data FrameMapping = FrmaConnectionManager ConnectionManager
 -- | Frame output event.
 data FrameOutputEvent = FoevTopic (Maybe StyledText)
                       | FoevUsers (Maybe [(Text, UserStatus)])
-                      | FoevNick Text
-                      | FoevName Text
+                      | FoevNick (Maybe Text)
+                      | FoevName (Maybe Text)
                       | FoevTitle Text
                       | FoevLine FrameLine
                       | FoevNotifications [FrameNotification]

@@ -84,13 +84,13 @@ decode frame bytes = do
 setNick :: Frame -> Nick -> AM ()
 setNick frame nick = do
   nick' <- decode frame nick
-  liftIO . atomically $ F.setNick frame nick'
+  liftIO . atomically . F.setNick frame $ Just nick'
 
 -- | Set name of frame.
 setName :: Frame -> B.ByteString -> AM ()
 setName frame name = do
   name' <- decode frame name
-  liftIO . atomically $ F.setName frame name'
+  liftIO . atomically . F.setName frame $ Just name'
 
 -- | Set title of frame.
 setTitle :: Frame -> Maybe T.Text -> Maybe B.ByteString -> AM ()

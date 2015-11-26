@@ -69,6 +69,7 @@ import Control.Concurrent.Async (Async,
                                  cancel)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
+import Data.List (find)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.UTF8 as BUTF8
 
@@ -140,61 +141,76 @@ handleInterfaceEvent :: UserDisplay -> STM (AM Bool)
 handleInterfaceEvent display = do
   event <- I.recv $ usdiInterfaceSubscription display
   case event of
-    IntfFrameRegistered frame -> do
-      allFrames <- readTVar $ usdiAllFrames display
-      if frame `notElem` map usdfFrame allFrames
-      then do
-        frameSubscription <- F.subscribeInput frame
-        let frame' = UserDisplayFrame { usdfFrame = frame,
-                                        usdfSubscription = frameSubscription }
-        writeTVar (usdiAllFrames display) (frame' : allFrames)
-      else return ()
-      mapping <- F.getMapping frame
-      case mapping of
-        FrmaUser _ -> addMappedFrame display frame
-        _ -> return ()
-      return $ return True
-    IntfFrameUnregistered frame -> do
-      allFrames <- readTVar $ usdiAllFrames display
-      if frame `elem` map usdfFrame allFrames
+   IntfFrameRegistered frame -> do
+     allFrames <- readTVar $ usdiAllFrames display
+     if frame `notElem` map usdfFrame allFrames
+       then do frameSubscription <- F.subscribeInput frame
+               let frame' = UserDisplayFrame { usdfFrame = frame,
+                                               usdfSubscription = frameSubscription }
+               writeTVar (usdiAllFrames display) (frame' : allFrames)
+       else return ()
+     mapping <- F.getMapping frame
+     case mapping of
+      FrmaUser user -> addMappedFrame display frame user
+      _ -> return $ return True
+   IntfFrameUnregistered frame -> do
+     allFrames <- readTVar $ usdiAllFrames display
+     if frame `elem` map usdfFrame allFrames
       then writeTVar (usdiAllFrames display) (filter (\frame' -> usdfFrame frame' /= frame) allFrames)
       else return ()
-      removeMappedFrame display frame
-      return $ return True
-    _ -> return $ return True
+     removeMappedFrame display frame
+   _ -> return $ return True
 
 -- | Handle frame event.
 handleFrameEvent :: UserDisplay -> UserDisplayFrame -> STM (AM Bool)
 handleFrameEvent display frame = do
   event <- F.recvInput $ usdfSubscription frame
   case event of
-    FievMapping mapping -> do
-      case mapping of
-        FrmaUser _ -> addMappedFrame display $ usdfFrame frame
-        _ -> removeMappedFrame display $ usdfFrame frame
-      return $ return True
-    _ -> return $ return True
+   FievMapping mapping -> do
+     case mapping of
+      FrmaUser user -> addMappedFrame display (usdfFrame frame) user
+      _ -> removeMappedFrame display $ usdfFrame frame
+   _ -> return $ return True
 
 -- | Add frame to mapped frames.
-addMappedFrame :: UserDisplay -> Frame -> STM ()
-addMappedFrame display frame = do
+addMappedFrame :: UserDisplay -> Frame -> User -> STM (AM Bool)
+addMappedFrame display frame user = do
   frames <- readTVar $ usdiFrames display
-  if frame `notElem` map udfmFrame frames
-  then do
-    subscription <- U.subscribe channel
-    let mapping = UserDisplayFrameMapping { udfmFrame = frame,
-                                            udfmUser = channel,
-                                            udfmSubscription = subscription }
-    writeTVar (usdiFrames display) (mapping : frames)
-  else return ()
+  case find (\mapping -> udfmFrame mapping == frame) frames of
+   Nothing -> addMappedFrame' display frame user frames
+   Just mapping
+     | udfmUser mapping /= user ->
+         let frames' = filter (\mapping -> udfmFrame mapping /= frame) frames in
+         addMappedFrame' display frame user frames'
+     | otherwise -> return $ return True
+  where addMappedFrame' display frame user frames = do
+          subscription <- U.subscribe user
+          let mapping = UserDisplayFrameMapping { udfmFrame = frame,
+                                                  udfmUser = user,
+                                                  udfmSubscription = subscription }
+          writeTVar (usdiFrames display) (mapping : frames)
+          userNick <- U.getNick user
+          let manager = U.getConnectionManager user
+          nick <- CM.getNick manager
+          setup <- CM.getSetup manager
+          return $ do
+            FM.setNick frame nick
+            FM.setName frame userNick
+            FM.setTitle frame (Just $ comaServerName setup) (Just userNick)
+            return True
 
 -- | Remove frame from mapped frames.
-removeMappedFrame :: UserDisplay -> Frame -> STM ()
+removeMappedFrame :: UserDisplay -> Frame -> STM (AM Bool)
 removeMappedFrame display frame = do
   frames <- readTVar $ usdiFrames display
   if frame `elem` map udfmFrame frames
-  then writeTVar (usdiFrames display) (filter (\mapping -> udfmFrame mapping /= frame) frames)
-  else return ()
+    then do writeTVar (usdiFrames display) (filter (\mapping -> udfmFrame mapping /= frame) frames)
+            F.setNick frame Nothing
+            F.setName frame Nothing
+            return $ do
+              FM.setTitle frame Nothing Nothing
+              return True
+    else return $ return True
 
 -- | Handle connection event.
 handleUserEvent :: UserDisplay -> UserDisplayFrameMapping -> STM (AM Bool)
