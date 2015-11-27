@@ -198,16 +198,13 @@ handleModeResponse subscription nick sendResponse response = do
 quit :: ConnectionManager -> MessageComment -> AM QuitResponse
 quit manager comment = do
   response <- liftIO . atomically $ newEmptyTMVar
-  registered <- liftIO . atomically $ CM.isRegistered manager
-  if registered
-  then do subscription <- liftIO . atomically $ CM.subscribe manager
-          sendResponse <- liftIO . atomically . CM.send $ IRCCommand { ircmPrefix = Nothing,
-                                                                       ircmCommand = cmd_QUIT,
-                                                                       ircmParameters = [],
-                                                                       ircmComment = Just comment }
-          intf <- interface
-          async $ runAM (handleQuitResponse subscription sendResponse response) intf
-  else liftIO . atomically $ putTMVar response QuitNotRegistered
+  subscription <- liftIO . atomically $ CM.subscribe manager
+  sendResponse <- liftIO . atomically . CM.send $ IRCCommand { ircmPrefix = Nothing,
+                                                               ircmCommand = cmd_QUIT,
+                                                               ircmParameters = [],
+                                                               ircmComment = Just comment }
+  intf <- interface
+  async $ runAM (handleQuitResponse subscription sendResponse response) intf
   return $ QuitResponse response
 
 -- | Wait for response from QUIT.

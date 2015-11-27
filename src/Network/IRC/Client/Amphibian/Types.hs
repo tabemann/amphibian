@@ -238,6 +238,7 @@ data InterfaceEvent = IntfConnectionManagerRegistered ConnectionManager
                     | IntfUserServerUnregistered UsersServer
                     | IntfConfigSet Config
                     | IntfConnectionConfigSet ConnectionManager ConnectionConfig
+                    | IntfExit
 
 -- | Language.
 type Language = Text
@@ -591,7 +592,6 @@ newtype QuitResponse = QuitResponse (TMVar QuitEvent)
 data QuitEvent = QuitSuccess (Maybe MessageComment)
                | QuitOther IRCMessage
                | QuitDisconnected
-               | QuitNotRegistered
                | QuitError Error
                deriving Eq
 

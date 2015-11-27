@@ -64,7 +64,9 @@ bootstrap :: IO ()
 bootstrap = do
   config <- getDefaultConfig
   intf <- atomically $ I.new config
+  intfSubscription <- I.subscribe intf
   runAM continueBootstrap intf
+  waitInterfaceExit intfSubscription
 
 -- | Continue bootstrapping Amphibian.
 continueBootstrap :: AM ()
@@ -89,6 +91,7 @@ continueBootstrap = do
     IH.installHandlers intf
     CH.installHandlers intf
   runConfigPlugin
+  
 
 -- | Run configuration plugin.
 runConfigPlugin :: AM ()
@@ -119,3 +122,15 @@ waitExit subscription = do
     PoevExit -> return ()
     _ -> retry
   
+-- | Wait until interface indicates exit
+waitInterfaceExit :: InterfaceSubscription -> IO ()
+waitInterfaceExit subscription = do
+  continue <- atomically $ do
+    event <- I.recv subscription
+    case event of
+     IntfExit -> return False
+     _ -> return True
+  if continue
+    then waitInterfaceExit subscription
+    else return ()
+   

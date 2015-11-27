@@ -79,7 +79,8 @@ module Network.IRC.Client.Amphibian.Interface
         unregisterChannelServer,
         getUserServer,
         registerUserServer,
-        unregisterUserServer)
+        unregisterUserServer,
+        exit)
 
        where
 
@@ -484,3 +485,7 @@ unregisterUserServer intf server = do
       writeTVar (intfUserServer intf) Nothing
       writeTChan (intfEvents intf) (IntfUserServerUnregistered server)
     _ -> return ()
+
+-- | Exit.
+exit :: Interface -> STM ()
+exit intf = writeTChan (intfEvents intf) IntfExit
