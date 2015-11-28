@@ -2,9 +2,7 @@
 
 module Network.IRC.Client.Amphibian.FrameMessage
 
-       (setNick,
-        setName,
-        setTitle,
+       (setTitle,
         lookupAddressMessage,
         lookupAddressFailedMessage,
         reverseLookupFailedMessage,
@@ -48,6 +46,7 @@ module Network.IRC.Client.Amphibian.FrameMessage
 
 import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Monad
+import Network.IRC.Client.Amphibian.Utility
 import qualified Network.IRC.Client.Amphibian.ConnectionManager as CM
 import qualified Network.IRC.Client.Amphibian.Frame as F
 import qualified Network.IRC.Client.Amphibian.StyledText as ST
@@ -71,44 +70,25 @@ import System.Locale (TimeLocale)
 -- | Decode text sent to a frame.
 decode :: Frame -> B.ByteString -> AM T.Text
 decode frame bytes = do
-  manager <- liftIO . atomically $ F.getConnectionManager frame
-  case manager of
-    Just manager -> do
-      config <- getConnectionConfig manager
-      case config of
-        Just config -> return $ (encoDecoder $ cocoEncoding config) bytes
-        Nothing -> lookupText "NO CONNECTION CONFIG SET"
-    Nothing -> lookupText "NO CONNECTION MANAGER SET"
-
--- | Set nick of frame.
-setNick :: Frame -> Nick -> AM ()
-setNick frame nick = do
-  nick' <- decode frame nick
-  liftIO . atomically . F.setNick frame $ Just nick'
-
--- | Set name of frame.
-setName :: Frame -> B.ByteString -> AM ()
-setName frame name = do
-  name' <- decode frame name
-  liftIO . atomically . F.setName frame $ Just name'
+  intf <- getInterface
+  liftIO . atomically $ decodeFrame intf frame bytes
 
 -- | Set title of frame.
-setTitle :: Frame -> Maybe T.Text -> Maybe B.ByteString -> AM ()
-setTitle frame (Just serverName) (Just nickOrChannel) = do
-  nickOrChannel' <- decode frame nickOrChannel
+setTitle :: Interface -> Frame -> Maybe T.Text -> Maybe T.Text -> STM ()
+setTitle intf frame (Just serverName) (Just nickOrChannel) = do
   let textMap = HM.insert "server" (formatText serverName) HM.empty
   let textMap' = HM.insert "nickOrChannel" (formatText nickOrChannel') textMap
-  formatText <- lookupText "Amphibian: %server:s / %nickOrChannel:s"
+  formatText <- I.lookupText intf "Amphibian: %server:s / %nickOrChannel:s"
   let formattedText = format formatText textMap'
-  liftIO . atomically $ F.setTitle frame formattedText
-setTitle frame (Just serverName) Nothing = do
+  F.setTitle frame formattedText
+setTitle intf frame (Just serverName) Nothing = do
   let textMap = HM.insert "server" (formatText serverName) HM.empty
-  formatText <- lookupText "Amphibian: %server:s"
+  formatText <- I.lookupText intf "Amphibian: %server:s"
   let formattedText = format formatText textMap
-  liftIO . atomically $ F.setTitle frame formattedText
-setTitle frame Nothing _ = do
-  text <- lookupText "Amphibian: no server"
-  liftIO . atomically $ F.setTitle frame text
+  F.setTitle frame formattedText
+setTitle intf frame Nothing _ = do
+  text <- I.lookupText intf "Amphibian: no server"
+  F.setTitle frame text
 
 -- | Send a lookup hostname message to a specific frame.
 lookupHostnameMessage :: Frame -> HostName -> AM ()

@@ -49,7 +49,7 @@ import qualified Network.IRC.Client.Amphibian.Plugin as P
 import qualified Network.IRC.Client.Amphibian.ConnectionDisplay as CoD
 import qualified Network.IRC.Client.Amphibian.ChannelDisplay as ChD
 import qualified Network.IRC.Client.Amphibian.UserDisplay as UD
-import Control.Monad.IO.CLass (liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent.STM (STM,
                                atomically,
                                retry)

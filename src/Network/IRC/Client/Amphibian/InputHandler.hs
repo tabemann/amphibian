@@ -104,9 +104,8 @@ defaultMessageHandler frame text = do
 
 -- | Notice command handler.
 noticeHandler :: Frame -> T.Text -> StyledText -> AM Bool
-noticeHandler frame command text =
-  if command == "notice"
-  then do
-    comment <- encode frame $ ST.encode text
-    
-  else return False
+noticeHandler frame command text
+  | command == "notice" = do
+      comment <- encode frame $ ST.encode text
+      
+  | otherwise = return False

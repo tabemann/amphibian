@@ -34,7 +34,8 @@ module Network.IRC.Client.Amphibian.Utility
         convertAddRemove,
         isError,
         unique,
-        parseChannelNameOrNick)
+        parseChannelNameOrNick,
+        decodeFrame)
 
        where
 
@@ -71,3 +72,14 @@ parseChannelNameOrNick channelNameOrNick =
     Just ('#', _) -> CnonChannelName channelNameOrNick
     _ -> CnonNick channelNameOrNick
 
+-- | Decode text for a frame.
+decodeFrame :: Interface -> Frame -> B.ByteString -> STM T.Text
+decodeFrame intf frame bytes =
+  manager <- F.getConnectionManager frame
+  case manager of
+    Just manager -> do
+      config <- I.getConnectionConfig intf manager
+      case config of
+        Just config -> return $ (encoDecoder $ cocoEncoding config) bytes
+        Nothing -> I.lookupText intf "NO CONNECTION CONFIG SET"
+    Nothing -> I.lookupText intf "NO CONNECTION MANAGER SET"

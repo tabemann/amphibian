@@ -94,15 +94,16 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 
 -- | Create a new frame.
-new :: Interface -> Maybe Frame -> FrameMapping -> Maybe T.Text -> Maybe T.Text -> T.Text -> STM Frame
-new intf parent mapping nick name title = do
+new :: Interface -> Maybe Frame -> FrameMapping -> STM Frame
+new intf parent mapping = do
   inputEvents <- newBroadcastTChan
   outputEvents <- newBroadcastTChan
   mapping' <- newTVar mapping
   topic <- newTVar Nothing
   users <- newTVar Nothing
-  nick' <- newTVar nick
-  name' <- newTVar name
+  nick <- newTVar Nothing
+  name <- newTVar Nothing
+  title <- I.lookupText intf "Amphibian: no server"
   title' <- newTVar title
   parent' <- newTVar parent
   children <- newTVar []
@@ -116,8 +117,8 @@ new intf parent mapping nick name title = do
                       framMapping = mapping',
                       framTopic = topic,
                       framUsers = users,
-                      framNick = nick'
-                      framName = name'
+                      framNick = nick
+                      framName = name
                       framTitle = title',
                       framParent = parent',
                       framChildren = children,
