@@ -36,6 +36,7 @@ module Network.IRC.Client.Amphibian.InputHandler
 
 import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Monad
+import Network.IRC.Client.Amphibian.Utility
 import qualified Network.IRC.Client.Amphibian.Interface as I
 import qualified Network.IRC.Client.Amphibian.Frame as F
 import qualified Network.IRC.Client.Amphibian.ConnectionManager as CM
@@ -44,12 +45,16 @@ import qualified Network.IRC.Client.Amphibian.User as U
 import qualified Network.IRC.Client.Amphibian.FrameMessage as FM
 import qualified Network.IRC.Client.Amphibian.StyledText as ST
 import qualified Network.IRC.Client.Amphibian.InputDispatcher as ID
+import qualified Network.IRC.Client.Amphibian.Command as Cmd
+import qualified Network.IRC.Client.Amphibian.Frontend as Fr
 import qualified Data.Text as T
 import qualified Data.ByteString as B
 import Control.Concurrent.STM (STM,
                                atomically)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
+import Control.Monad ((=<<),
+                      forM)
 
 -- | Install handlers.
 installHandlers :: Interface -> STM ()
@@ -59,6 +64,7 @@ installHandlers intf = do
     Just dispatcher -> do
       ID.registerMessageHandler dispatcher defaultMessageHandler
       ID.registerCommandHandler dispatcher "notice" noticeHandler
+      ID.registerCommandHandler dispatcher "quit" quitHandler
     Nothing -> return ()
 
 -- | Encode text sent from a frame.
@@ -101,6 +107,33 @@ defaultMessageHandler frame text = do
       advisoryText <- lookupText "Not a channel or user"
       FM.errorMessage frame advisoryText (Error [])
     _ -> return False
+
+-- | Quit command handler.
+quitHandler :: Frame -> T.Text -> StyledText -> AM Bool
+quitHandler frame command text
+  | command == "quit" = do
+      intf <- getInterface
+      async $ runAM (doQuit text) intf
+      return True
+  | otherwise = return False
+  where doQuit text = do
+          managers <- getConnectionManagers
+          forM managers $ \manager -> do
+            config <- getConnectionConfig manager
+            let encodedText =
+                  case config of
+                   Just config -> (encoEncoder $ cocoEncoding config) $ ST.encode text
+                   Nothing -> B.empty
+            response <- Cmd.quit manager encodedText
+            Cmd.quitQuit response
+          frontend <- getFrontend
+          case frontend of
+           Just frontend -> do
+             subscription <- liftIO . atomically $ Fr.subscribeInput frontend
+             liftIO . atomically $ Fr.stop frontend
+             waitM (== FrieStopped) . liftIO . atomically $ Fr.recvInput subscription
+           Nothing -> return ()
+          liftIO . atomically . I.exit =<< getInterface
 
 -- | Notice command handler.
 noticeHandler :: Frame -> T.Text -> StyledText -> AM Bool

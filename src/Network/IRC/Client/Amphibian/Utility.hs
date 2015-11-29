@@ -35,13 +35,15 @@ module Network.IRC.Client.Amphibian.Utility
         isError,
         unique,
         parseChannelNameOrNick,
-        decodeFrame)
+        decodeFrame,
+        waitM)
 
        where
 
 import Network.IRC.Client.Amphibian.Types
 import Text.Read (readMaybe)
 import qualified Data.ByteString.UTF8 as BUTF8
+import Data.Functor ((<$>))
 
 -- | Extract nick.
 extractNick :: Maybe MessagePrefix -> Maybe Nick
@@ -83,3 +85,11 @@ decodeFrame intf frame bytes =
         Just config -> return $ (encoDecoder $ cocoEncoding config) bytes
         Nothing -> I.lookupText intf "NO CONNECTION CONFIG SET"
     Nothing -> I.lookupText intf "NO CONNECTION MANAGER SET"
+
+-- | Wait for an STM monad to return a value meeting a condition
+waitM :: Monad m => (a -> Bool) -> m a -> m ()
+waitM f m = do
+  x <- m
+  if not $ fx
+    then waitMonad f m
+    else return()
