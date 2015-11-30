@@ -55,6 +55,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
 import Control.Monad ((=<<),
                       forM)
+import Data.Char (isSpace)
 
 -- | Install handlers.
 installHandlers :: Interface -> STM ()
@@ -66,18 +67,6 @@ installHandlers intf = do
       ID.registerCommandHandler dispatcher "notice" noticeHandler
       ID.registerCommandHandler dispatcher "quit" quitHandler
     Nothing -> return ()
-
--- | Encode text sent from a frame.
-encode :: Frame -> T.Text -> AM B.ByteString
-encode frame text = do
-  manager <- liftIO . atomically $ F.getConnectionManager frame
-  case manager of
-    Just manager -> do
-      config <- getConnectionConfig manager
-      case config of
-        Just config -> return $ (encoEncoder $ cocoEncoding config) text
-        Nothing -> return B.empty
-    Nothing -> return B.empty
 
 -- | Default message handler.
 defaultMessageHandler :: Frame -> StyledText -> AM Bool
@@ -139,6 +128,16 @@ quitHandler frame command text
 noticeHandler :: Frame -> T.Text -> StyledText -> AM Bool
 noticeHandler frame command text
   | command == "notice" = do
-      comment <- encode frame $ ST.encode text
-      
+      let (dest, text') = ST.break isSpace text
+      let dest' = ST.removeStyle dest
+      intf <- getInterface
+      text'' <- liftIO . atomically . encodeFrame intf frame $ ST.encode text'
+      case T.uncons dest of
+       Just ('#', _) ->
+         liftIO . atomically
+       Just _ ->
+         liftIO . atomically
+       Nothing -> do
+         syntaxText <- lookupText "/notice <destination> <text>"
+         FM.badCommandSyntaxMessage frame syntaxText
   | otherwise = return False

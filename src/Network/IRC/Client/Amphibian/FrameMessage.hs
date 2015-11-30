@@ -40,6 +40,7 @@ module Network.IRC.Client.Amphibian.FrameMessage
         selfActionMessage,
         selfNoticeMessage,
         unknownCommandMessage,
+        badCommandSyntaxMessage,
         errorMessage)
 
        where
@@ -815,6 +816,19 @@ unknownCommandMessage :: Frame -> T.Text -> AM ()
 unknownCommandMessage frame command = do
   let textMap = HM.insert "command" (formatText command) HM.empty
   formatText <- lookupText "Unknown command \"%command:s\""
+  let formattedText = format formatText textMap
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] formattedText }
+
+-- | Send a bad command syntax message to a frame.
+badCommandSyntaxMessage :: Frame -> T.Text -> AM ()
+badCommandSyntaxMessage frame syntax = do
+  let textMap = HM.insert "syntax" (formatText syntax) HM.empty
+  formatText <- lookupText "Command syntax: \"%syntax:s\""
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
