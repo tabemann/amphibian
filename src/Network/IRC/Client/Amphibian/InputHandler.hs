@@ -53,7 +53,8 @@ import Control.Concurrent.STM (STM,
                                atomically)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
-import Control.Monad ((=<<),
+import Control.Monad (join,
+                      (=<<),
                       forM)
 import Data.Char (isSpace)
 
@@ -64,7 +65,9 @@ installHandlers intf = do
   case dispatcher of
     Just dispatcher -> do
       ID.registerMessageHandler dispatcher defaultMessageHandler
+      ID.registerCommandHandler dispatcher "msg" msgHandler
       ID.registerCommandHandler dispatcher "notice" noticeHandler
+      ID.registerCommandHandler dispatcher "join" joinHandler
       ID.registerCommandHandler dispatcher "quit" quitHandler
     Nothing -> return ()
 
@@ -97,6 +100,130 @@ defaultMessageHandler frame text = do
       FM.errorMessage frame advisoryText (Error [])
     _ -> return False
 
+-- | Msg command handler.
+msgHandler :: Frame -> T.Text -> StyledText -> AM Bool
+msgHandler frame command text
+  | command == "msg" = do
+      let (dest, text') = ST.break isSpace text
+      let dest' = ST.removeStyle dest
+      intf <- getInterface
+      dest'' <- liftIO . atomically $ encodeFrame intf frame dest'
+      text'' <- liftIO . atomically . encodeFrame intf frame . ST.encode $ ST.drop 1 text'
+      case T.uncons dest' of
+       Just ('#', _) ->
+         join . liftIO . atomically $ do
+           manager <- F.getConnectionManager frame
+           case manager of
+            Just manager -> do
+              channel <- findChannel intf manager dest''
+              case channel of
+               Just channel -> do
+                 response <- C.message channel text''
+                 return $ do
+                   response' <- liftIO . atomically $ C.waitMessage response
+                   case response' of
+                    Right () -> return ()
+                    Left error -> do
+                      messageText <- lookupText "Unable to send message to channel"
+                      FM.errorMessage frame messageText error
+               Nothing -> return $ FM.notInChannelMessage frame dest''
+            Nothing -> return $ FM.unboundFrameMessage frame
+       Just _ ->
+         join . liftIO . atomically $ do
+           manager <- F.getConnectionManager frame
+           case manager of
+            Just manager -> do
+              user <- findOrCreateUser intf manager dest''
+              response <- U.message user text''
+              return $ do
+                response' <- liftIO . atomically $ U.waitMessage response
+                case response' of
+                 Right () -> return ()
+                 Left error -> do
+                   messageText <- lookupText "Unable to send message to user"
+                   FM.errorMessage frame messageText error
+            Nothing -> return $ FM.unboundFrameMessage frame
+       Nothing -> do
+         syntaxText <- lookupText "/notice <destination> <text>"
+         FM.badCommandSyntaxMessage frame syntaxText
+  | otherwise = return False
+
+-- | Notice command handler.
+noticeHandler :: Frame -> T.Text -> StyledText -> AM Bool
+noticeHandler frame command text
+  | command == "notice" = do
+      let (dest, text') = ST.break isSpace text
+      let dest' = ST.removeStyle dest
+      intf <- getInterface
+      dest'' <- liftIO . atomically $ encodeFrame intf frame dest'
+      text'' <- liftIO . atomically . encodeFrame intf frame . ST.encode $ ST.drop 1 text'
+      case T.uncons dest' of
+       Just ('#', _) ->
+         join . liftIO . atomically $ do
+           manager <- F.getConnectionManager frame
+           case manager of
+            Just manager -> do
+              channel <- findChannel intf manager dest''
+              case channel of
+               Just channel -> do
+                 response <- C.notice channel text''
+                 return $ do
+                   response' <- liftIO . atomically $ C.waitNotice response
+                   case response' of
+                    Right () -> return ()
+                    Left error -> do
+                      messageText <- lookupText "Unable to send notice to channel"
+                      FM.errorMessage frame messageText error
+               Nothing -> return $ FM.notInChannelMessage frame dest''
+            Nothing -> return $ FM.unboundFrameMessage frame
+       Just _ ->
+         join . liftIO . atomically $ do
+           manager <- F.getConnectionManager frame
+           case manager of
+            Just manager -> do
+              user <- findOrCreateUser intf manager dest''
+              response <- U.notice user text''
+              return $ do
+                response' <- liftIO . atomically $ U.waitNotice response
+                case response' of
+                 Right () -> return ()
+                 Left error -> do
+                   messageText <- lookupText "Unable to send notice to user"
+                   FM.errorMessage frame messageText error
+            Nothing -> return $ FM.unboundFrameMessage frame
+       Nothing -> do
+         syntaxText <- lookupText "/notice <destination> <text>"
+         FM.badCommandSyntaxMessage frame syntaxText
+  | otherwise = return False
+
+-- | Join command handler.
+joinHandler :: Frame -> T.Text -> StyledText -> AM Bool
+joinHandler frame command text
+  | command == "join" = do
+      let (name, key) = ST.break isSpace text
+      let name' = ST.removeStyle name
+      let key' = ST.removeStyle key
+      intf <- getInterface
+      name'' <- liftIO . atomically $ encodeFrame intf frame name'
+      key'' <- liftIO . atomically . encodeFrame intf frame $ T.drop 1 key'
+      let key''' = if key'' /= B.empty then Just key'' else Nothing
+      case T.uncons name' of
+       Just ('#', _) ->
+         join . liftIO . atomically $ do
+           manager <- F.getConnectionManager frame
+           case manager of
+            Just manager -> do
+              channel <- do
+                channel <- findChannel intf manager name''
+                case channel of
+                 Just channel -> return channel
+            Nothing -> return $ FM.unboundFrameMessage frame
+       Just _ -> FM.notAChannelMessage frame dest'
+       Nothing -> do
+         syntaxText <- lookupText "/join <channel> [<key>]"
+         FM.badCommandSyntaxMessage frame syntaxText
+  | otherwise = return False
+
 -- | Quit command handler.
 quitHandler :: Frame -> T.Text -> StyledText -> AM Bool
 quitHandler frame command text
@@ -124,20 +251,3 @@ quitHandler frame command text
            Nothing -> return ()
           liftIO . atomically . I.exit =<< getInterface
 
--- | Notice command handler.
-noticeHandler :: Frame -> T.Text -> StyledText -> AM Bool
-noticeHandler frame command text
-  | command == "notice" = do
-      let (dest, text') = ST.break isSpace text
-      let dest' = ST.removeStyle dest
-      intf <- getInterface
-      text'' <- liftIO . atomically . encodeFrame intf frame $ ST.encode text'
-      case T.uncons dest of
-       Just ('#', _) ->
-         liftIO . atomically
-       Just _ ->
-         liftIO . atomically
-       Nothing -> do
-         syntaxText <- lookupText "/notice <destination> <text>"
-         FM.badCommandSyntaxMessage frame syntaxText
-  | otherwise = return False

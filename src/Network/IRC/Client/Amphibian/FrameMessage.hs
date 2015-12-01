@@ -41,6 +41,9 @@ module Network.IRC.Client.Amphibian.FrameMessage
         selfNoticeMessage,
         unknownCommandMessage,
         badCommandSyntaxMessage,
+        unboundFrameMessage,
+        notInChannelMessage,
+        notAChannelMessage,
         errorMessage)
 
        where
@@ -829,6 +832,45 @@ badCommandSyntaxMessage :: Frame -> T.Text -> AM ()
 badCommandSyntaxMessage frame syntax = do
   let textMap = HM.insert "syntax" (formatText syntax) HM.empty
   formatText <- lookupText "Command syntax: \"%syntax:s\""
+  let formattedText = format formatText textMap
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] formattedText }
+
+-- | Send an unbound frame message to a frame.
+unboundFrameMessage :: Frame -> AM ()
+unboundFrameMessage frame syntax = do
+  text <- lookupText "Frame is not bound to a connection, channel, or user"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] text }
+
+-- | Send a not in channel message to a frame.
+notInChannelMessage :: Frame -> ChannelName -> AM ()
+notInChannelMessage frame name = do
+  name' <- decode frame name
+  let textMap = HM.insert "name" (formatText name') HM.empty
+  formatText <- lookupText "Not in channel %name:s"
+  let formattedText = format formatText textMap
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] formattedText }
+
+-- | Send a not achannel message to a frame.
+notAChannelMessage :: Frame -> ChannelName -> AM ()
+notAChannelMessage frame name = do
+  name' <- decode frame name
+  let textMap = HM.insert "name" (formatText name') HM.empty
+  formatText <- lookupText "Not a channel: %name:s"
   let formattedText = format formatText textMap
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
