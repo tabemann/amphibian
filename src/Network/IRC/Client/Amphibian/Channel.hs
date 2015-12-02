@@ -50,6 +50,8 @@ module Network.IRC.Client.Amphibian.Channel
         getNames,
         getAutoJoin,
         getJoined,
+        getKey,
+        setKey,
         start,
         stop,
         waitStop,
@@ -167,6 +169,14 @@ getAutoJoin = readTVar . chanAutoJoin
 -- | Get whether the channel is joined.
 getJoined :: Channel -> STM Bool
 getJoined = readTVar . chanJoined
+
+-- | Get the channel key.
+getKey :: Channel -> STM ChannelKey
+getKey = readTVar . chanKey
+
+-- | Set the channel key.
+setKey :: Channel -> Maybe ChannelKey -> STM ()
+setKey channel = writeTVar (chanKey channel)
 
 -- | Start a channel thread.
 start :: Channel -> STM ChannelStartResponse

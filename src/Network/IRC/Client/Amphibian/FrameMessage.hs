@@ -42,6 +42,8 @@ module Network.IRC.Client.Amphibian.FrameMessage
         unknownCommandMessage,
         badCommandSyntaxMessage,
         unboundFrameMessage,
+        notChannelFrameMessage,
+        notChannelOrUserFrameMessage,
         notInChannelMessage,
         notAChannelMessage,
         errorMessage)
@@ -844,6 +846,39 @@ badCommandSyntaxMessage frame syntax = do
 unboundFrameMessage :: Frame -> AM ()
 unboundFrameMessage frame syntax = do
   text <- lookupText "Frame is not bound to a connection, channel, or user"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] text }
+
+-- | Send an unbound frame message to a frame.
+unboundFrameMessage :: Frame -> AM ()
+unboundFrameMessage frame syntax = do
+  text <- lookupText "Frame is not bound to a connection, channel, or user"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] text }
+
+-- | Send a not channel frame message to a frame.
+notChannelFrameMessage :: Frame -> AM ()
+notChannelFrameMessage frame syntax = do
+  text <- lookupText "Frame is not bound to a channel"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] text }
+
+-- | Send a not channel or user frame message to a frame.
+notChannelOrUserFrameMessage :: Frame -> AM ()
+notChannelOrUserFrameMessage frame syntax = do
+  text <- lookupText "Frame is not bound to a channel or user"
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,

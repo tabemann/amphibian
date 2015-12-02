@@ -174,21 +174,22 @@ doJoin :: Channel -> ChannelJoinResponse -> STM (AM Bool)
 doJoin channel (ChannelJoinResponse response) = do
   autoJoin <- readTVar $ chanAutoJoin channel
   if not autJoin
-  then do
-    writeTVar (chanAutoJoin channel) True
-    name' <- readTVar $ chanName channel
-    sendResponse <- CM.send (chanConnectionManager channel) $ IRCMessage { ircmPrefix = Nothing,
-                                                                           ircmCommand = cmd_JOIN,
-                                                                           ircmParameters = [name],
-                                                                           ircmComment = Nothing }
-    let relay = liftIO . atomically $ do errorResponse <- waitSend sendResponse
-                                         putTMVar response errorResponse
-    return $ do intf <- getInterface
-                liftIO . async $ runAM relay intf
-                return True
-  else return $ do errorText <- lookupText "already joined channel"
-                   liftIO . atomically . putTMVar response . Left $ Error [errorText]
-                   return True
+    then do writeTVar (chanAutoJoin channel) True
+            name <- readTVar $ chanName channel
+            key <- readTVar $ chanKey channel
+            let parameters = maybe [name] (\key -> [name, key]) key
+            sendResponse <- CM.send (chanConnectionManager channel) $ IRCMessage { ircmPrefix = Nothing,
+                                                                                   ircmCommand = cmd_JOIN,
+                                                                                   ircmParameters = parameters,
+                                                                                   ircmComment = Nothing }
+            let relay = liftIO . atomically $ do errorResponse <- waitSend sendResponse
+                                                 putTMVar response errorResponse
+            return $ do intf <- getInterface
+                        liftIO . async $ runAM relay intf
+                        return True
+    else return $ do errorText <- lookupText "already joined channel"
+                     liftIO . atomically . putTMVar response . Left $ Error [errorText]
+                     return True
 
 -- | Carry out part.
 doPart :: Channel -> Maybe MessageComment -> ChannelPartResponse -> STM (AM Bool)

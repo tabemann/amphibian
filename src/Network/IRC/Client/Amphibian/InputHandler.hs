@@ -49,6 +49,8 @@ import qualified Network.IRC.Client.Amphibian.Command as Cmd
 import qualified Network.IRC.Client.Amphibian.Frontend as Fr
 import qualified Data.Text as T
 import qualified Data.ByteString as B
+import Control.Concurrent.Async (Async,
+                                 async)
 import Control.Concurrent.STM (STM,
                                atomically)
 import Control.Monad.IO.Class (liftIO)
@@ -68,6 +70,7 @@ installHandlers intf = do
       ID.registerCommandHandler dispatcher "msg" msgHandler
       ID.registerCommandHandler dispatcher "notice" noticeHandler
       ID.registerCommandHandler dispatcher "join" joinHandler
+      ID.registerCommandHandler dispatcher "part" partHandler
       ID.registerCommandHandler dispatcher "quit" quitHandler
     Nothing -> return ()
 
@@ -76,28 +79,31 @@ defaultMessageHandler :: Frame -> StyledText -> AM Bool
 defaultMessageHandler frame text = do
   comment <- encode frame $ ST.encode text
   mapping <- liftIO . atomically $ F.getMapping frame
+  intf <- getInterface
   case mapping of
     FrmaChannel channel -> do
       response <- liftIO . atomically $ C.message channel comment
-      response' <- liftIO . atomically $ c.waitMessage response
-      case response' of
-        Left error -> do
-          advisoryText <- lookupText "Unable to send message to channel"
-          FM.errorMessage frame advisoryText error
-        Right -> return ()
+      async . flip runAM intf $ do
+        response' <- liftIO . atomically $ c.waitMessage response
+        case response' of
+         Left error -> do
+           advisoryText <- lookupText "Unable to send message to channel"
+           FM.errorMessage frame advisoryText error
+         Right -> return ()
       return True
-    FrmaUser user ->
+    FrmaUser user -> do
       response <- liftIO . atomically $ U.message user' comment
-      response' <- liftIO . atomically $ U.waitMessage response
-      case response' of
-        Left error -> do
-          advisoryText <- lookupText "Unable to send message to user"
-          FM.errorMessage frame advisoryText error
-        Right -> return ()
+      async . flip runAM intf $ do
+        response' <- liftIO . atomically $ U.waitMessage response
+        case response' of
+         Left error -> do
+           advisoryText <- lookupText "Unable to send message to user"
+           FM.errorMessage frame advisoryText error
+         Right -> return ()
       return True
     FrmaConnectionManager _ -> do
-      advisoryText <- lookupText "Not a channel or user"
-      FM.errorMessage frame advisoryText (Error [])
+      FM.notChannelOrUserFrameMessage frame
+      return True
     _ -> return False
 
 -- | Msg command handler.
@@ -120,14 +126,18 @@ msgHandler frame command text
                Just channel -> do
                  response <- C.message channel text''
                  return $ do
-                   response' <- liftIO . atomically $ C.waitMessage response
-                   case response' of
-                    Right () -> return ()
-                    Left error -> do
-                      messageText <- lookupText "Unable to send message to channel"
-                      FM.errorMessage frame messageText error
-               Nothing -> return $ FM.notInChannelMessage frame dest''
-            Nothing -> return $ FM.unboundFrameMessage frame
+                   async . flip runAM intf $ do
+                     response' <- liftIO . atomically $ C.waitMessage response
+                     case response' of
+                      Right () -> return ()
+                      Left error -> do
+                        messageText <- lookupText "Unable to send message to channel"
+                        FM.errorMessage frame messageText error
+                   return True
+               Nothing -> return $ do FM.notInChannelMessage frame dest''
+                                      return True
+            Nothing -> return $ do FM.unboundFrameMessage frame
+                                   return True
        Just _ ->
          join . liftIO . atomically $ do
            manager <- F.getConnectionManager frame
@@ -136,16 +146,20 @@ msgHandler frame command text
               user <- findOrCreateUser intf manager dest''
               response <- U.message user text''
               return $ do
-                response' <- liftIO . atomically $ U.waitMessage response
-                case response' of
-                 Right () -> return ()
-                 Left error -> do
-                   messageText <- lookupText "Unable to send message to user"
-                   FM.errorMessage frame messageText error
-            Nothing -> return $ FM.unboundFrameMessage frame
+                async . flip runAM intf $ do
+                  response' <- liftIO . atomically $ U.waitMessage response
+                  case response' of
+                   Right () -> return ()
+                   Left error -> do
+                     messageText <- lookupText "Unable to send message to user"
+                     FM.errorMessage frame messageText error
+                return True
+            Nothing -> return $ do FM.unboundFrameMessage frame
+                                   return True
        Nothing -> do
          syntaxText <- lookupText "/notice <destination> <text>"
          FM.badCommandSyntaxMessage frame syntaxText
+         return True
   | otherwise = return False
 
 -- | Notice command handler.
@@ -168,14 +182,18 @@ noticeHandler frame command text
                Just channel -> do
                  response <- C.notice channel text''
                  return $ do
-                   response' <- liftIO . atomically $ C.waitNotice response
-                   case response' of
-                    Right () -> return ()
-                    Left error -> do
-                      messageText <- lookupText "Unable to send notice to channel"
-                      FM.errorMessage frame messageText error
-               Nothing -> return $ FM.notInChannelMessage frame dest''
-            Nothing -> return $ FM.unboundFrameMessage frame
+                   async . flip runAM intf $ do
+                     response' <- liftIO . atomically $ C.waitNotice response
+                     case response' of
+                      Right () -> return ()
+                      Left error -> do
+                        messageText <- lookupText "Unable to send notice to channel"
+                        FM.errorMessage frame messageText error
+                   return True
+               Nothing -> do return $ FM.notInChannelMessage frame dest''
+                             return True
+            Nothing -> do return $ FM.unboundFrameMessage frame
+                          return True
        Just _ ->
          join . liftIO . atomically $ do
            manager <- F.getConnectionManager frame
@@ -184,23 +202,28 @@ noticeHandler frame command text
               user <- findOrCreateUser intf manager dest''
               response <- U.notice user text''
               return $ do
-                response' <- liftIO . atomically $ U.waitNotice response
-                case response' of
-                 Right () -> return ()
-                 Left error -> do
-                   messageText <- lookupText "Unable to send notice to user"
-                   FM.errorMessage frame messageText error
-            Nothing -> return $ FM.unboundFrameMessage frame
+                async . flip runAM intf $ do
+                  response' <- liftIO . atomically $ U.waitNotice response
+                  case response' of
+                   Right () -> return ()
+                   Left error -> do
+                     messageText <- lookupText "Unable to send notice to user"
+                     FM.errorMessage frame messageText error
+                return True
+            Nothing -> do return $ FM.unboundFrameMessage frame
+                          return True
        Nothing -> do
          syntaxText <- lookupText "/notice <destination> <text>"
          FM.badCommandSyntaxMessage frame syntaxText
+         return True
   | otherwise = return False
 
 -- | Join command handler.
 joinHandler :: Frame -> T.Text -> StyledText -> AM Bool
 joinHandler frame command text
   | command == "join" = do
-      let (name, key) = ST.break isSpace text
+      let (name, rest) = ST.break isSpace text
+      let (key, rest') = ST.break isSpace rest
       let name' = ST.removeStyle name
       let key' = ST.removeStyle key
       intf <- getInterface
@@ -208,20 +231,72 @@ joinHandler frame command text
       key'' <- liftIO . atomically . encodeFrame intf frame $ T.drop 1 key'
       let key''' = if key'' /= B.empty then Just key'' else Nothing
       case T.uncons name' of
-       Just ('#', _) ->
-         join . liftIO . atomically $ do
-           manager <- F.getConnectionManager frame
-           case manager of
-            Just manager -> do
-              channel <- do
-                channel <- findChannel intf manager name''
-                case channel of
-                 Just channel -> return channel
-            Nothing -> return $ FM.unboundFrameMessage frame
-       Just _ -> FM.notAChannelMessage frame dest'
+       Just ('#', _)
+         | ST.removeStyle rest' == "" ->
+           join . liftIO . atomically $ do
+             manager <- F.getConnectionManager frame
+             case manager of
+              Just manager -> do
+                channel <- do
+                  channel <- findChannel intf manager name''
+                  case channel of
+                   Just channel -> do
+                     C.setKey channel key'''
+                     return channel
+                   Nothing -> do
+                     channel <- C.new intf manager name'' key'''
+                     C.start channel
+                     return channel
+                findOrCreateChannelFrame intf channel
+                autoJoin <- C.getAutoJoin channel
+                if not autoJoin
+                  then do response <- C.join channel
+                          return $ do
+                            async . flip runAM intf $ do
+                              response' <- liftIO . atomically $ C.waitJoin response
+                              case response' of
+                               Right () -> return ()
+                               Left error -> do
+                                 messageText <- lookupText "Unable to join channel"
+                                 FM.errorMessage frame messageText error
+                            return True
+                  else return $ return True
+              Nothing -> return $ do FM.unboundFrameMessage frame
+                                     return True
+         | otherwise -> do
+             syntaxText <- lookupText "/join <channel> [<key>]"
+             FM.badCommandSyntaxMessage frame syntaxText
+             return True
+       Just _ -> do FM.notAChannelMessage frame dest'
+                    return True
        Nothing -> do
          syntaxText <- lookupText "/join <channel> [<key>]"
          FM.badCommandSyntaxMessage frame syntaxText
+         return True
+  | otherwise = return False
+
+-- | Part command handler.
+partHandler :: Frame -> T.Text -> StyledText -> AM Bool
+partHandler frame command text
+  | command = "part" = do
+      let comment = liftIO . atomically . encodeFrame intf frame $ ST.encode text
+      let comment' = if message == B.empty then Nothing else Just message
+      join . liftIO . atomically $ do
+        mapping <- F.getMapping frame
+        case mapping of
+         FrmaChannel channel -> do
+           response <- C.part channel comment'
+           return $ do
+             async . flip runAM intf $ do
+               response' <- liftIO . atomically $ C.waitPart response
+               case response' of
+                Right () -> return ()
+                Left error -> do
+                  messageText <- lookupText "Unable to part channel"
+                  FM.errorMessage frame messageText error
+             return True
+         _ -> return $ do FM.notChannelFrameMessage frame
+                          return True
   | otherwise = return False
 
 -- | Quit command handler.
