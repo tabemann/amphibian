@@ -451,7 +451,7 @@ registerUser manager = do
                      ircParameters = [comaUserName setup,
                                       convertUserMode $ comaMode setup,
                                       BC.singleton '*'],
-                     ircComment = comaName setup }
+                     ircComment = Just $ comaName setup }
       liftIO $ threadDelay userRegistrationDelay
       event <- liftIO . atomically $ C.recv subscription
       case event of

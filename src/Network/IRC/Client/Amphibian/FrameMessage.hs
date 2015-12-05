@@ -46,6 +46,7 @@ module Network.IRC.Client.Amphibian.FrameMessage
         notChannelOrUserFrameMessage,
         notInChannelMessage,
         notAChannelMessage,
+        notConnectedMessage,
         errorMessage)
 
        where
@@ -844,18 +845,7 @@ badCommandSyntaxMessage frame syntax = do
 
 -- | Send an unbound frame message to a frame.
 unboundFrameMessage :: Frame -> AM ()
-unboundFrameMessage frame syntax = do
-  text <- lookupText "Frame is not bound to a connection, channel, or user"
-  time <- liftIO getCurrentTime
-  liftIO . atomically $ do
-    F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
-                                     frliBody = ST.addStyle [] text }
-
--- | Send an unbound frame message to a frame.
-unboundFrameMessage :: Frame -> AM ()
-unboundFrameMessage frame syntax = do
+unboundFrameMessage frame = do
   text <- lookupText "Frame is not bound to a connection, channel, or user"
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
@@ -866,7 +856,7 @@ unboundFrameMessage frame syntax = do
 
 -- | Send a not channel frame message to a frame.
 notChannelFrameMessage :: Frame -> AM ()
-notChannelFrameMessage frame syntax = do
+notChannelFrameMessage frame = do
   text <- lookupText "Frame is not bound to a channel"
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
@@ -877,7 +867,7 @@ notChannelFrameMessage frame syntax = do
 
 -- | Send a not channel or user frame message to a frame.
 notChannelOrUserFrameMessage :: Frame -> AM ()
-notChannelOrUserFrameMessage frame syntax = do
+notChannelOrUserFrameMessage frame = do
   text <- lookupText "Frame is not bound to a channel or user"
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
@@ -913,6 +903,17 @@ notAChannelMessage frame name = do
                                      frliSource = ST.addStyle [Txst 13] "*",
                                      frliAltSource = ST.addStyle [Txst 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
+
+-- | Send a not connected message to a frame.
+notConnectedMessage :: Frame -> AM ()
+notConnectedMessage frame = do
+  text <- lookupText "Not connected to server"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [Txst 13] "*",
+                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliBody = ST.addStyle [] text }
 
 -- | Send an arbitrary error message to a frame.
 errorMessage :: Frame -> T.Text -> Error -> AM ()

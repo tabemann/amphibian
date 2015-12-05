@@ -39,6 +39,8 @@ module Network.IRC.Client.Amphibian.Utility
         decodeFrame,
         waitM,
         findM,
+        uncons,
+        findOrCreateConnectionManager,
         findChannel,
         findOrCreateUser,
         findOrCreateConnectionFrame,
@@ -127,6 +129,23 @@ findM f (x : xs) = do
     then findM f xs
     else return $ Just x
 findM _ [] = return Nothing
+
+-- | Uncons.
+uncons :: [a] -> (Maybe a, [a])
+uncons (x : xs) = (Just a, xs)
+uncons [] = (Nothing, [])
+
+-- | Find or create connection manager.
+findOrCreateConnectionManager :: Interface -> ServerName -> STM ConnectionManager
+findOrCreateConnectionManager intf serverName = do
+  manager <- findM (matchConnectionManager serverName) =<< I.getConnectionManagers intf
+  case manager of
+   Just manager -> return manager
+   Nothing -> do
+     manager <- CM.new intf
+     CM.start manager
+     return manager
+  where matchConnectionManager serverName manager = (== serverName) <$> comaServerName <$> CM.getSetup manager
 
 -- | Find channel.
 findChannel :: Interface -> ConnectionManager -> ChannelName -> STM (Maybe Channel)

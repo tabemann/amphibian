@@ -35,6 +35,7 @@ module Network.IRC.Client.Amphibian.Default
   where
 
 import Network.IRC.Client.Amphibian.Types
+import qualified Network.IRC.Client.Amphibian.Encoding as E
 import qualified Data.Text as T
 import System.Locale (TimeLocale,
                       defaultTimeLocale)
@@ -65,7 +66,15 @@ getDefaultConfig = do
                     confTimeLocale = defaultTimeLocale,
                     confLightBackground = False,
                     confCtcpVersion = "Amphibian 0.1",
-                    confCtcpSource = "http://github.com/tabemann/amphibian" }
+                    confCtcpSource = "http://github.com/tabemann/amphibian",
+                    confDefaultPort = 6667,
+                    confDefaultUserName = "jrandomhacker",
+                    confDefaultName = "J. Random Hacker",
+                    confDefaultAllNicks = ["jrandomhacker"],
+                    confDefaultPassword = Nothing,
+                    confDefaultMode = [],
+                    confDefaultEncoding = E.defaultEncoding,
+                    confDefaultCtcpUserInfo = "I am J. Random Hacker." }
 
 -- | Get directory.
 getDirectory :: (String -> IO FilePath) -> IO FilePath

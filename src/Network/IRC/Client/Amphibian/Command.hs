@@ -46,6 +46,10 @@ module Network.IRC.Client.Amphibian.Command
         QuitEvent,
         quit,
         waitQuit,
+        QuitNoWaitResponse,
+        QuitNoWaitEvent,
+        quitNoWait,
+        waitQuitNoWait,
         SquitResponse,
         SquitEvent,
         squit,
@@ -195,14 +199,14 @@ handleModeResponse subscription nick sendResponse response = do
             _ -> handleModeResponse' subscription nick response
 
 -- | Invoke the QUIT command.
-quit :: ConnectionManager -> MessageComment -> AM QuitResponse
+quit :: ConnectionManager -> Maybe MessageComment -> AM QuitResponse
 quit manager comment = do
   response <- liftIO . atomically $ newEmptyTMVar
   subscription <- liftIO . atomically $ CM.subscribe manager
   sendResponse <- liftIO . atomically . CM.send $ IRCCommand { ircmPrefix = Nothing,
                                                                ircmCommand = cmd_QUIT,
                                                                ircmParameters = [],
-                                                               ircmComment = Just comment }
+                                                               ircmComment = comment }
   intf <- interface
   async $ runAM (handleQuitResponse subscription sendResponse response) intf
   return $ QuitResponse response
@@ -213,7 +217,7 @@ waitQuit (QuitResponse response) = readTMVar response
 
 -- | Handle the response to the QUIT command.
 handleQuitResponse :: ConnectionManagerSubscription -> ConnectionManagerSendResponse -> TMVar QuitEvent -> AM ()
-handleQuitRepsonse subscription sendResponse response = do
+handleQuitResponse subscription sendResponse response = do
   sendResponse' <- liftIO . atomically $ waitSend sendResponse
   case sendResponse' of
     Right () -> handleQuitResponse' subscription response
@@ -226,6 +230,31 @@ handleQuitRepsonse subscription sendResponse response = do
               | isError command -> liftIO . atomically $ putTMVar response (QuitOther message)
             ComaDisconnected -> liftIO . atomically $ putTMVar response QuitDisconnected
             _ -> handleQuitResponse' subscription response
+
+-- | Invoke the QUIT command without waiting.
+quitNoWait :: ConnectionManager -> Maybe MessageComment -> AM QuitResponse
+quitNoWait manager comment = do
+  response <- liftIO . atomically $ newEmptyTMVar
+  sendResponse <- liftIO . atomically . CM.send $ IRCCommand { ircmPrefix = Nothing,
+                                                               ircmCommand = cmd_QUIT,
+                                                               ircmParameters = [],
+                                                               ircmComment = comment }
+  intf <- interface
+  async $ runAM (handleQuitNoWaitResponse sendResponse response) intf
+  return $ QuitNoWaitResponse response
+
+-- | Wait for response from QUIT without waiting.
+waitQuitNoWait :: QuitNoWaitResponse -> STM QuitNoWaitEvent
+waitQuitNoWait (QuitNoWaitResponse response) = readTMVar response
+
+-- | Handle the response to the QUIT command without waiting.
+handleQuitNoWaitResponse :: ConnectionManagerSendResponse -> TMVar QuitNoWaitEvent -> AM ()
+handleQuitNoWaitResponse sendResponse response = do
+  liftIO . atomically $ do
+    sendResponse' <- waitSend sendResponse
+    case sendResponse' of
+     Right () -> putTMVar response $ QuitNoWaitSuccess
+     Left error -> putTMVar response $ QuitNoWaitError error
 
 -- | Invoke the SQUIT command.
 squit :: ConnectionManager -> HostName -> MessageComment -> AM SquitResponse

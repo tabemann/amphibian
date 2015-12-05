@@ -267,7 +267,15 @@ data Config =
            confTimeLocale :: TimeLocale,
            confLightBackground :: Bool,
            confCtcpVersion :: Text,
-           confCtcpSource :: Text }
+           confCtcpSource :: Text,
+           confDefaultPort :: Port,
+           confDefaultUserName :: Text,
+           confDefaultName :: Text,
+           confDefaultAllNicks :: [Text],
+           confDefaultPassword :: Maybe Text,
+           confDefaultMode :: [UserMode],
+           confDefaultEncoding :: Encoding,
+           confDefaultCtcpUserInfo :: Text }
   deriving Eq
 
 -- | Connection configuration.
@@ -277,7 +285,7 @@ data ConnectionConfig =
 
 -- | Amphibian server setup.
 data ServerInfo =
-  ServerInfo { seinName :: String,
+  ServerInfo { seinName :: Text,
                seinSetup :: ConnectionManagerSetup,
                seinConfig :: ConnectionConfig,
                seinDefaultChannels :: [Text] }
@@ -594,6 +602,14 @@ data QuitEvent = QuitSuccess (Maybe MessageComment)
                | QuitDisconnected
                | QuitError Error
                deriving Eq
+
+-- | QUIT without waiting response.
+newtype QuitNoWaitResponse = QuitNoWaitResponse (TMVar QuitNoWaitEvent)
+
+-- | QUIT without waiting event.
+data QuitNoWaitEvent = QuitNoWaitSuccess
+                     | QuitNoWaitError Error
+                     deriving Eq
 
 -- | SQUIT response.
 newtype SquitResponse = SquitResponse (TMVar SquitEvent)

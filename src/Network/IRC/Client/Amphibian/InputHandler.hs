@@ -59,6 +59,7 @@ import Control.Monad (join,
                       (=<<),
                       forM)
 import Data.Char (isSpace)
+import Text.Read (readMaybe)
 
 -- | Install handlers.
 installHandlers :: Interface -> STM ()
@@ -71,6 +72,9 @@ installHandlers intf = do
       ID.registerCommandHandler dispatcher "notice" noticeHandler
       ID.registerCommandHandler dispatcher "join" joinHandler
       ID.registerCommandHandler dispatcher "part" partHandler
+      ID.registerCommandHandler dispatcher "server" serverHandler
+      ID.registerCommandHandler dispatcher "reconnect" reconnectHandler
+      ID.registerCommandHandler dispatcher "disconnect" disconnectHandler
       ID.registerCommandHandler dispatcher "quit" quitHandler
     Nothing -> return ()
 
@@ -222,14 +226,14 @@ noticeHandler frame command text
 joinHandler :: Frame -> T.Text -> StyledText -> AM Bool
 joinHandler frame command text
   | command == "join" = do
-      let (name, rest) = ST.break isSpace text
-      let (key, rest') = ST.break isSpace rest
-      let name' = ST.removeStyle name
-      let key' = ST.removeStyle key
+      let text' = ST.removeStyle text
+      let (name, rest) = T.break isSpace text
+      let (key, rest') = T.break isSpace $ T.stripStart rest
       intf <- getInterface
-      name'' <- liftIO . atomically $ encodeFrame intf frame name'
-      key'' <- liftIO . atomically . encodeFrame intf frame $ T.drop 1 key'
-      let key''' = if key'' /= B.empty then Just key'' else Nothing
+      name' <- liftIO . atomically $ encodeFrame intf frame name
+      key' <- do if key' /= T.empty
+                   then liftIO . atomically . encodeFrame intf frame key
+                   else return  Nothing
       case T.uncons name' of
        Just ('#', _)
          | ST.removeStyle rest' == "" ->
@@ -238,13 +242,13 @@ joinHandler frame command text
              case manager of
               Just manager -> do
                 channel <- do
-                  channel <- findChannel intf manager name''
+                  channel <- findChannel intf manager name'
                   case channel of
                    Just channel -> do
-                     C.setKey channel key'''
+                     C.setKey channel key'
                      return channel
                    Nothing -> do
-                     channel <- C.new intf manager name'' key'''
+                     channel <- C.new intf manager name' key'
                      C.start channel
                      return channel
                 findOrCreateChannelFrame intf channel
@@ -299,6 +303,130 @@ partHandler frame command text
                           return True
   | otherwise = return False
 
+-- | Server command handler.
+serverHandler :: Frame -> T.Text -> StyledText -> AM Bool
+serverHandler frame command text
+  | command == "server" = do
+      let parts = filter (/= "") . T.splitOn " " $ ST.removeStyle text
+      case parts of
+       hostName : rest -> do
+         let (port, rest') = uncons rest
+         let (nick, rest'') = uncons rest'
+         let (userName, rest''') = uncons rest''
+         let (password, rest'''') = uncons rest'''
+         let (port', validPort) = maybe (Nothing, True) (\port -> parsePort) port
+         case validPort of
+          True -> do
+            config <- getConfig
+            let encoding = confDefaultEncoding config
+            let port'' = maybe (confDefaultPort config) id port'
+                allNicks = map (encoEncoder encoding) $ maybe (confDefaultAllNicks config) (: []) nick
+                userName' = encoEncoder encoding $ maybe (confDefaultUserName config) id userName
+                password = maybe Nothing (encoEncoder encoding) $ maybe (confDefaultPassword config) Just password
+                name = encoEncoder encoding $ confDefaultName config
+                mode = confDefaultMode config
+                ctcpUserInfo = confDefaultCtcpUserInfo config
+            response <- liftIO . atomically $ do
+              manager <- findOrCreateConnectionManager intf
+              case I.getConnectionConfig intf manager of
+               Nothing -> I.setConnectionConfig $ ConnectionConfig { cocoEncoding = encoding,
+                                                                     cocoCtcpUserInfo = ctcpUserInfo }
+               Just _ -> return ()
+              findOrCreateConnectionFrame intf manager
+              CM.connect manager $ ConnectionManagerSetup { comaServerName = hostName,
+                                                            comaName = name,
+                                                            comaOriginalHost = T.unpack hostName,
+                                                            comaPort = port'',
+                                                            comaUserName = userName',
+                                                            comaAllNicks = allNicks,
+                                                            comaPassword = password,
+                                                            comaMode = mode }
+            async . flip runAM intf $ do
+              response' <- liftIO . atomically $ CM.waitConnect response
+              case response of
+                Right () -> return ()
+                Left error -> do
+                  messageText <- lookupText "Unable to connect to server"
+                  FM.errorMessage frame messageText error
+            return True
+          False -> do
+            syntaxText <- lookupText "/server <hostname> [<port> [<nick> [<username> [<password>]]]]"
+            FM.badCommandSyntaxMessage frame syntaxText
+            return True
+       [] -> do
+         syntaxText <- lookupText "/server <hostname> [<port> [<nick> [<username> [<password>]]]]"
+         FM.badCommandSyntaxMessage frame syntaxText
+         return True
+  | otherwise = return False
+  where parsePort port =
+          case readMaybe $ T.unpack port of
+           Just port | port >= 1 && port <= 65535 -> (Just port, True)
+           _ -> (Nothing, False)
+
+-- | Reconnect command handler.
+reconnectHandler :: Frame -> T.Text -> StyledText -> AM Bool
+reconnectHandler frame command text
+  | command == "reconnect" = do
+      intf <- getInterface
+      let text' = liftIO . atomically . encodeFrame intf frame $ ST.encode text
+      let comment = if text' == B.empty then Nothing else Just text'
+      manager <- F.getConnectionManager frame
+      case manager of
+       Just manager ->
+         async . flip runAM intf $ do
+           connected <- liftIO . atomically $ CM.isConnected manager
+           if connected
+             then do quitResponse <- Cmd.quitNoWait manager comment
+                     quitResponse' <- liftIO . atomically $ Cmd.waitQuitNoWait quitResponse
+                     case quitResponse' of
+                      QuitNoWaitSuccess -> return ()
+                      QuitNoWaitError error -> do
+                        messageText <- lookupText "Unable to send QUIT message to server"
+                        FM.errorMessage frame messageText error
+             else return ()
+           reconnectResponse <- CM.reconnect manager
+           reconnectResponse' <- liftIO . atomically $ CM.waitReconnect reconnectResponse
+           case reconnectResponse' of
+            Right () -> return ()
+            Left error -> do
+              messageText <- lookupText "Failed to reconnect to server"
+              FM.errorMessage frame messageText error
+       Nothing -> FM.unboundFrameMessage frame
+      return True
+  | otherwise = return False
+
+-- | Disonnect command handler.
+disconnectHandler :: Frame -> T.Text -> StyledText -> AM Bool
+disconnectHandler frame command text
+  | command == "reconnect" = do
+      intf <- getInterface
+      let text' = liftIO . atomically . encodeFrame intf frame $ ST.encode text
+      let comment = if text' == B.empty then Nothing else Just text'
+      manager <- F.getConnectionManager frame
+      case manager of
+       Just manager ->
+         async . flip runAM intf $ do
+           connected <- liftIO . atomically $ CM.isConnected manager
+           if connected
+             then do quitResponse <- Cmd.quitNoWait manager comment
+                     quitResponse' <- liftIO . atomically $ Cmd.waitQuitNoWait quitResponse
+                     case quitResponse' of
+                      QuitNoWaitSuccess -> return ()
+                      QuitNoWaitError error -> do
+                        messageText <- lookupText "Unable to send QUIT message to server"
+                        FM.errorMessage frame messageText error
+                     disconnectResponse <- CM.disconnect manager
+                     disconnectResponse' <- liftIO . atomically $ CM.waitDisconnect disconnectResponse
+                     case reconnectResponse' of
+                      Right () -> return ()
+                      Left error -> do
+                        messageText <- lookupText "Failed to disconnect from server"
+                        FM.errorMessage frame messageText error
+             else FM.notConnectedMessage frame
+       Nothing -> FM.unboundFrameMessage frame
+      return True
+  | otherwise = return False
+
 -- | Quit command handler.
 quitHandler :: Frame -> T.Text -> StyledText -> AM Bool
 quitHandler frame command text
@@ -313,8 +441,10 @@ quitHandler frame command text
             config <- getConnectionConfig manager
             let encodedText =
                   case config of
-                   Just config -> (encoEncoder $ cocoEncoding config) $ ST.encode text
-                   Nothing -> B.empty
+                   Just config ->
+                     let text' = (encoEncoder $ cocoEncoding config) $ ST.encode text in
+                     if text == B.empty then Nothing else Just text
+                   Nothing -> Nothing
             response <- Cmd.quit manager encodedText
             Cmd.quitQuit response
           frontend <- getFrontend
