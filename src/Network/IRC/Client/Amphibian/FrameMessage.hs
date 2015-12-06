@@ -47,6 +47,12 @@ module Network.IRC.Client.Amphibian.FrameMessage
         notInChannelMessage,
         notAChannelMessage,
         notConnectedMessage,
+        recvOtherMessage,
+        nicknameInUseMessage,
+        erroneusNicknameMessage,
+        badProtocolMessage,
+        unexpectedlyDisconnectedMessage,
+        notRegisteredMessage,
         errorMessage)
 
        where
@@ -63,7 +69,8 @@ import Control.Concurrent.STM (STM,
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<$>))
 import Control.Monad (mapM,
-                      mapM_)
+                      mapM_,
+                      (=<<))
 import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.HashMap.Strict as HM
@@ -826,9 +833,10 @@ unknownCommandMessage frame command = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
+    F.notify frame [FrnoUnknownCommand]
 
 -- | Send a bad command syntax message to a frame.
 badCommandSyntaxMessage :: Frame -> T.Text -> AM ()
@@ -839,9 +847,10 @@ badCommandSyntaxMessage frame syntax = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
+    F.notify frame [FrnoBadCommandSyntax]
 
 -- | Send an unbound frame message to a frame.
 unboundFrameMessage :: Frame -> AM ()
@@ -850,9 +859,10 @@ unboundFrameMessage frame = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] text }
+    F.notify frame [FrnoUnboundFrame]
 
 -- | Send a not channel frame message to a frame.
 notChannelFrameMessage :: Frame -> AM ()
@@ -861,9 +871,10 @@ notChannelFrameMessage frame = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] text }
+    F.notify frame [FrnoNotChannel]
 
 -- | Send a not channel or user frame message to a frame.
 notChannelOrUserFrameMessage :: Frame -> AM ()
@@ -872,9 +883,10 @@ notChannelOrUserFrameMessage frame = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] text }
+    F.notify frame [FrnoNotChannelOrUser]
 
 -- | Send a not in channel message to a frame.
 notInChannelMessage :: Frame -> ChannelName -> AM ()
@@ -886,9 +898,10 @@ notInChannelMessage frame name = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
+    F.notify frame [FrnoNotInChannel]
 
 -- | Send a not achannel message to a frame.
 notAChannelMessage :: Frame -> ChannelName -> AM ()
@@ -900,9 +913,10 @@ notAChannelMessage frame name = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] formattedText }
+    F.notify frame [FrnoNotAChannel]
 
 -- | Send a not connected message to a frame.
 notConnectedMessage :: Frame -> AM ()
@@ -911,9 +925,99 @@ notConnectedMessage frame = do
   time <- liftIO getCurrentTime
   liftIO . atomically $ do
     F.outputLine frame $ FrameLine { frliTime = time,
-                                     frliSource = ST.addStyle [Txst 13] "*",
-                                     frliAltSource = ST.addStyle [Txst 13] "*",
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
                                      frliBody = ST.addStyle [] text }
+    F.notify frame [FrnoNotConnected]
+
+-- | Send an received other message to a frame.
+recvOtherMessage :: Frame -> T.Text -> IRCMessage -> AM ()
+recvOtherMessage frame text message = do
+  prefix <-
+    case ircmPrefix message of
+     Just prefix -> (: []) . ST.addStyle [] . T.append ":" <$> decode frame prefix
+     Nothing -> return []
+  command <- (: []) . ST.addStyle [] <$> decode frame $ ircmCommand message
+  parameters <- map (ST.addStyle []) <$> mapM (decode frame) $ ircmParameters message
+  comment <-
+    case ircmComment mesage of
+     Just comment -> (: []) . ST.decode <$> decode frame comment
+     Nothing -> return []
+  let styledMessageText = ST.intercalate (ST.addStyle [] " ") $ prefix ++ command ++ parameters ++ comment
+  let styledText = ST.concat [ST.addStyle [] text, ST.addStyle [], ": ", styledMessageText]
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliBody = styledText }
+    F.notify frame [FrnoRecvOther]
+
+-- | Send a nickname in use message to a frame.
+nicknameInUseMessage :: Frame -> Nick -> AM ()
+nicknameInUseMessage frame nick = do
+  nick' <- decode frame nick
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
+  formatText <- lookupText "Nickname in use: nick:s"
+  let formattedText = format formatText textMap
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliBody = ST.addStyle [] formattedText }
+    F.notify frame [FrnoNicknameInUse]
+
+-- | Send an erroneous nickname message to a frame.
+erroneousNicknameMessage :: Frame -> Nick -> AM ()
+erroneousNicknameMessage frame nick = do
+  nick' <- decode frame nick
+  let textMap = HM.insert "nick" (formatText nick') HM.empty
+  formatText <- lookupText "Erroneous nickname: nick:s"
+  let formattedText = format formatText textMap
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliBody = ST.addStyle [] formattedText }
+    F.notify frame [FrnoErroneousNickname]
+
+-- | Send a bad protocol message to a frame.
+badProtocolMessage :: Frame -> AM ()
+badProtocolMessage frame = do
+  text <- lookupText "Bad protocol error"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliBody = ST.addStyle [] text }
+    F.notify frame [FrnoBadProtocol]
+
+-- | Send an unexpectedly disconnected message to a frame.
+unexpectedlyDisconnectedMessage :: Frame -> AM ()
+unexpectedlyDisconnectedMessage frame = do
+  text <- lookupText "Unexpectedly disconnected"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliBody = ST.addStyle [] text }
+    F.notify frame [FrnoUnexpectedlyDisconnected]
+
+-- | Send a not registered message to a frame.
+notRegisteredMessage :: Frame -> AM ()
+notRegisteredMessage frame = do
+  text <- lookupText "Unexpectedly disconnected"
+  time <- liftIO getCurrentTime
+  liftIO . atomically $ do
+    F.outputLine frame $ FrameLine { frliTime = time,
+                                     frliSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliAltSource = ST.addStyle [TxstForeColor 13] "*",
+                                     frliBody = ST.addStyle [] text }
+    F.notify frame [FrnoNotRegistered]
 
 -- | Send an arbitrary error message to a frame.
 errorMessage :: Frame -> T.Text -> Error -> AM ()

@@ -72,6 +72,7 @@ installHandlers intf = do
       ID.registerCommandHandler dispatcher "notice" noticeHandler
       ID.registerCommandHandler dispatcher "join" joinHandler
       ID.registerCommandHandler dispatcher "part" partHandler
+      ID.registerCommandHandler dispatcher "nick" nickHandler
       ID.registerCommandHandler dispatcher "server" serverHandler
       ID.registerCommandHandler dispatcher "reconnect" reconnectHandler
       ID.registerCommandHandler dispatcher "disconnect" disconnectHandler
@@ -81,9 +82,9 @@ installHandlers intf = do
 -- | Default message handler.
 defaultMessageHandler :: Frame -> StyledText -> AM Bool
 defaultMessageHandler frame text = do
-  comment <- encode frame $ ST.encode text
-  mapping <- liftIO . atomically $ F.getMapping frame
   intf <- getInterface
+  comment <- liftIO . atomically . encodeFrame intf frame $ ST.encode text
+  mapping <- liftIO . atomically $ F.getMapping frame
   case mapping of
     FrmaChannel channel -> do
       response <- liftIO . atomically $ C.message channel comment
@@ -282,7 +283,7 @@ joinHandler frame command text
 -- | Part command handler.
 partHandler :: Frame -> T.Text -> StyledText -> AM Bool
 partHandler frame command text
-  | command = "part" = do
+  | command == "part" = do
       let comment = liftIO . atomically . encodeFrame intf frame $ ST.encode text
       let comment' = if message == B.empty then Nothing else Just message
       join . liftIO . atomically $ do
@@ -301,6 +302,45 @@ partHandler frame command text
              return True
          _ -> return $ do FM.notChannelFrameMessage frame
                           return True
+  | otherwise = return False
+
+-- | Nick command handler.
+nickHandler :: Frame -> T.Text -> StyledText -> AM Bool
+nickHandler frame command text
+  | command == "nick" = do
+      let parts = filter (/= "") . T.splitOn " " $ ST.removeStyle text
+      intf <- getInterface
+      case parts of
+       [nick] -> do
+         join . liftIO . atomically $ do
+           nick' <- encodeFrame intf frame nick
+           manager <- F.getConnectionManager frame
+           case manager of
+            Just manager ->
+              return $ do
+                response <- Cmd.nick manager nick'
+                async . flip runAM intf $ do
+                  response' <- liftIO . atomically $ Cmd.waitNick response
+                  case response' of
+                   NickSuccess -> return () -- No message since a message is already generated elsewhere
+                   NickNicknameInUse -> FM.nicknameInUseMessage frame nick'
+                   NickErroneousNickname -> FM.erroneousNicknameMessage frame nick'
+                   NickNickCollision -> FM.nicknameInUseMessage frame nick'
+                   NickUnavailResource -> FM.nicknameInUseMessage frame nick'
+                   NickNoNicknameGiven -> FM.badProtocolMessage frame
+                   NickOther message -> do
+                     messageText <- lookupText "In response to NICK"
+                     FM.recvOtherMessage frame messageText message
+                   NickDisconnected -> FM.unexpectedlyDisconnectedMessage frame
+                   NickNotRegistered -> FM.notRegisteredMessage frame
+                   NickError error -> do
+                     messageText <- lookupText "Error sending NICK message"
+                     FM.errorMessage frame messageText error
+            Nothing -> return $ FM.unboundFrameMessage frame
+       _ -> do
+         syntaxText <- lookupText "/nick <nick>"
+         FM.badCommandSyntaxMessage frame syntaxText
+      return True
   | otherwise = return False
 
 -- | Server command handler.

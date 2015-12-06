@@ -927,6 +927,20 @@ data FrameNotification = FrnoLookupHostname
                        | FrnoRecvPrivateNotice
                        | FrnoRecvServer
                        | FrnoRecvMention
+                       | FrnoUnknownCommand
+                       | FrnoBadCommandSyntax
+                       | FrnoUnboundFrame
+                       | FrnoNotChannel
+                       | FrnoNotChannelOrUser
+                       | FrnoNotInChannel
+                       | FrnoNotAChannel
+                       | FrnoNotConnected
+                       | FrnoRecvOther
+                       | FrnoNicknameInUse
+                       | FrnoErroneousNickname
+                       | FrnoBadProtocol
+                       | FrnoUnexpectedlyDisconnected
+                       | FrnoNotRegistered
                        | FrnoError
                        deriving Eq
 
