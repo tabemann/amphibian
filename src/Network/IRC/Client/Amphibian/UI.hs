@@ -41,6 +41,11 @@ module Network.IRC.Client.Amphibian.UI
    TabState(..),
    TabEvent(..),
    TabEventSub,
+   TabUser,
+   TabUserState(..),
+   TabUserEvent(..),
+   TabUserEventSub,
+   UserType(..),
    initWindowing,
    newWindow,
    startWindow,
@@ -62,20 +67,30 @@ module Network.IRC.Client.Amphibian.UI
    getTabState,
    subscribeTab,
    recvTab,
-   tryRecvTab)
+   tryRecvTab,
+   addTabUser,
+   removeTabUser,
+   findTabUser,
+   getTabUserState,
+   subscribeTabUser,
+   recvTabUser,
+   tryRecvTabUser)
 
 where
 
 import Network.IRC.Client.Amphibian.Types
 import qualified Data.Text as T
 import qualified Data.Sequence as S
+import qualified Data.ByteString as B
 import qualified GI.Gtk as Gtk
 import qualified GI.Gdk as Gdk
 import qualified GI.GLib as GLib
 import Data.Int (Int32)
 import Data.Functor ((<$>))
-import Data.Sequence ((|>))
+import Data.Sequence ((|>),
+                      ViewL((:<)))
 import Control.Monad (forM_)
+import Data.Text.Encoding (decodeUtf8)
 import Control.Concurrent (forkOS)
 import Control.Concurrent.Async (Async,
                                  async,
@@ -300,6 +315,39 @@ setSideVisible tab visible = do
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
+-- | Add a tab user.
+addTabUser :: Tab -> B.ByteString -> UserType -> STM (Response TabUser)
+addTabUser tab nick userType = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (AddTabUser tab nick userType $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Remove a tab user.
+removeTabUser :: TabUser -> STM (Response ())
+removeTabUser tabUser = do
+  state <- readTVar . windowState . tabWindow $ tabUserTab tabUser
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue . tabWindow $ tabUserTab tabUser)
+         (RemoveTabUser tabUser $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Find a tab user.
+findTabUser :: Tab -> B.ByteString -> STM (Response (Maybe TabUser))
+findTabUser tab nick = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (FindTabUser tab nick $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
 -- | Get tab state.
 getTabState :: Tab -> STM TabState
 getTabState = readTVar . tabState
@@ -315,6 +363,23 @@ recvTab (TabEventSub sub) = readTChan sub
 -- | Try to receive an event from a tab.
 tryRecvTab :: TabEventSub -> STM (Maybe TabEvent)
 tryRecvTab (TabEventSub sub) = tryReadTChan sub
+
+-- | Get tab user state.
+getTabUserState :: TabUser -> STM TabUserState
+getTabUserState = readTVar . tabUserState
+
+-- | Subscribe to a tab user.
+subscribeTabUser :: TabUser -> STM TabUserEventSub
+subscribeTabUser tabUser =
+  TabUserEventSub <$> dupTChan (tabUserEventQueue tabUser)
+
+-- | Receive an event from a tab user.
+recvTabUser :: TabUserEventSub -> STM TabUserEvent
+recvTabUser (TabUserEventSub sub) = readTChan sub
+
+-- | Try to receive an event from a tab user.
+tryRecvTabUser :: TabUserEventSub -> STM (Maybe TabUserEvent)
+tryRecvTabUser (TabUserEventSub sub) = tryReadTChan sub
 
 -- | Run a window.
 runWindow :: Window -> IO ()
@@ -340,6 +405,10 @@ runWindow window = do
                 writeTChan (windowEventQueue window) WindowClosed
                 tabs <- readTVar $ windowTabs window
                 forM_ tabs $ \tab -> do
+                  users <- readTVar $ tabUsers tab
+                  forM_ users $ \user -> do
+                    writeTVar (tabUserState user) TabUserIsClosed
+                    writeTChan (tabUserEventQueue user) TabUserClosed
                   writeTVar (tabState tab) TabIsClosed
                   writeTChan (tabEventQueue tab) TabClosed
                 writeTVar (windowTabs window) S.empty
@@ -411,6 +480,10 @@ runWindow window = do
                 Gtk.widgetHide $ tabBodyBox tab
                 Gtk.widgetHide $ tabTabBox tab
                 atomically $ do
+                  users <- readTVar $ tabUsers tab
+                  forM_ users $ \user -> do
+                    writeTVar (tabUserState user) TabUserIsClosed
+                    writeTChan (tabUserEventQueue user) TabUserClosed
                   writeTVar (tabState tab) TabIsClosed
                   writeTChan (tabEventQueue tab) TabClosed
                   putTMVar response $ Right ()
@@ -536,6 +609,115 @@ runWindow window = do
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
+    AddTabUser tab nick userType (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> do
+          lock <- atomically $ newEmptyTMVar
+          printf "*** ADDING TAB USER\n"
+          Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
+            users <- atomically . readTVar $ tabUsers tab
+            case S.findIndexL (\user -> tabUserNick user == nick) users of
+              Nothing -> do
+                nextUserIndex <- atomically $ do
+                  nextUserIndex <- readTVar $ tabNextUserIndex tab
+                  writeTVar (tabNextUserIndex tab) $ nextUserIndex + 1
+                  return nextUserIndex
+                label <- Gtk.labelNew . Just $
+                  T.concat [userTypePrefix userType, decodeUtf8 nick]
+                row <- Gtk.listBoxRowNew
+                Gtk.containerAdd row label
+                Gtk.widgetShowAll row
+                state <- atomically $ newTVar TabUserIsOpen
+                eventQueue <- atomically $ newBroadcastTChan
+                let tabUser = TabUser { tabUserTab = tab,
+                                        tabUserIndex = nextUserIndex,
+                                        tabUserType = userType,
+                                        tabUserNick = nick,
+                                        tabUserLabel = label,
+                                        tabUserRow = row,
+                                        tabUserState = state,
+                                        tabUserEventQueue = eventQueue }
+                let insertIndex = findFirstLarger tabUser users
+                atomically $
+                  writeTVar (tabUsers tab)
+                  (S.insertAt insertIndex tabUser users)
+                Gtk.listBoxInsert (tabSideListBox tab) row
+                  (fromIntegral insertIndex)
+                atomically $ do
+                  putTMVar response $ Right tabUser
+                  putTMVar lock ()
+              _ -> atomically . putTMVar response . Left $
+                   Error "nick already in tab"
+            return False
+          (atomically $ takeTMVar lock) >> return ()
+          printf "*** DONE ADDING TAB USER\n"
+        TabIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
+    RemoveTabUser tabUser (Response response) -> do
+      tabUserState' <- atomically . readTVar $ tabUserState tabUser
+      case tabUserState' of
+        TabUserIsOpen -> do
+          lock <- atomically $ newEmptyTMVar
+          printf "*** REMOVING TAB USER\n"
+          Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
+            index <- atomically $ do
+              users <- readTVar . tabUsers $ tabUserTab tabUser
+              let index = S.elemIndexL tabUser users
+              case index of
+                Just index -> writeTVar (tabUsers $ tabUserTab tabUser) $
+                              S.deleteAt index users
+                Nothing -> return ()
+              return index
+            case index of
+              Just index -> do
+                Gtk.widgetHide $ tabUserRow tabUser
+                Gtk.containerRemove (tabSideListBox $ tabUserTab tabUser) $
+                  tabUserRow tabUser
+              Nothing -> return ()
+            atomically $ do
+              writeTVar (tabUserState tabUser) TabUserIsClosed
+              writeTChan (tabUserEventQueue tabUser) TabUserClosed
+              putTMVar response $ Right ()
+              putTMVar lock ()
+            return False
+          (atomically $ takeTMVar lock) >> return ()
+          printf "*** DONE REMOVING TAB USER\n"
+        TabUserIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab user is closed"
+      runWindow window
+    FindTabUser tab nick (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> atomically $ do
+          users <- readTVar $ tabUsers tab
+          case S.findIndexL (\user -> tabUserNick user == nick) users of
+            Just index ->
+              case S.lookup index users of
+                Just user -> putTMVar response . Right $ Just user
+                Nothing -> error "impossible"
+            Nothing -> putTMVar response $ Right Nothing
+        TabIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window       
+
+-- | Get prefix character for user type.
+userTypePrefix :: UserType -> T.Text
+userTypePrefix OwnerUser = "~"
+userTypePrefix AdminUser = "&"
+userTypePrefix OpUser = "@"
+userTypePrefix HalfOpUser = "%"
+userTypePrefix VoiceUser = "+"
+userTypePrefix NormalUser = ""
+
+-- | Find index of first item larger than item.
+findFirstLarger :: Ord a => a -> S.Seq a -> Int
+findFirstLarger x xs = findFirstLarger' x (S.viewl xs) 0
+  where findFirstLarger' _ S.EmptyL i = i
+        findFirstLarger' x (y :< ys) i
+          | x < y = i
+          | otherwise = findFirstLarger' x (S.viewl ys) (i + 1)
 
 -- | Actually close a window.
 actuallyCloseWindow :: Window -> IO ()
@@ -604,14 +786,18 @@ createTab window title = do
   case (state, actualWindow, notebook) of
     (WindowShown, Just actualWindow, Just notebook) -> do
       printf "*** STARTING CREATING TAB\n"
-      sideBox <- Gtk.boxNew Gtk.OrientationVertical 10
-      mainBox <- Gtk.boxNew Gtk.OrientationVertical 10
-      bodyBox <- Gtk.boxNew Gtk.OrientationHorizontal 10
+      sideBox <- Gtk.boxNew Gtk.OrientationVertical 0
+      mainBox <- Gtk.boxNew Gtk.OrientationVertical 0
+      bodyBox <- Gtk.boxNew Gtk.OrientationHorizontal 0
       topicEntry <- Gtk.entryNew
       scrolledWindow <- Gtk.scrolledWindowNew
         (Nothing :: Maybe Gtk.Adjustment) (Nothing :: Maybe Gtk.Adjustment)
       Gtk.scrolledWindowSetPolicy scrolledWindow Gtk.PolicyTypeNever
         Gtk.PolicyTypeAlways
+      scrolledSideWindow <- Gtk.scrolledWindowNew
+        (Nothing :: Maybe Gtk.Adjustment) (Nothing :: Maybe Gtk.Adjustment)
+      Gtk.scrolledWindowSetPolicy scrolledSideWindow Gtk.PolicyTypeNever
+        Gtk.PolicyTypeAutomatic
       textBuffer <- Gtk.textBufferNew (Nothing :: Maybe Gtk.TextTagTable)
       textView <- Gtk.textViewNewWithBuffer textBuffer
       Gtk.onWidgetSizeAllocate textView $ \rect -> do
@@ -623,10 +809,13 @@ createTab window title = do
       Gtk.textViewSetWrapMode textView Gtk.WrapModeChar
       Gtk.textViewSetEditable textView False
       Gtk.containerAdd scrolledWindow textView
+      sideListBox <- Gtk.listBoxNew
+      Gtk.containerAdd scrolledSideWindow sideListBox
       entry <- Gtk.entryNew
       Gtk.boxPackStart mainBox topicEntry False False 0
       Gtk.boxPackStart mainBox scrolledWindow True True 0
       Gtk.boxPackStart mainBox entry False False 0
+      Gtk.boxPackStart sideBox scrolledSideWindow True True 0
       Gtk.boxPackStart bodyBox mainBox True True 0
       Gtk.boxPackStart bodyBox sideBox False False 0
       Gtk.widgetShowAll bodyBox
@@ -640,6 +829,8 @@ createTab window title = do
       Gtk.boxPackStart tabBox closeButton False False 0
       Gtk.widgetShowAll tabBox
       menuLabel <- Gtk.labelNew (Nothing :: Maybe T.Text)
+      nextUserIndex <- atomically $ newTVar 0
+      users <- atomically $ newTVar S.empty
       state <- atomically $ newTVar TabIsOpen
       eventQueue <- atomically $ newBroadcastTChan
       let tab = Tab { tabIndex = nextTabIndex,
@@ -648,10 +839,13 @@ createTab window title = do
                       tabTextBuffer = textBuffer,
                       tabEntry = entry,
                       tabTopicEntry = topicEntry,
+                      tabSideListBox = sideListBox,
                       tabSideBox = sideBox,
                       tabBodyBox = bodyBox,
                       tabLabel = label,
                       tabTabBox = tabBox,
+                      tabNextUserIndex = nextUserIndex,
+                      tabUsers = users,
                       tabState = state,
                       tabEventQueue = eventQueue }
       atomically $ do
@@ -667,6 +861,10 @@ createTab window title = do
             Gtk.widgetHide tabBox
             Gtk.widgetHide bodyBox
             atomically $ do
+              users <- readTVar $ tabUsers tab
+              forM_ users $ \user -> do
+                writeTVar (tabUserState user) TabUserIsClosed
+                writeTChan (tabUserEventQueue user) TabUserClosed
               writeTVar (tabState tab) TabIsClosed
               writeTChan (tabEventQueue tab) TabClosed
               tabs <- readTVar $ windowTabs window

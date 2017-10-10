@@ -52,7 +52,12 @@ module Network.IRC.Client.Amphibian.Types
    Tab(..),
    TabState(..),
    TabEvent(..),
-   TabEventSub(..))
+   TabEventSub(..),
+   TabUser(..),
+   TabUserState(..),
+   TabUserEvent(..),
+   TabUserEventSub(..),
+   UserType(..))
    
 where
 
@@ -225,6 +230,9 @@ data WindowAction = OpenWindow T.Text (Response ())
                   | SetTopicVisible Tab Bool (Response ())
                   | SetTopic Tab T.Text (Response ())
                   | SetSideVisible Tab Bool (Response ())
+                  | AddTabUser Tab B.ByteString UserType (Response TabUser)
+                  | RemoveTabUser TabUser (Response ())
+                  | FindTabUser Tab B.ByteString (Response (Maybe TabUser))
 
 -- | IRC window event type
 data WindowEvent = WindowClosed
@@ -247,10 +255,13 @@ data Tab = Tab
     tabTextBuffer :: Gtk.TextBuffer,
     tabEntry :: Gtk.Entry,
     tabTopicEntry :: Gtk.Entry,
+    tabSideListBox :: Gtk.ListBox,
     tabSideBox :: Gtk.Box,
     tabBodyBox :: Gtk.Box,
     tabLabel :: Gtk.Label,
     tabTabBox :: Gtk.Box,
+    tabNextUserIndex :: TVar Int,
+    tabUsers :: TVar (S.Seq TabUser),
     tabState :: TVar TabState,
     tabEventQueue :: TChan TabEvent }
 
@@ -275,3 +286,57 @@ data TabEvent = TabClosed
 
 -- | IRC tab event subscription
 newtype TabEventSub = TabEventSub (TChan TabEvent)
+
+-- | IRC tab user type
+data TabUser = TabUser
+  { tabUserTab :: Tab,
+    tabUserIndex :: Int,
+    tabUserType :: UserType,
+    tabUserNick :: B.ByteString,
+    tabUserLabel :: Gtk.Label,
+    tabUserRow :: Gtk.ListBoxRow,
+    tabUserState :: TVar TabUserState,
+    tabUserEventQueue :: TChan TabUserEvent }
+
+-- | Show instance for tab users.
+instance Show TabUser where
+  show tabUser = "TabUser " ++ show (tabIndex $ tabUserTab tabUser) ++ " " ++
+             show (tabUserIndex tabUser)
+
+-- | Eq instance for tab users.
+instance Eq TabUser where
+  tabUser0 == tabUser1 =
+    (tabIndex $ tabUserTab tabUser0) == (tabIndex $ tabUserTab tabUser1) &&
+    tabUserIndex tabUser0 == tabUserIndex tabUser1
+
+-- | Eq instance for tab users.
+instance Ord TabUser where
+  compare tabUser0 tabUser1 =
+    if tabUser0 == tabUser1
+    then EQ
+    else
+      let userTypeOrder = compare (tabUserType tabUser0) (tabUserType tabUser1)
+      in if userTypeOrder == EQ
+         then compare (tabUserNick tabUser0) (tabUserNick tabUser1)
+         else userTypeOrder
+
+-- | IRC tab user state type
+data TabUserState = TabUserIsOpen
+                  | TabUserIsClosed
+                  deriving (Eq, Show)
+
+-- | IRC tab user event type
+data TabUserEvent = TabUserClosed
+                  deriving (Eq, Show)
+
+-- | IRC tab user event subscription
+newtype TabUserEventSub = TabUserEventSub (TChan TabUserEvent)
+
+-- | IRC user type type
+data UserType = OwnerUser
+              | AdminUser
+              | OpUser
+              | HalfOpUser
+              | VoiceUser
+              | NormalUser
+              deriving (Eq, Show, Ord)
