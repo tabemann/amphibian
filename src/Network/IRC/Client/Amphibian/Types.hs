@@ -43,7 +43,16 @@ module Network.IRC.Client.Amphibian.Types
    IRCConnectionAction(..),
    IRCConnectionEvent(..),
    IRCConnectionEventSub(..),
-   IRCMessage(..))
+   IRCMessage(..),
+   Window(..),
+   WindowState(..),
+   WindowAction(..),
+   WindowEvent(..),
+   WindowEventSub(..),
+   Tab(..),
+   TabState(..),
+   TabEvent(..),
+   TabEventSub(..))
    
 where
 
@@ -193,14 +202,16 @@ data Window = Window
     windowNotebook :: TMVar Gtk.Notebook,
     windowTitle :: TMVar T.Text,
     windowTabs :: TVar (S.Seq Tab),
+    windowNextTabIndex :: TVar Int,
     windowState :: TVar WindowState,
-    windowActions:: TQueue WindowAction,
-    windowEvents :: TChan WindowEvent }
+    windowActionQueue :: TQueue WindowAction,
+    windowEventQueue :: TChan WindowEvent }
 
 -- | IRC window state type
 data WindowState = WindowNotStarted
                  | WindowNotShown
                  | WindowShown
+                 deriving (Eq)
 
 -- | IRC window action type
 data WindowAction = OpenWindow T.Text (Response ())
@@ -211,36 +222,56 @@ data WindowAction = OpenWindow T.Text (Response ())
                   | StopWindow (Response ())
                   | SetTabTitle Tab T.Text (Response ())
                   | AddTabText Tab T.Text (Response ())
+                  | SetTopicVisible Tab Bool (Response ())
+                  | SetTopic Tab T.Text (Response ())
+                  | SetSideVisible Tab Bool (Response ())
 
 -- | IRC window event type
 data WindowEvent = WindowClosed
                  | UserOpenedTab Tab
+                 deriving (Eq)
+
+-- | Show instance for window events.
+instance Show WindowEvent where
+  show WindowClosed = "WindowClosed"
+  show (UserOpenedTab tab) = "UserOpenedTab " ++ show (tabIndex tab)
 
 -- | IRC window event subscription
 newtype WindowEventSub = WindowEventSub (TChan WindowEvent)
 
 -- | IRC tab type
 data Tab = Tab
-  { tabWindow :: Window,
+  { tabIndex :: Int,
+    tabWindow :: Window,
     tabTextView :: Gtk.TextView,
     tabTextBuffer :: Gtk.TextBuffer,
     tabEntry :: Gtk.Entry,
+    tabTopicEntry :: Gtk.Entry,
+    tabSideBox :: Gtk.Box,
     tabBodyBox :: Gtk.Box,
     tabLabel :: Gtk.Label,
     tabTabBox :: Gtk.Box,
     tabState :: TVar TabState,
-    tabEvents :: TChan TabEvent }
+    tabEventQueue :: TChan TabEvent }
+
+-- | Show instance for tabs.
+instance Show Tab where
+  show tab = "Tab " ++ show (tabIndex tab)
+
+-- | Eq instance for tabs.
+instance Eq Tab where
+  tab0 == tab1 = tabIndex tab0 == tabIndex tab1
 
 -- | IRC tab state type
 data TabState = TabIsOpen
               | TabIsClosed
-
--- | IRC tab action type
-data TabAction = 
+              deriving (Eq, Show)
 
 -- | IRC tab event type
 data TabEvent = TabClosed
               | LineEntered T.Text
+              | TopicEntered T.Text
+              deriving (Eq, Show)
 
 -- | IRC tab event subscription
 newtype TabEventSub = TabEventSub (TChan TabEvent)
