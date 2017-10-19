@@ -89,6 +89,7 @@ import Data.Int (Int32)
 import Data.Functor ((<$>))
 import Data.Sequence ((|>),
                       ViewL((:<)))
+import Data.List (elemIndex)
 import Control.Monad (forM_)
 import Data.Text.Encoding (decodeUtf8)
 import Control.Concurrent (forkOS)
@@ -399,19 +400,6 @@ runWindow window = do
             Gtk.windowSetDefaultSize actualWindow defaultWindowWidth
               defaultWindowHeight
             Gtk.setWindowTitle actualWindow title
-            Gtk.onWidgetDestroy actualWindow $ do
-              atomically $ do
-                writeTVar (windowState window) WindowNotShown
-                writeTChan (windowEventQueue window) WindowClosed
-                tabs <- readTVar $ windowTabs window
-                forM_ tabs $ \tab -> do
-                  users <- readTVar $ tabUsers tab
-                  forM_ users $ \user -> do
-                    writeTVar (tabUserState user) TabUserIsClosed
-                    writeTChan (tabUserEventQueue user) TabUserClosed
-                  writeTVar (tabState tab) TabIsClosed
-                  writeTChan (tabEventQueue tab) TabClosed
-                writeTVar (windowTabs window) S.empty
             notebook <- Gtk.notebookNew
             atomically $ do
               putTMVar (windowWindow window) actualWindow
@@ -753,25 +741,58 @@ actuallyCloseWindow window = do
 installEventHandlers :: Window -> IO ()
 installEventHandlers window = do
   actualWindow <- atomically . tryReadTMVar $ windowWindow window
-  case actualWindow of
-    Just actualWindow -> do
+  notebook <- atomically . tryReadTMVar $ windowNotebook window
+  case (actualWindow, notebook) of
+    (Just actualWindow, Just notebook) -> do
+      Gtk.onWidgetDestroy actualWindow $ do
+        atomically $ do
+          writeTVar (windowState window) WindowNotShown
+          writeTChan (windowEventQueue window) WindowClosed
+          tabs <- readTVar $ windowTabs window
+          forM_ tabs $ \tab -> do
+            users <- readTVar $ tabUsers tab
+            forM_ users $ \user -> do
+              writeTVar (tabUserState user) TabUserIsClosed
+              writeTChan (tabUserEventQueue user) TabUserClosed
+            writeTVar (tabState tab) TabIsClosed
+            writeTChan (tabEventQueue tab) TabClosed
+          writeTVar (windowTabs window) S.empty
+      Gtk.onWidgetWindowStateEvent window $ \e -> do
+        state <- Gdk.getEventWindowStateNewWindowState e
+        if elemIndex Gdk.WindowStateFocused state /= Nothing
+          then do
+            page <- notebookGetCurrentPage notebook
+            tabs <- atomically . readTVar $ windowTabs window
+            if page >= 0 && page < S.length tabs
+              then
+                case S.lookup page tabs of
+                  Just tab ->
+                    atomically $ writeTChan (tabEventQueue tab) TabSelected
+                  Nothing -> return ()
+              else return ()
+          else return ()
+      Gtk.onNotebookSwitchPage notebook $ \widget index -> do
+        atomically $ do
+          tab <- S.lookup index <$> (readTVar $ windowTabs actualWindow)
+          case tab of
+            Just tab -> writeTChan (tabEventQueue tab) TabSelected
+            Nothing -> return ()
       Gtk.onWidgetKeyPressEvent actualWindow $ \e ->
         Gdk.getEventKeyState e >>= \case
           [Gdk.ModifierTypeControlMask] ->
             Gdk.getEventKeyKeyval e >>= Gdk.keyvalName >>= \case
               Just "n" -> do
-                tab <- createTab window ""
-                case tab of
-                  Just tab -> do
-                    atomically $ do
-                      writeTChan (windowEventQueue window) $ UserOpenedTab tab
-                    printf "*** ENQUEUED USER OPENED TAB EVENT\n"
-                  Nothing -> return ()
+                writeTChan (windowEventQueue window) $
+                  UserPressedKey (S.singleton KeyControl) "n"
+                return True
+              Just "t" -> do
+                writeTChan (windowEventQueue window) $
+                  UserPressedKey (S.singleton KeyControl) "t"
                 return True
               _ -> return False
           _ -> return False
       return ()
-    Nothing -> return ()
+    _ -> return ()
 
 -- | Attempt to create a tab for a window.
 createTab :: Window -> T.Text -> IO (Maybe Tab)

@@ -57,7 +57,16 @@ module Network.IRC.Client.Amphibian.Types
    TabUserState(..),
    TabUserEvent(..),
    TabUserEventSub(..),
-   UserType(..))
+   UserType(..),
+   Session(..),
+   Channel(..),
+   ChannelState(..),
+   User (..),
+   Mode (..),
+   SessionTab(..),
+   ChannelTab(..),
+   UserTab(..),
+   Client(..))
    
 where
 
@@ -67,6 +76,8 @@ import qualified Data.Sequence as S
 import qualified Network.Socket as NS
 import qualified GI.Gtk as Gtk
 import qualified GI.Gdk as Gdk
+import Data.Word (Word8)
+import Control.Concurrent.Async (Async)
 import Control.Concurrent.STM (TVar)
 import Control.Concurrent.STM.TChan (TChan)
 import Control.Concurrent.STM.TQueue (TQueue)
@@ -236,8 +247,13 @@ data WindowAction = OpenWindow T.Text (Response ())
 
 -- | IRC window event type
 data WindowEvent = WindowClosed
-                 | UserOpenedTab Tab
+                 | UserPressedKey (S.Seq KeyModifiers) T.Text
                  deriving (Eq)
+
+-- | Key modifier type.
+data KeyModifier = KeyControl
+                 | KeyShift
+                 | KeyAlt
 
 -- | Show instance for window events.
 instance Show WindowEvent where
@@ -249,7 +265,7 @@ newtype WindowEventSub = WindowEventSub (TChan WindowEvent)
 
 -- | IRC tab type
 data Tab = Tab
-  { tabIndex :: Int,
+  { tabIndex :: Integer,
     tabWindow :: Window,
     tabTextView :: Gtk.TextView,
     tabTextBuffer :: Gtk.TextBuffer,
@@ -282,6 +298,7 @@ data TabState = TabIsOpen
 data TabEvent = TabClosed
               | LineEntered T.Text
               | TopicEntered T.Text
+              | TabSelected
               deriving (Eq, Show)
 
 -- | IRC tab event subscription
@@ -290,7 +307,7 @@ newtype TabEventSub = TabEventSub (TChan TabEvent)
 -- | IRC tab user type
 data TabUser = TabUser
   { tabUserTab :: Tab,
-    tabUserIndex :: Int,
+    tabUserIndex :: Integer,
     tabUserType :: UserType,
     tabUserNick :: B.ByteString,
     tabUserLabel :: Gtk.Label,
@@ -340,3 +357,94 @@ data UserType = OwnerUser
               | VoiceUser
               | NormalUser
               deriving (Eq, Show, Ord)
+
+-- | IRC session type
+data Session = Session
+  { sessionIndex :: Integer,
+    sessionState :: TVar SessionState,
+    sessionReconnectOnFailure :: TVar Bool,
+    sessionIRCConnection :: IRCConnection,
+    sessionIRCConnectionEventSub :: IRCConnectionEventSub,
+    sessionHostname :: TVar NS.HostName,
+    sessionPort :: TVar NS.PortNumber,
+    sessionNick :: TVar B.ByteString,
+    sessionUsername :: TVar B.ByteString,
+    sessionRealName :: TVar B.ByteString,
+    sessionMode :: TVar (S.Seq Mode),
+    sessionChannels :: TVar (S.Seq Channel),
+    sessionUsers :: TVar (S.Seq User),
+    sessionReconnecting :: TVar (Maybe (Async ()))}
+
+-- | IRC session state
+data SessionState = SessionInactive
+                  | SessionConnecting
+                  | SessionPreparing
+                  | SessionReady
+                  | SessionDestroyed
+                  deriving (Eq, Show)
+
+-- | IRC channel type
+data Channel = Channel
+  { channelIndex :: Integer,
+    channelSession :: Session,
+    channelState :: TVar ChannelState,
+    channelName :: TVar B.ByteString,
+    channelUsers :: TVar (S.Seq User),
+    channelMode :: TVar (S.Seq Mode) }
+
+-- | IRC channel state type
+data ChannelState = InChannel
+                  | NotInChannel
+                  deriving (Eq, Show)
+
+-- | IRC user type
+data User = User
+  { userIndex :: Integer,
+    userSession :: Session,
+    userNick :: TVar B.ByteString,
+    userType :: TVar (S.Seq (Channel, S.Seq UserType)) }
+
+-- | IRC mode type
+newtype Mode = Mode Word8
+               deriving (Eq, Show)
+
+-- | Client tab subtype type
+data ClientTabSubtype = FreeTab
+                      | SessionTab Session
+                      | ChannelTab Channel
+                      | UserTab User
+
+-- | Client window type
+data ClientWindow = ClientWindow
+  { clientWindowIndex :: Integer,
+    clientWindowWindow :: Window,
+    clientWindowEventSub :: WindowEventSub }
+
+-- | Client tab type
+data ClientTab = ClientTab
+  { clientTabIndex :: Integer,
+    clientTabSelectIndex :: TVar Integer,
+    clientTabTab :: Tab,
+    clientTabEventSub :: TabEventSub,
+    clientTabSubtype :: TVar ClientTabSubtype,
+    clientTabWindow :: ClientWindow }
+
+-- | Client type
+data Client = Client
+  { clientNextIndex :: TVar Integer,
+    clientNextTabSelectIndex :: TVar Integer,
+    clientSessions :: TVar (S.Seq Session),
+    clientChannels :: TVar (S.Seq Channel),
+    clientUsers :: TVar (S.Seq User),
+    clientWindows :: TVar (S.Seq ClientWindow),
+    clientTabs :: TVar (S.Seq ClientTab),
+    clientSettings :: TVar Settings }
+
+-- | Client tagged event type
+data ClientTaggedEvent = TaggedSessionEvent Session IRConnectionEvent
+                         TaggedClientWindowEvent ClientWindow WindowEvent
+                         TaggedClientTabEvent ClientTab TabEvent
+
+-- | Settings type
+data Settings = ClientSettings
+  { settingsReconnectDelay :: Double }
