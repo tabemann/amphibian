@@ -388,7 +388,7 @@ data Channel = Channel
   { channelIndex :: Integer,
     channelSession :: Session,
     channelState :: TVar ChannelState,
-    channelName :: TVar B.ByteString,
+    channelName :: B.ByteString,
     channelUsers :: TVar (S.Seq User),
     channelMode :: TVar (S.Seq Mode) }
 
