@@ -27,7 +27,7 @@
 -- ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 -- POSSIBILITY OF SUCH DAMAGE.
 
-{-# LANGUAGE OverloadedStrings, OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings, OverloadedLists, LambdaCase #-}
 
 module Network.IRC.Client.Amphibian.Client
 
@@ -44,12 +44,14 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 import qualified Data.Sequence as S
 import Data.Text.Encoding (encodeUtf8,
-                           decodeUtf8With)
+                           decodeUtf8With,
+                           lenientDecode)
 import Control.Functor ((<$>),
                         fmap)
 import Data.Sequence ((|>),
                       (:<))
-import Data.Foldable (foldl')
+import Data.Foldable (foldl',
+                      toList)
 import System.IO (stderr)
 import Data.Text.IO (hPutStr)
 import Text.Printf (printf)
@@ -77,8 +79,10 @@ runClient = do
   result <- atomically $ getResponse response
   case result of
     Right () -> do
+      running <- atomically $ newTVar True
       nextIndex <- atomically $ newTVar 0
       nextTabSelectIndex <- atomically $ newTVar 0
+      nextWIndowFocusIndex <- atomically $ newTVar 0
       sessions <- atomically $ newTVar S.empty
       channels <- atomically $ newTVar S.empty
       users <- atomically $ newTVar S.empty
@@ -87,8 +91,10 @@ runClient = do
       let settings =
             Settings { settingsReconnectDelay = 10.0 }
           client =
-            Client { clientNextIndex = nextIndex,
+            Client { clientRunning = running,
+                     clientNextIndex = nextIndex,
                      clientNextTabSelectIndex = nextTabSelectIndex,
+                     clientNextWindowSelectIndex = nextWindowSelectIndex,
                      clientSessions = sessions,
                      clientChannels = channels,
                      clientUsers = users,
@@ -97,7 +103,7 @@ runClient = do
                      clientSettings = settings }
       result <- openClientWindow client "Amphibian IRC" "<Not Connected>"
       case result of
-        Right -> handleClientEvents client
+        Right _ -> handleClientEvents client
         Left (Error errorText) -> hPutStr stderr errorText
     Left (Error errorText) -> hPutStr stderr errorText
 
@@ -110,8 +116,16 @@ getNextClientIndex client = do
 
 -- | Get next client tab select index.
 getNextClientTabSelectIndex :: Client -> STM Integer
+getNextClientTabSelectIndex client = do
   index <- readTVar $ clientNextTabSelectIndex client
   writeTVar (clientNextTabSelectIndex client) $ index + 1
+  return index
+
+-- | Get next client window focus index.
+getNextClientWindowFocusIndex :: Client -> STM Integer
+getNextClientWindowFocusIndex client = do
+  index <- readTVar $ clientNextWindowFocusIndex client
+  writeTVar (clientNextWindowFocusIndex client) $ index + 1
   return index
 
 -- | Open a client window.
@@ -126,63 +140,84 @@ openClientWindow client windowTitle tabTitle = do
       result <- atomically $ getResponse response
       case result of
         Right () -> do
+          index <- atomically $ getNextClientIndex client
+          focusIndex <- atomically $ newTVar (-1)
+          let clientWindow =
+                ClientWindow { clientWindowIndex = index,
+                               clientWindowFocusIndex = focusIndex,
+                               clientWindowWindow = window,
+                               clientWindowEventSub = windowEventSub }
           atomically $ do
-          response <- atomically $ openTab window tabTitle
-          result <- atomically $ getResponse response
-          case result of
-            Right tab -> do
-              index <- atomically $ getNextClientIndex client
-              let clientWindow =
-                    ClientWindow { clientWindowIndex = index,
-                                   clientWindowWindow = window,
-                                   clientWindowEventSub = windowEventSub }
-              index' <- atomically $ getNextClientIndex client
-              tabEventSub <- atomically $ subscribeTab tab
-              subtype <- atomically $ newTVar FreeTab
-              let clientTab =
-                    ClientTab { clientTabIndex = index,
-                                clientTabTab = tab,
-                                clientTabEventSub = tabEventSub,
-                                clientTabSubtype = subtypes,
-                                clientTabWindow = clientWindow }
-              atomically $ do
-                windows <- readTVar $ clientWindows client
-                writeTVar (clientWindows client) $ windows |> clientWindow
-                tabs <- readTVar $ clientTabs client
-                writeTVar (ciientTabs client) $ tabs |> clientTabs
-              return clientWindow
+            windows <- readTVar $ clientWindows client
+            writeTVar (clientWindows client) $ windows |> clientWindow
+          clientTab <- openClientTab client clientWindow tabTitle
+          case clientTab of
+            Right _ -> return $ Right clientWindow
             Left failure -> do
               (stopWindow window) >> return ()
-                return $ Left failure
+              return $ Left failure
         Left failure -> do
           (stopWindow window) >> return ()
           return $ Left failure
     Left failure -> return $ Left failure
+
+-- | Open a client tab.
+openClientTab :: Client -> ClientWindow -> T.Text -> IO (Either Error ClientTab)
+openClientTab client clientWindow tabTitle = do
+  response <- atomically $ openTab window tabTitle
+  result <- atomically $ getResponse response
+  case result of
+    Right tab -> do
+      index' <- atomically $ getNextClientIndex client
+      selectIndex <- atomically $ newTVar (-1)
+      tabEventSub <- atomically $ subscribeTab tab
+      subtype <- atomically $ newTVar FreeTab
+      let clientTab =
+            ClientTab { clientTabIndex = index,
+                        clientTabSelectIndex = selectIndex,
+                        clientTabTab = tab,
+                        clientTabEventSub = tabEventSub,
+                        clientTabSubtype = subtypes,
+                        clientTabWindow = clientWindow }
+      atomically $ do
+        tabs <- readTVar $ clientTabs client
+        writeTVar (ciientTabs client) $ tabs |> clientTabs
+      return $ Right clientTab
+    Left failure -> do
+      return $ Left failure
 
 -- | Handle client events.
 handleClientEvents :: Client -> IO ()
 handleClientEvents client = do
   event <- atomically . getClientEvent $ client
   case event of
-    TaggedSessionEvent session event ->
+    TaggedClientQuitEvent -> return ()
+    TaggedSessionEvent session event -> do
       handleSessionEvent client session event
-    TaggedClientWindowEvent clientWindow event ->
+      handleClientEvents client
+    TaggedClientWindowEvent clientWindow event -> do
       handleClientWindowEvent client clientWindow event
-    TaggedClientTabEvent clientTab event ->
+      handleClientEvents client
+    TaggedClientTabEvent clientTab event -> do
       handleClientTabEvent client clientTab event
+      handleClientEvents client
     
 -- | Get an event for a client.
 getClientEvent :: Client -> STM ClientTaggedEvent
 getClientEvent client = do
+  running <- readTVar $ clientRunning client
   ircConnectionEventSubs <- extractIRCConnectionEventSubs =<<
                             (readTVar $ clientSessions client)
   windowEventSubs <- extractWindowEventSubs =<<
                      (readTVar $ clientWindows client)
   tabsEventSubs <- extractTabEventSubs =<<
                    (readTVar $ clientTabs client)
-  getTaggedSessionEvent ircConnectionEventSubs `orElse`
-  getTaggedClientWindowEvent windowEventSubs `orElse`
-  getTaggedClientTabEvent tabEventSubs
+  if running
+    then do
+      getTaggedSessionEvent ircConnectionEventSubs `orElse`
+      getTaggedClientWindowEvent windowEventSubs `orElse`
+      getTaggedClientTabEvent tabEventSubs
+    else return TaggedClientQuitEvent
   where extractIRConnectionEventSubs =
           fmap (\session -> (session, sessionIRCConnectionEventSub session))
         extractWindowEventSubs =
@@ -214,6 +249,7 @@ findSessionTabsForSession client session = do
           return (tab, subtype)
         matchTab session (tab, SessionTab currentSession) =
           sessionIndex session == sessionIndex currentSession
+        matchTab _ _ = False
 
 -- | Find client tabs for channel.
 findChannelTabsForChannel :: Client -> Channel -> STM (S.Seq ClientTab)
@@ -225,6 +261,7 @@ findChannelTabsForChannel client channel = do
           return (tab, subtype)
         matchTab channel (tab, ChannelTab currentChannel) =
           channelIndex channel == channelIndex currentChannel
+        matchTab _ _ = False
 
 -- | Find client tabs for user.
 findUserTabsForUser :: Client -> User -> STM (S.Seq ClientTab)
@@ -236,6 +273,7 @@ findUserTabsForUser client user = do
           return (tab, subtype)
         matchTab user (tab, UserTab currentUser) =
           userIndex user == userIndex currentUser
+        matchTab _ _ = False
 
 -- | Find all client tabs for user.
 findAllTabsForUser :: Client -> User -> STM (S.Seq ClientTab)
@@ -253,6 +291,63 @@ findAllTabsForUser client user = do
                 then return $ foundTabs |> tab
                 else return foundTabs
             _ -> return foundTabs
+
+-- | Find most recent tab for session.
+findMostRecentTabForSession :: Client -> Session -> STM (Maybe ClientTab)
+findMostRecentTabForSession client session = do
+  findMostRecentTabForSession' session (-1) Nothing =<<
+    (readTVar $ clientTabs client)
+  where findMostRecentTabForSession' session index currentTab tabs =
+          case S.viewl tabs of
+            tab :< rest -> do
+              subtype <- readTVar $ clientTabSubtype tab
+              if
+                case subtype of
+                  SessionTab session' ->
+                    sessionIndex session == sessionIndex session'
+                  ChannelTab channel ->
+                    sessionIndex session ==
+                    (sessionIndex $ channelSession channel)
+                  UserTab user ->
+                    sessionIndes session ==
+                    (sessionIndex $ userSession user)
+                  _ -> False
+                then do
+                  index' <- atomically . readTVar $ clientTabSelectIndex tab
+                  if index' > index
+                    then findMostRecentTabForSession' session index'
+                         (Just tab) rest
+                    else findMostRecentTabForSession' session index
+                         currentTab rest
+                else findMostRecentTabForSession' session index currentTab
+                     rest
+            S.EmptyL -> return currentTab
+
+-- | Find the most recent tab.
+findMostRecentTab :: Client -> STM (Maybe ClientTab)
+findMostRecentTab client =
+  findMostRecentTab' (-1) Nothing =<< (readTVar $ clientTabs client)
+  where findMostRecentab' index currentTab tabs =
+          case S.viewl tabs of
+            tab :< rest -> do
+              index' <- atomically . readTVar $ clientTabSelectIndex tab
+              if index' > index
+                then findMostRecentTab' index' (Just tab) rest
+                else findMostRecentTab' index currentTab rest
+            S.EmptyL -> return currentTab
+
+-- | Find the most recent window.
+findMostRecentWindow :: Client -> STM (Maybe ClientWindow)
+findMostRecentWindow client =
+  findMostRecentWindow' (-1) Nothing =<< (readTVar $ clientWindows client)
+  where findMostRecentWindow' index currentWindow windows =
+          case S.viewl windows of
+            window :< rest -> do
+              index' <- atomically . readTVar $ clientWindowFocusIndex window
+              if index' > index
+                then findMostRecentWindow' index' (Just window) rest
+                else findMostRecentWindow' index currentWindow rest
+            S.EmptyL -> return currentWindow
 
 -- | Display session message.
 displaySessionMessage :: Client -> Session -> T.Text -> IO ()
@@ -313,12 +408,51 @@ displayUserMessage client user message = do
         Left (Error errorText) -> hPutStr stderr errorText
 
 -- | Display message in all tabs for user.
-displayUserMessageAll :: Clieant -> User -> T.Text -> IO ()
+displayUserMessageAll :: Client -> User -> T.Text -> IO ()
 displayUserMessageAll client user message = do
   responses <- atomically $ do
-    clientTabs <- findAllUserTabsForUser client user
-    forM clientTabs $ \clientTab ->
+    tabs <- findAllUserTabsForUser client user
+    forM tabs $ \clientTab ->
       addTabText (clientTabTab clientTab) message
+  async $ do
+    forM_ responses $ \response -> do
+      result <- atomically $ getResponse response
+      case result of
+        Right () -> return ()
+        Left (Error errorText) -> hPutStr stderr errorText
+
+-- | Display message on most recent tab for session.
+displaySessionMessageOnMostRecentTab :: Client -> Session -> T.Text -> IO ()
+displaySessionMessageOnMostRecentTab client session message = do
+  response <- atomically $ do
+    clientTab <- findMostRecentTabForSession client session
+    case clientTab of
+      Just clientTab -> Just <$> addTabText (clientTabTab clientTab) message
+      Nothing -> return Nothing
+  case response of
+    Just response -> do
+      async $ do
+        result <- atomically $ getResponse response
+        case result of
+          Right () -> return ()
+          Left (Error errorText) -> hPutStr stderr errorText
+    Nothing -> return ()
+
+-- | Display message on tab.
+displayMessage :: Client -> ClientTab -> T.Text -> IO ()
+displayMessage client tab message = do
+  response <- atomically $ addTabText (clientTabTab clientTab) message
+  async $ do
+    result <- atomically $ getResponse response
+    case result of
+      Right () -> return ()
+      Left (Error errorText) -> hPutStr stderr errorText
+
+-- | Display message on tabs.
+displayMessageOnTabs :: Client -> S.Seq ClientTab -> T.Text -> IO ()
+displayMessageOnTabs client tabs message = do
+  responses <- atomically $
+    forM tabs $ \clientTab -> addTabText (clientTabTab clientTab) message
   async $ do
     forM_ responses $ \response -> do
       result <- atomically $ getResponse response
@@ -332,35 +466,35 @@ handleSessionEvent client session event =
   case event of
     IRCFoundAddr address -> do
       displaySessionMessage client session
-        (printf "**** Found address: %s" $ show address) (return ())
+        (printf "* Found address: %s" $ show address) (return ())
     IRCNoAddrFound (Error errorText) -> do
       displaySessionMessage client session
-        (printf "**** Unable to find address: %s" errorText)
+        (printf "* Unable to find address: %s" errorText)
       tryReconnectSession client session
     IRCLookupCanceled -> do
       displaySessionMessage client session
-        "**** Address lookup canceled"
+        "* Address lookup canceled"
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCFoundName hostname -> do
       displaySessionMessage client session
-        (printf "**** Found hostname: %s" hostname) (return ())
+        (printf "* Found hostname: %s" hostname) (return ())
     IRCNoNameFound (Error errorText) -> do
       displaySessionMessage client session
-        (printf "**** No name found: %s" errorText) (return ())
+        (printf "* No name found: %s" errorText) (return ())
     IRCReverseLookupCanceled -> do
       displaySessionMessage client session
-        "**** Reverse lookup canceled"
+        "* Reverse lookup canceled"
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCConnectingFailed (Error errorText) -> do
       displaySessionMessage client session
-        (printf "**** Connecting failed: %s" errorText)
+        (printf "* Connecting failed: %s" errorText)
       tryReconnectSession client session
     IRCConnected -> do
       let connection = sessionIRCConnection session
       hostname <- getIRCConnectionHostname connection
       port <- getIRCConnectionPort connection
       displaySessionMessage client session
-        (printf "**** Connected to %s:%d" hostname port)
+        (printf "* Connected to %s:%d" hostname port)
       atomically $ do
         let capReqMessage =
               IRCMessage { ircMessagePrefix = Nothing,
@@ -394,25 +528,25 @@ handleSessionEvent client session event =
         writeTVar (sessionState session) SessionPreparing
         writeTVar (sessionReconnectOnFailure session) True
     IRCConnectingCanceled -> do
-      displaySessionMessage client session "**** Connecting canceled"
+      displaySessionMessage client session "* Connecting canceled"
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnected -> do
-      displaySessionMessage client session "**** Disconnected"
+      displaySessionMessage client session "* Disconnected"
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnectError (Error errorText) -> do
       displaySessionMessage client session
-        (printf "**** Error disconnecting: %s" errorText)
+        (printf "* Error disconnecting: %s" errorText)
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnectedByPeer -> do
-      displaySessionMessage client session "**** Disconnected by peer"
+      displaySessionMessage client session "* Disconnected by peer"
       tryReconnectSession client session
     IRCSendError (Error errorText) -> do
       displaySessionMessage client session
-        (printf "**** Error sending: %s" errorText)
+        (printf "* Error sending: %s" errorText)
       tryReconnectSession client session
     IRCRecvError (Error errorText) -> do
       displaySessionMessage client session
-        (printf "**** Error receiving: %s" errorText)
+        (printf "* Error receiving: %s" errorText)
       tryReconnectSession client session
     IRCRecvMessage message
       | ircMessageCommand message == rpl_WELCOME ->
@@ -431,9 +565,18 @@ handleSessionEvent client session event =
         handleKickMessage client session message
       | ircMessageCommand message == encodeUtf8 "QUIT" ->
         handleQuitMessage client session message
+      | ircMessageCommand message == encodeUtf8 "ERROR" ->
+        handleErrorMessage client session message
+      | ircMessageCommand message == encodeUtf8 "NICK" ->
+        handleNickMessage client session message
+      | ircMessageCommand message == encodeUtf8 "MODE" ->
+        handleModeMessage client session message
+      | ircMessageCommand message == encodeUtf8 "PRIVMSG" ->
+        handlePrivmsgMessage client session message
+      | ircMessageCommand message == encodeUtf8 "NOTICE" ->
+        handleNoticeMessage client session message
       | otherwise ->
         displaySessionMessage client session $ show message
-  handleClientEvents client
 
 -- | Handle welcome message.
 handleWelcome :: Client -> Session -> IRCMessage -> IO ()
@@ -530,7 +673,14 @@ handleJoinMessage client session message =
                 else return ()
             Nothing -> return ()
         handleOurJoin client session name = do
-          
+          channel <- atomically $ findOrCreateChannelByName client session name
+          ourNick <- atomically . readTVar $ sessionNick session
+          displayChannelMessage client channel "* Now talking on %s"
+            (ourDecodeUtf8 name)
+          user <- findOrCreateUserByNick client session ourNick
+          atomically $ do
+            users <- readTVar $ channelUsers channel
+            writeTVar (channelUsers channel) $ users |> user
 
 -- | Handle PART message.
 handlePartMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -631,23 +781,447 @@ handleQuitMessage client session message =
       user <- atomically $ findUserByNick session nick
       case user of
         Just user -> do
-          case ircMessageCoda message of
-            Just coda -> do
-              displayUserMessageAll client user $
-                printf "* %s has quit (%s)" (ourDecodeUtf8 nick)
-                (ourDecodeUtf8 coda)
-            Nothing -> do
-              displayUserMessageAll client user $
-                printf "* %s has quit" (ourDecodeUtf8 nick)
+          let ourNick = atomically . readTVar $ sessionNick session
+          if nick /= ourNick
+            then do
+              case ircMessageCoda message of
+                Just coda -> do
+                  displayUserMessageAll client user $
+                    printf "* %s has quit (%s)" (ourDecodeUtf8 nick)
+                    (ourDecodeUtf8 coda)
+                Nothing -> do
+                  displayUserMessageAll client user $
+                    printf "* %s has quit" (ourDecodeUtf8 nick)
+            else return ()
           atomically $ removeUserFromAllChannels client session user
+        Nothing -> return ()
+    Nothing -> return ()
+
+-- | Handle ERROR message.
+handleErrorMessage :: Client -> Session -> IRCMessage -> IO ()
+handleErrorMessage client session message = do
+  (disconnectIRC $ sessionIRCConnection session) >> return ()
+  writeTVar (sessionState session) SessionInactive
+
+-- | Handle NICK message.
+handleNickMessage :: Client -> Session -> IRCMessage -> IO ()
+handleNickMessage client session message =
+  case (ircMessagePrefix message, ircMessageCoda message) of
+    (Just prefix, Just coda) -> do
+      let nick = extractNick prefix
+          (newNick, _) = B.breakSubstring (encodeUtf8 " ") coda
+      join . atomically $ do
+        user <- findUserByNick session nick
+        case user of
+          Just user -> do
+            writeTVar (userNick user) newNick
+          Nothing -> return ()
+        ourNick <- readTVar $ sessionNick session
+        if nick == ourNick
+          then do
+            writeTVar (sessionNick session) newNick
+            return $ do
+              displaySessionMessageOnMostRecentTab client session $
+                printf "* You are now known as %s" (ourDecodeUtf8 newNick)
+          else do
+            return $ do
+              displaySessionMessageOnMostRecentTab client session $
+                printf "* %s is now known as %s" (ourDecodeUtf8 nick)
+                (ourDecodeUtf8 newNick)
+    _ -> return ()
+
+-- | Handle MODE message.
+handleModeMessage :: Client -> Session -> IRCMessage -> IO ()
+handleModeMessage client session message =
+  case S.lookup 0 $ ircMessageParams message of
+    Just nickOrChannel -> do
+      ourNick <- atomically . readTVar $ sessionNick session
+      if nickOrChannel == ourNick
+        then handleUserMode client session message nickOrChannel
+        else handleChannelMode client session message nickOrChannel
+    Nothing -> return ()
+  where handleUserMode client session message nickOrChannel = do
+          let param =
+                case S.lookup 1 $ ircMessageParams message of
+                  Just param -> param
+                  Nothing ->
+                    case ircMessageCoda message of
+                       Just coda ->
+                         fst $ B.breakSubstring (encodeUtf8 " ") coda
+                       Nothing -> B.empty          
+          case B.uncons param of
+            Just (byte, _)
+              | byte == byteOfChar '+' || byte == byteOfChar '-' ->
+                  case ircMessagePrefix message of
+                    Just prefix -> do
+                      displaySessionMessageOnMostRecentTab client session $
+                        printf "* %s sets mode %s on %s"
+                        (ourDecodeUtf8 prefix) (ourDecodeUtf8 param)
+                        (ourDecodeUtf8 nickOrChannel)
+                      atomically $ do
+                        mode <- readTVar $ sessionMode session
+                        writeTVar (sessionMode session) parseUserMode param mode
+                    Nothing -> return ()
+            _ -> return ()
+        parseUserMode param mode =
+          case B.uncons param of
+            Just (byte, rest)
+              | byte == byteOfChar '+' -> paramUserModeAdd rest mode
+              | byte == byteOfChar '-' -> paramuserModeRemove rest mode
+              | otherwise -> parseUserModeAdd param mode
+            Nothing -> mode
+        parseUserModeAdd param mode =
+          case B.uncons param of
+            Just (byte, rest)
+              | byte /= byteOfChar '+' && byte /= byteOfChar '-' ->
+                case S.elemIndexL (Mode byte) mode of
+                  Nothing -> parseUserModeAdd rest $ mode |> Mode byte
+                  _ -> parseUserModeAdd rest mode
+              | otherwise -> parseUserMode param mode
+            Nothing -> mode
+        parseUserModeRemove param mode =
+          case B.uncons param of
+            Just (byte, rest)
+              | byte /= byteOfChar '+' && byte /= byteOfChar '-' ->
+                parseUserModeRemove rest $
+                S.filter (\(Mode byte') -> byte' /= byte) mode
+              | otherwise -> parseUserMode param mode
+            Nothing -> mode
+        handleChannelMode client session message nickOrChannel = do
+          case S.lookup 1 $ ircMessageParams message of
+            Just param -> do
+              case B.uncons param of
+                Just (byte, _)
+                  | byte == byteOfChar '+' || byte == byteOfChar '-' ->
+                    case ircMessagePrefix message of
+                      Just prefix -> do
+                        let prefix' = extractNick prefix
+                        channel <- findChannelByName session nickOrChannel
+                        case channel of
+                          Just channel -> do
+                            mode <- atomically . readTVar $ channelMode channel
+                            mode <- parseChannelMode client channel param prefix'
+                              mode . S.drop 2 $ ircMessageParams message
+                            atomically $ writeTVar (channelMode channel) mode
+                          Nothing -> return ()
+                      Nothing -> return ()
+                _ -> return ()
+            Nothing -> return ()
+        parseChannelMode client channel param prefix mode extraParams = do
+          case B.uncons param of
+            Just (byte, rest)
+              | byte == byteOfChar '+' ->
+                parseChannelModeAdd client channel rest prefix mode extraParams
+              | byte == byteOfChar '-' ->
+                parseChannelModeRemove client channel rest prefix mode
+                extraParams
+              | otherwise ->
+                parseChannelModeAdd client channel param prefix mode extraParams
+            Nothing -> return mode
+        parseChannelModeAdd client channel param prefix mode extraParams = do
+          case B.uncons param of
+            Just (byte, rest)
+              | byte /= byteOfChar '+' && byte /= byteOfChar '-' ->
+                let mode =
+                      case S.elemIndexL byte channelModesToExclude of
+                        Nothing ->
+                          case S.elemIndexL (Mode byte) mode of
+                            Nothing -> mode |> Mode byte
+                            _ -> mode
+                        _ -> mode
+                in
+                  if byte == byteOfChar 'b'
+                  then handleChannelModeAddBan client channel rest prefix mode
+                       extraParams
+                  else if byte == byteOfChar 'o'
+                  then handleChannelModeAddUserType client channel rest prefix
+                       mode extraParams "op" OpUser
+                  else if byte == byteOfChar 'O'
+                  then handleChannelModeAddUserType client channel rest prefix
+                       mode extraParams "owner" OwnerUser
+                  else if byte == byteOfChar 'h'
+                  then handleChannelModeAddUserType client channel rest prefix
+                       mode extraParams "halfop" HalfOpUser
+                  else if byte == byteOfChar 'v'
+                  then handleChannelModeAddUserType client channel rest prefix
+                       mode extraParams "voice" VoiceUser
+                  else if byte == byteOfChar 'I'
+                  then handleChannelModeAddInviteMask client channel rest prefix
+                       mode extraParams
+                  else if byte == byteOfChar 'k'
+                  then handleChannelModeAddKeyword client channel rest prefix
+                       mode extraParams
+                  else if byte == byteOfChar 'l'
+                  then handleChannelModeAddLimit client channel rest prefix mode
+                       extraParams
+                  else do
+                    displayChannelMessage client channel $
+                      printf "* %s sets mode +%s on %s" prefix
+                      (ourDecodeUtf8 $ B.singleton byte)
+                      (ourDecodeUtf8 $ channelName channel)
+                    parseChannelModeAdd client channel rest prefix mode
+                      extraParams
+              | otherwise -> parseChannelMode client channel param prefix mode
+                             extraParams
+            Nothing -> return mode
+        handleChannelModeAddBan client channel param prefix mode extraParams =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              displayChannelMessage client channel $
+                printf "* %s sets ban on %s" (ourDecodeUtf8 prefix)
+                (ourDecodeUtf8 extraParam)
+              parseChannelModeAdd client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeAdd client channel param prefix mode extraParams
+        handleChannelModeAddUserType client channel param prefix mode
+          extraParams text userType =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              user <- findUserByNick (channelSession channel) extraParam
+              case user of
+                Just user -> do
+                  displayChannelMessage client channel $
+                    printf "* %s sets %s on %s" (ourDecodeUtf8 prefix)
+                    text (ourDecodeUtf8 extraParam)
+                  atomically $ addUserType user channel userType
+                Nothing -> return ()
+              parseChannelModeAdd client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeAdd client channel param prefix mode extraParams
+              parseChannelModeAdd client channel param prefix mode extraParams
+        handleChannelModeAddInviteMask client channel param prefix mode
+          extraParams =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              displayChannelMessage client channel $
+                printf "* %s adds %s to the invite mask"
+                (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+              parseChannelModeAdd client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeAdd client channel param prefix mode extraParams
+        handleChannelModeAddKeyword client channel param prefix mode
+          extraParams =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              displayChannelMessage client channel $
+                printf "* %s sets keyword to %s"
+                (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+              parseChannelModeAdd client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeAdd client channel param prefix mode extraParams
+        handleChannelModeAddLimit client channel param prefix mode
+          extraParams =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              displayChannelMessage client channel $
+                printf "* %s sets user limit to %s"
+                (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+              parseChannelModeAdd client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeAdd client channel param prefix mode extraParams
+        parseChannelModeRemove client channel param prefix mode extraParams = do
+          case B.uncons param of
+            Just (byte, rest)
+              | byte /= byteOfChar '+' && byte /= byteOfChar '-' ->
+                let mode =
+                      case S.elemIndexL byte channelModesToExclude of
+                        Nothing -> S.filter (/= (Mode byte)) mode
+                        _ -> mode
+                in
+                  if byte == byteOfChar 'b'
+                  then handleChannelModeRemoveBan client channel rest prefix mode
+                       extraParams
+                  else if byte == byteOfChar 'o'
+                  then handleChannelModeRemoveUserType client channel rest prefix
+                       mode extraParams "op" OpUser
+                  else if byte == byteOfChar 'O'
+                  then handleChannelModeRemoveUserType client channel rest prefix
+                       mode extraParams "owner" OwnerUser
+                  else if byte == byteOfChar 'h'
+                  then handleChannelModeRemoveUserType client channel rest prefix
+                       mode extraParams "halfop" HalfOpUser
+                  else if byte == byteOfChar 'v'
+                  then handleChannelModeRemoveUserType client channel rest prefix
+                       mode extraParams "voice" VoiceUser
+                  else if byte == byteOfChar 'I'
+                  then handleChannelModeRemoveInviteMask client channel rest
+                       prefix mode extraParams
+                  else if byte == byteOfChar 'k'
+                  then handleChannelModeRemoveKeyword client channel rest prefix
+                       mode extraParams
+                  else if byte == byteOfChar 'l'
+                  then handleChannelModeRemoveLimit client channel rest prefix
+                       mode extraParams
+                  else do
+                    displayChannelMessage client channel $
+                      printf "* %s sets mode -%s on %s" prefix
+                      (ourDecodeUtf8 $ B.singleton byte)
+                      (ourDecodeUtf8 $ channelName channel)
+                    parseChannelModeRemove client channel rest prefix mode
+                      extraParams
+              | otherwise -> parseChannelMode client channel param prefix mode
+                             extraParams
+            Nothing -> return mode
+        handleChannelModeRemoveBan client channel param prefix mode extraParams =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              displayChannelMessage client channel $
+                printf "* %s removes ban from %s" (ourDecodeUtf8 prefix)
+                (ourDecodeUtf8 extraParam)
+              parseChannelModeRemove client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeRemove client channel param prefix mode extraParams
+        handleChannelModeRemoveUserType client channel param prefix mode
+          extraParams text userType =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              user <- findUserByNick (channelSession channel) extraParam
+              case user of
+                Just user -> do
+                  displayChannelMessage client channel $
+                    printf "* %s removes %s from %s" (ourDecodeUtf8 prefix)
+                    text (ourDecodeUtf8 extraParam)
+                  atomically $ removeUserType user channel userType
+                Nothing -> return ()
+              parseChannelModeRemove client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeRemove client channel param prefix mode extraParams
+        handleChannelModeRemoveInviteMask client channel param prefix mode
+          extraParams =
+          case S.viewl extraParams of
+            extraParam :< rest -> do
+              user <- findUserByNick (channelSession channel) extraParam
+              case user of
+                Just user -> do
+                  displayChannelMessage client channel $
+                    printf "* %s removes %s from the invite mask"
+                    (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+                Nothing -> return ()
+              parseChannelModeRemove client channel param prefix mode rest
+            S.EmptyL ->
+              parseChannelModeRemove client channel param prefix mode extraParams
+        handleChannelModeRemoveKeyword client channel param prefix mode
+          extraParams = do
+          displayChannelMessage client channel $
+            printf "* %s unsets keyword"
+            (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+          parseChannelModeRemove client channel param prefix mode extraParams
+        handleChannelModeRemoveLimit client channel param prefix mode
+          extraParams = do
+          displayChannelMessage client channel $
+            printf "* %s unsets user limit"
+            (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+          parseChannelModeRemove client channel param prefix mode extraParams
+
+-- | Channel modes with parameters.
+channelModesToExclude :: S.Seq Word8
+channelModesToExclude = [byteOfChar 'b', byteOfChar 'o', byteOfChar 'O',
+                         byteOfChar 'I', byteOfChar 'h', byteOfChar 'v']
+
+-- | Handle PRIVMSG message.
+handlePrivmsgMessage :: Client -> Session -> IRCMessage -> IO ()
+handlePrivmsgMessage client session message = do
+  case (ircMessagePrefix message,
+        S.lookup 0 $ ircMessageParams message,
+        ircMessageCoda message) of
+    (Just prefix, Just target, Just text) -> do
+      let source = extractNick prefix
+      ourNick <- atomically . readTVar $ sessionNick session
+      if target == ourNick
+        then do
+          user <- atomically $ findOrCreateUserByNick client session source
+          tabs <- findOrCreateUserTabsForUser client user
+          displayMessageOnTabs client tabs $
+            printf "<$s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+        else do
+          channel <- atomically $ findChannelByName session target
+          case channel of
+            Just channel -> do
+              displayChannelMessage client channel $
+                printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+            Nothing -> return ()
+    _ -> return ()
+
+-- | Handle NOTICE message.
+handleNoticeMessage :: Client -> Session -> IRCMessage -> IO ()
+handleNoticeMessage client session message = do
+  case (ircMessagePrefix message,
+        S.lookup 0 $ ircMessageParams message,
+        ircMessageCoda message) of
+    (Just prefix, Just target, Just text) -> do
+      let source = extractNick prefix
+      ourNick <- atomically . readTVar $ sessionNick session
+      if target == ourNick
+        then do
+          displaySessionMessageOnMostRecentTab client session $
+            printf "-%s- %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+        else do
+          channel <- atomically $ findChannelByName session target
+          case channel of
+            Just channel -> do
+              displayChannelMessage client channel $
+                printf "-%s- %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+            Nothing -> return ()
+    _ -> return ()
+
+-- | Find or create user tabs for user.
+findOrCreateUserTabsForUser :: Client -> User -> IO (S.Seq ClientTab)
+findOrCreateUserTabsForUser client user = do
+  nick <- atomically . readTVar $ userNick user
+  tabs <- atomically $ findUserTabsForUser client user
+  if not $ S.null tabs
+    then return tabs
+    else do
+      window <- findMostRecentWindow client
+      case window of
+        Just window -> do
+          result <- openClientTab client window (ourDecodeUtf8 nick)
+          case result of
+            Right tab -> do
+              atomically . writeTVar (clientTabSubtype tab) $ UserTab user
+              return $ S.singleton clientTab
+            Left (Error errorText) -> do
+              hPutStr stderr errorText
+              return S.empty
+        Nothing -> return S.empty
+
+-- | Add a user type to a user for a channel.
+addUserType :: User -> Channel -> UserType -> STM ()
+addUserType user channel aType = do
+  types <- readTVar $ userType user
+  channelIndex <- S.findIndexL
+    (\(channel', _) -> channelIndex channel == channelIndex channel') types
+  case channelIndex of
+    Just channelIndex ->
+      case S.lookup channelIndex types of
+        Just (_, channelTypes) ->
+          case S.elemIndexL aType channelTypes of
+            Nothing ->
+              writeTVar (userType user) $
+                update channelIndex (channel, channelTypes |> aType) types
+            _ -> return ()
+        Nothing -> error "impossible"
+    Nothing ->
+      writeTVar (userType user) $ types |> (channel, S.singleton aType)
+
+-- | Remove a user type from a user for a channel.
+removeUserType :: User -> Channel -> UserType -> STM ()
+removeUserType user channel aType = do
+  types <- readTVar $ userType user
+  channelIndex <- S.findIndexL
+    (\(channel', _) -> channelIndex channel == channelIndex channel') types
+  case channelIndex of
+    Just channelIndex ->
+      case S.lookup channelIndex types of
+        Just (_, channelTypes) -> do
+          writeTVar (userType user) $
+            update channelIndex (channel, S.filter (/= aType) channelTypes) types
         Nothing -> return ()
     Nothing -> return ()
 
 -- | Our UTF-8 decoder.
 ourDecodeUtf8 :: B.ByteString -> T.Text
-ourDecodeUtf8 = decodeUtf8With errorHandler
-  where errorHandler _ (Just _) = Just '\xFFFD'
-        errorHandler _ Nothing = Nothing
+ourDecodeUtf8 = decodeUtf8With lenientDecode
 
 -- | Extract nick from full nick, username, and host.
 extractNick :: B.ByteString -> B.ByteString
@@ -688,10 +1262,11 @@ findUserByNick session nick = do
   return $ findUserByNick' users nick
   where findUserByNick' users nick =
           case S.viewl users of
-            user :< rest ->
-              if userNick user == nick
-              then Just user
-              else findUserByNick' rest nick
+            user :< rest -> do
+              nick' <- readTVar $ userNick user
+              if nick == nick'
+                then Just user
+                else findUserByNick' rest nick
             S.EmptyL -> Nothing
 
 -- | Send a message to an session.
@@ -729,6 +1304,59 @@ tryReconnectSession client session = do
         (Just reconnectingAsync)
     else atomically $ writeTVar (sessionState session) SessionInactive
 
+-- | Handle client window event.
+handleClientWindowEvent :: Client -> ClientWindow -> WindowEvent -> IO ()
+handleClientWindowEvent client clientWindow event = do
+  case event of
+    WindowClosed -> handleWindowClosed client clientWindow
+    UserPressedKey modifiers key
+      | modifiers == [KeyControl] && key == "n" -> handleOpenClientWindow client
+      | modifiers == [KeyControl] && key == "t" ->
+        handleOpenClientTab client clientWindow
+      | otherwise -> return ()
+    WindowFocused -> handleWindowFocused client clientWindow
+
+-- | Handle window closed.
+handleWindowClosed :: Client -> ClientWindow -> WindowEvent -> IO ()
+handleWindowClosed client clientWindow = do
+  subtypes <- atomically $ do
+    let index = clientWindowIndex clientWindow
+    windows <- readTVar clientWindows client
+    writeTVar (clientWindows client) $
+      filter (\clientWindow' -> clientWindowIndex clientWindow' /= index) windows
+    tabs <- readTVar clientTabs client
+    let (tabs, deletedTabs) =
+          S.partition (\clientTab' ->
+                         (clientWindowIndex $ clientTabWindow clientTab') /=
+                         index)
+    writeTVar (clientTabs client) tabs
+    forM deletedTabs $ \tab -> readTVar $ clientTabSubtype tab
+  forM subtypes $ \case
+    SessionTab session -> cleanupSessionIfNoTabs client session
+    ChannelTab channel -> cleanupChannelIfNoTabs client channel
+    UserTab user -> cleanupUserIfNoTabsOrChannels client user
+    _ -> return ()
+
+-- | Handle opening a client window.
+handleOpenClientWindow :: Client -> IO ()
+handleOpenClientWindow client = do
+  result <- openClientWindow client "Amphibian IRC" "<Not Connected>"
+  case result of
+    Right () -> return ()
+    Left (Error errorText) -> hPutStr stderr errorText
+
+-- | Handle opening a client tab.
+handleOpenClientTab :: Client -> ClientWindow -> IO ()
+handleOpenClientTab client clientWindow =
+  (openClientTab client clientWindow "<Not Connected>") >> return ()
+
+-- | Handle window focused.
+handleWindowFocused :: Client -> ClientWindow -> IO ()
+handleWindowFocused client clientWindow = do
+  atomically $ do
+    index <- getClientNextWindowFocusIndex client
+    writeTVar (clientWindowFocusIndex clientWindow) index
+
 -- | Handle client tab event.
 handleClientTabEvent :: Client -> ClientTab -> TabEvent -> IO ()
 handleClientTabEvent client clientTab event = do
@@ -739,8 +1367,8 @@ handleClientTabEvent client clientTab event = do
     TabSelected -> handleTabSelected client clientTab
 
 -- | Handle a tab closed event.
-handleTabClosedEvent :: Client -> ClientTab -> IO ()
-handleTabClosedEvent client clientTab = do
+handleTabClosed :: Client -> ClientTab -> IO ()
+handleTabClosed client clientTab = do
   subtype <- atomically $ do
     tabs <- readTVar clientTabs client
     let index = clientTabIndex clientTab
@@ -751,7 +1379,97 @@ handleTabClosedEvent client clientTab = do
     SessionTab session -> cleanupSessionIfNoTabs client session
     ChannelTab channel -> cleanupChannelIfNoTabs client channel
     UserTab user -> cleanupUserIfNoTabsOrChannels client user
-  handleClientEvents client
+    _ -> return ()
+
+-- | Handle a line entered event.
+handleLineEntered :: Client -> ClientTab -> T.Text -> IO ()
+handleLineEntered client clientTab text = do
+  case T.uncons text of
+    Just ('/', rest) ->
+      case T.uncons rest of
+        Just ('/', _) -> handleNormalLine client clientTab rest
+        Just _ -> handleCommand client clientTab rest
+        Nothing -> return ()
+    Just _ -> handleNormalLine client clientTab text
+    Nothing -> return ()
+
+-- | Handle a normal line that has been entered.
+handleNormalLine :: Client -> ClientTab -> T.Text -> IO ()
+handleNormalLine client clientTab text = do
+  subtype <- atomically . readTVar $ clientTabSubtype clientTab
+  case subtype of
+    FreeTab -> displayMessage client clientTab
+               "* Not in channel or private messaging"
+    SessionTab _ -> displayMessage client clientTab
+                    "* Not in channel or privage messaging"
+    ChannelTab channel -> do
+      let session = channelSession session
+      ourNick <- atomically . readTVar $ sessionNick session
+      state <- atomically . readTVar $ channelState channel
+      case state of
+        InChannel -> do
+          displayChannelMessage client channel $
+            printf "<%s> %s" (ourDecodeUtf8 ourNick) text
+          let message = IRCMessage { ircMessagePrefix = Nothing,
+                                     ircMessageCommand = encodeUtf8 "PRIVMSG",
+                                     ircMessageParams =
+                                       S.singleton $ channelName channel,
+                                     ircMessageCoda = Just $ encodeUtf8 text }
+          response <-
+            atomically $ sendIRCMessage (sessionIRCConnection session) message
+          async $ do
+            result <- atomically $ getResponse response
+            case result of
+              Right () -> return ()
+              Left (Error errorText) -> hPutStr stderr errorText
+        NotInChannel -> displayMessage client clientTab "* Not in channel"
+    UserTab user -> do
+      let session = userSession session
+      ourNick <- atomically . readTVar $ sessionNick session
+      nick <- atomically .  readTVar $ userNick user
+      displayUserMessage client user $
+        printf "<%s> %s" (ourDecodeUtf8 ourNick) text
+      let message = IRCMessage { ircMessagePrefix = Nothing,
+                                 ircMessageCommand = encodeUtf8 "PRIVMSG",
+                                 ircMessageParams = S.singleton nick
+                                 ircMessageCoda = Just $ encodeUtf8 text }
+      response <-
+        atomically $ sendIRCMessage (sessionIRCConnection session) message
+      async $ do
+        result <- atomically $ getResponse response
+        case result of
+          Right () -> return ()
+          Left (Error errorText) -> hPutStr stderr errorText
+
+-- | Handle command.
+handleCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleCommand client clientTab command = do
+  case parseCommandFIeld command of
+    Just (command, rest)
+      | command == "new" -> handleNewCommand client clientTab rest
+      | command == "close" -> handleCloseCommand client clientTab rest
+      | command == "server" -> handleServerCommand client clientTab rest
+      | command == "quit" -> handleQuitCommand client clientTab rest
+      | command == "join" -> handleJoinCommand client clientTab rest
+      | command == "part" -> handlePartCommand client clientTab rest
+      | command == "topic" -> handleTopicCommand client clientTab rest
+      | command == "mode" -> handleModeCommand client clientTab rest
+      | command == "kick" -> handleKickCommand client clientTab rest
+      | otherwise -> handleUnrecognizedCommand client clientTab command
+    Nothing -> return ()
+
+-- | Handle unrecognized command.
+handleUnrecognizedCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleUnrecognizedCommand client clientTab command = do
+  displayMessage client clientTab $ printf "* Urecognized command: %s" command
+
+-- | Parse a command field.
+parseCommandField :: T.Text -> Maybe (T.Text, T.Text)
+parseCommandField text =
+  let (part0, part1) = T.breakOn " " $ T.stripStart text
+  in if S.null part0
+     then Nothing
+     else Just (part0, T.stripStart part1)
 
 -- | Handle a topic entered event.
 handleTopicEntered :: Client -> ClientTab -> T.Text -> IO ()
@@ -774,7 +1492,6 @@ handleTopicEntered client clientTab text = do
             (sendIRCMessage (sessionIRCConnection session) topicMessage) >>
               return ()
       _ -> return ()
-  handleClientEvents client
 
 -- | Handle a tab selected event.
 handleTabSelected :: Client -> ClientTab -> IO ()
@@ -782,7 +1499,6 @@ handleTabSelected client clientTab = do
   atomically $
     writeTVar (clientTab clientTabSelectIndex) =<<
     getNextClientTabSelectIndex client
-  handleClientEvents client
 
 -- | Close a session if no tabs are open for it.
 cleanupSessionIfNoTabs :: Client -> Session -> IO ()

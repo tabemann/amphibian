@@ -447,7 +447,3 @@ formatIRCMessage IRCMessage{..} =
       includingCoda = includingParams `mappend` coda
       includingNewline = includingCoda `mappend` BB.stringUtf8 "\r\n"
   in BL.toStrict $ BB.toLazyByteString includingNewline
-
--- | Get byte of char.
-byteOfChar :: Char -> Word8
-byteOfChar char = B.head . encodeUtf8 $ T.pack [char]

@@ -766,8 +766,10 @@ installEventHandlers window = do
             if page >= 0 && page < S.length tabs
               then
                 case S.lookup page tabs of
-                  Just tab ->
-                    atomically $ writeTChan (tabEventQueue tab) TabSelected
+                  Just tab -> do
+                    atomically $ do
+                      writeTChan (windowEventQueue window) WindowFocused
+                      writeTChan (tabEventQueue tab) TabSelected
                   Nothing -> return ()
               else return ()
           else return ()

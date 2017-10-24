@@ -34,12 +34,15 @@ module Network.IRC.Client.Amphibian.Utility
   (Response,
    Error(..),
    getResponse,
-   tryGetResponse)
+   tryGetResponse,
+   byteOfChar)
 
 where
 
 import Network.IRC.Client.Amphibian.Types
 import qualified Data.Text as T
+import qualified Data.ByteString as B
+import Data.Text.Encoding (encodeUtf8)
 import Control.Concurrent.STM (STM,
                                atomically)
 import Control.Concurrent.STM.TMVar (readTMVar,
@@ -53,3 +56,6 @@ getResponse (Response response) = readTMVar response
 tryGetResponse :: Response a -> STM (Maybe (Either Error a))
 tryGetResponse (Response response) = tryReadTMVar response
 
+-- | Get byte of char.
+byteOfChar :: Char -> Word8
+byteOfChar char = B.head . encodeUtf8 $ T.pack [char]

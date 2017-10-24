@@ -248,17 +248,14 @@ data WindowAction = OpenWindow T.Text (Response ())
 -- | IRC window event type
 data WindowEvent = WindowClosed
                  | UserPressedKey (S.Seq KeyModifiers) T.Text
-                 deriving (Eq)
+                 | WindowFocused
+                 deriving (Eq, Show)
 
 -- | Key modifier type.
 data KeyModifier = KeyControl
                  | KeyShift
                  | KeyAlt
-
--- | Show instance for window events.
-instance Show WindowEvent where
-  show WindowClosed = "WindowClosed"
-  show (UserOpenedTab tab) = "UserOpenedTab " ++ show (tabIndex tab)
+                 deriving (Eq, Show)
 
 -- | IRC window event subscription
 newtype WindowEventSub = WindowEventSub (TChan WindowEvent)
@@ -417,6 +414,7 @@ data ClientTabSubtype = FreeTab
 -- | Client window type
 data ClientWindow = ClientWindow
   { clientWindowIndex :: Integer,
+    clientWindowFocusIndex :: TVar Integer,
     clientWindowWindow :: Window,
     clientWindowEventSub :: WindowEventSub }
 
@@ -431,8 +429,10 @@ data ClientTab = ClientTab
 
 -- | Client type
 data Client = Client
-  { clientNextIndex :: TVar Integer,
+  { clientRunning :: TVar Bool,
+    clientNextIndex :: TVar Integer,
     clientNextTabSelectIndex :: TVar Integer,
+    clientNextWindowFocusIndex :: TVar Integer,
     clientSessions :: TVar (S.Seq Session),
     clientChannels :: TVar (S.Seq Channel),
     clientUsers :: TVar (S.Seq User),
@@ -442,8 +442,9 @@ data Client = Client
 
 -- | Client tagged event type
 data ClientTaggedEvent = TaggedSessionEvent Session IRConnectionEvent
-                         TaggedClientWindowEvent ClientWindow WindowEvent
-                         TaggedClientTabEvent ClientTab TabEvent
+                       | TaggedClientWindowEvent ClientWindow WindowEvent
+                       | TaggedClientTabEvent ClientTab TabEvent
+                       | TaggedClientQuitEvent
 
 -- | Settings type
 data Settings = ClientSettings
