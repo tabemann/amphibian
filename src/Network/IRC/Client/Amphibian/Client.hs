@@ -121,7 +121,7 @@ runClient = do
 
 -- | Display an error.
 displayError :: T.Text -> IO ()
-displayError = hPutStr stderr
+displayError = hPutStr stderr . T.pack . printf "%s\n"
 
 -- | Get next client index.
 getNextClientIndex :: Client -> STM Integer
@@ -350,7 +350,7 @@ findMostRecentTab client = do
           case S.viewl tabs of
             tab :< rest -> do
               index' <- readTVar $ clientTabSelectIndex tab
-              if index' > index
+              if index' >= index
                 then findMostRecentTab' index' (Just tab) rest
                 else findMostRecentTab' index currentTab rest
             S.EmptyL -> return currentTab
@@ -363,7 +363,7 @@ findMostRecentWindow client = do
           case S.viewl windows of
             window :< rest -> do
               index' <- readTVar $ clientWindowFocusIndex window
-              if index' > index
+              if index' >= index
                 then findMostRecentWindow' index' (Just window) rest
                 else findMostRecentWindow' index currentWindow rest
             S.EmptyL -> return currentWindow
@@ -707,7 +707,14 @@ handleJoinMessage client session message = do
           if nick /= ourNick
             then handleNormalJoin client session nick name prefix
             else handleOurJoin client session name
-        Nothing -> return ()
+        Nothing ->
+          case S.lookup 0 $ ircMessageParams message of
+            Just name -> do
+              ourNick <- atomically . readTVar $ sessionNick session
+              if nick /= ourNick
+                then handleNormalJoin client session nick name prefix
+                else handleOurJoin client session name
+            Nothing -> return ()
     Nothing -> return ()
   where handleNormalJoin client session nick name prefix = do
           channel <- atomically $ findChannelByName session name
@@ -740,6 +747,7 @@ handleJoinMessage client session message = do
             ourNick <- readTVar $ sessionNick session
             user <- findOrCreateUserByNick client session ourNick
             users <- readTVar $ channelUsers channel
+            writeTVar (channelState channel) InChannel
             writeTVar (channelUsers channel) $ users |> user
 
 -- | Handle PART message.
@@ -1301,6 +1309,7 @@ findOrCreateChannelTabsForChannel client channel = do
               displayError errorText
               return S.empty
         Nothing -> do
+          displayError "NO WINDOW AVAILABLE"
           return S.empty
 
 -- | Find or create user tabs for user.
