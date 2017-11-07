@@ -420,15 +420,6 @@ parseIRCMessages ircConnection = do
                    Nothing -> (params |> param, Nothing)
           else (params, Nothing)
           
--- | Split a bytestring on one or more spaces.
-splitOnSpaces :: B.ByteString -> (B.ByteString, Maybe B.ByteString)
-splitOnSpaces bytes =
-  let (part, rest) = B.break (== byteOfChar ' ') bytes
-      rest' = B.dropWhile (== byteOfChar ' ') rest
-  in if B.length rest' > 0
-     then (part, Just rest')
-     else (part, Nothing)
-
 -- | Format an IRC message.
 formatIRCMessage :: IRCMessage -> B.ByteString
 formatIRCMessage IRCMessage{..} =
@@ -440,7 +431,7 @@ formatIRCMessage IRCMessage{..} =
       params = fmap (\param -> BB.charUtf8 ' ' `mappend` BB.byteString param)
         ircMessageParams
       coda = case ircMessageCoda of
-        Just coda -> BB.stringUtf8 ": " `mappend` BB.byteString coda
+        Just coda -> BB.stringUtf8 " :" `mappend` BB.byteString coda
         Nothing -> mempty
       includingCommand = prefix `mappend` BB.byteString ircMessageCommand
       includingParams = foldl' mappend includingCommand params

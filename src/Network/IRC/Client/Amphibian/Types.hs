@@ -48,6 +48,7 @@ module Network.IRC.Client.Amphibian.Types
    WindowState(..),
    WindowAction(..),
    WindowEvent(..),
+   KeyModifier(..),
    WindowEventSub(..),
    Tab(..),
    TabState(..),
@@ -59,14 +60,17 @@ module Network.IRC.Client.Amphibian.Types
    TabUserEventSub(..),
    UserType(..),
    Session(..),
+   SessionState(..),
    Channel(..),
    ChannelState(..),
    User (..),
    Mode (..),
-   SessionTab(..),
-   ChannelTab(..),
-   UserTab(..),
-   Client(..))
+   ClientTabSubtype(..),
+   ClientWindow(..),
+   ClientTab(..),
+   Client(..),
+   ClientTaggedEvent(..),
+   Settings(..))
    
 where
 
@@ -218,7 +222,7 @@ data Window = Window
     windowNotebook :: TMVar Gtk.Notebook,
     windowTitle :: TMVar T.Text,
     windowTabs :: TVar (S.Seq Tab),
-    windowNextTabIndex :: TVar Int,
+    windowNextTabIndex :: TVar Integer,
     windowState :: TVar WindowState,
     windowActionQueue :: TQueue WindowAction,
     windowEventQueue :: TChan WindowEvent }
@@ -247,7 +251,7 @@ data WindowAction = OpenWindow T.Text (Response ())
 
 -- | IRC window event type
 data WindowEvent = WindowClosed
-                 | UserPressedKey (S.Seq KeyModifiers) T.Text
+                 | UserPressedKey (S.Seq KeyModifier) T.Text
                  | WindowFocused
                  deriving (Eq, Show)
 
@@ -273,7 +277,7 @@ data Tab = Tab
     tabBodyBox :: Gtk.Box,
     tabLabel :: Gtk.Label,
     tabTabBox :: Gtk.Box,
-    tabNextUserIndex :: TVar Int,
+    tabNextUserIndex :: TVar Integer,
     tabUsers :: TVar (S.Seq TabUser),
     tabState :: TVar TabState,
     tabEventQueue :: TChan TabEvent }
@@ -441,11 +445,10 @@ data Client = Client
     clientSettings :: TVar Settings }
 
 -- | Client tagged event type
-data ClientTaggedEvent = TaggedSessionEvent Session IRConnectionEvent
+data ClientTaggedEvent = TaggedSessionEvent Session IRCConnectionEvent
                        | TaggedClientWindowEvent ClientWindow WindowEvent
                        | TaggedClientTabEvent ClientTab TabEvent
                        | TaggedClientQuitEvent
 
 -- | Settings type
-data Settings = ClientSettings
-  { settingsReconnectDelay :: Double }
+data Settings = Settings { settingsReconnectDelay :: Double }

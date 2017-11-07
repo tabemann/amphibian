@@ -196,6 +196,7 @@ module Network.IRC.Client.Amphibian.ServerReplies
   where
 
 import qualified Data.ByteString as B
+import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 
 rpl_WELCOME :: B.ByteString

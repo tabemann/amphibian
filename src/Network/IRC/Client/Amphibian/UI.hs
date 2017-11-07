@@ -757,11 +757,11 @@ installEventHandlers window = do
             writeTVar (tabState tab) TabIsClosed
             writeTChan (tabEventQueue tab) TabClosed
           writeTVar (windowTabs window) S.empty
-      Gtk.onWidgetWindowStateEvent window $ \e -> do
+      Gtk.onWidgetWindowStateEvent actualWindow $ \e -> do
         state <- Gdk.getEventWindowStateNewWindowState e
         if elemIndex Gdk.WindowStateFocused state /= Nothing
           then do
-            page <- notebookGetCurrentPage notebook
+            page <- fromIntegral <$> Gtk.notebookGetCurrentPage notebook
             tabs <- atomically . readTVar $ windowTabs window
             if page >= 0 && page < S.length tabs
               then
@@ -773,9 +773,11 @@ installEventHandlers window = do
                   Nothing -> return ()
               else return ()
           else return ()
+        return False
       Gtk.onNotebookSwitchPage notebook $ \widget index -> do
         atomically $ do
-          tab <- S.lookup index <$> (readTVar $ windowTabs actualWindow)
+          tab <- S.lookup (fromIntegral index) <$>
+                 (readTVar $ windowTabs window)
           case tab of
             Just tab -> writeTChan (tabEventQueue tab) TabSelected
             Nothing -> return ()
@@ -784,11 +786,11 @@ installEventHandlers window = do
           [Gdk.ModifierTypeControlMask] ->
             Gdk.getEventKeyKeyval e >>= Gdk.keyvalName >>= \case
               Just "n" -> do
-                writeTChan (windowEventQueue window) $
+                atomically . writeTChan (windowEventQueue window) $
                   UserPressedKey (S.singleton KeyControl) "n"
                 return True
               Just "t" -> do
-                writeTChan (windowEventQueue window) $
+                atomically . writeTChan (windowEventQueue window) $
                   UserPressedKey (S.singleton KeyControl) "t"
                 return True
               _ -> return False

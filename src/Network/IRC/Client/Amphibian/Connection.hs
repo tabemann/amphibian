@@ -141,7 +141,7 @@ stopConnection connection = do
   if state /= ConnectionNotStarted
     then writeTQueue (connectionActionQueue connection)
          (StopConnection $ Response response)
-    else putTMVar response . Left $ Error "connection not started")
+    else putTMVar response . Left $ Error "connection not started"
   return $ Response response
 
 -- | Connect a connection.
@@ -152,7 +152,7 @@ connect connection hostname port = do
   if state /= ConnectionNotStarted
     then writeTQueue (connectionActionQueue connection)
          (Connect hostname port $ Response response)
-    else putTMVar response . Left $ Error "connection not started")
+    else putTMVar response . Left $ Error "connection not started"
   return $ Response response
 
 -- | Disconnect a connection.
@@ -163,7 +163,7 @@ disconnect connection = do
   if state /= ConnectionNotStarted
     then writeTQueue (connectionActionQueue connection)
          (Disconnect $ Response response)
-    else putTMVar response . Left $ Error "connection not started")
+    else putTMVar response . Left $ Error "connection not started"
   return $ Response response
 
 -- | Send data to a connection.
@@ -174,7 +174,7 @@ sendData connection bytes = do
   if state /= ConnectionNotStarted
     then writeTQueue (connectionActionQueue connection)
          (SendData bytes $ Response response)
-    else putTMVar response . Left $ Error "connection not started")
+    else putTMVar response . Left $ Error "connection not started"
   return $ Response response
 
 -- | Subscribe to a connection.

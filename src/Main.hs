@@ -27,46 +27,17 @@
 -- ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 -- POSSIBILITY OF SUCH DAMAGE.
 
-{-# LANGUAGE OverloadedStrings, OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings, OverloadedLists, LambdaCase #-}
 
-module Network.IRC.Client.Amphibian.Utility
+module Main
 
-  (Response,
-   Error(..),
-   getResponse,
-   tryGetResponse,
-   byteOfChar,
-   splitOnSpaces)
+  (main)
 
 where
 
 import Network.IRC.Client.Amphibian.Types
-import qualified Data.Text as T
-import qualified Data.ByteString as B
-import Data.Text.Encoding (encodeUtf8)
-import Data.Word (Word8)
-import Control.Concurrent.STM (STM,
-                               atomically)
-import Control.Concurrent.STM.TMVar (readTMVar,
-                                     tryReadTMVar)
+import Network.IRC.Client.Amphibian.Client
 
--- | Get a response.
-getResponse :: Response a -> STM (Either Error a)
-getResponse (Response response) = readTMVar response
-
--- | Try to get a response.
-tryGetResponse :: Response a -> STM (Maybe (Either Error a))
-tryGetResponse (Response response) = tryReadTMVar response
-
--- | Get byte of char.
-byteOfChar :: Char -> Word8
-byteOfChar char = B.head . encodeUtf8 $ T.pack [char]
-
--- | Split a bytestring on one or more spaces.
-splitOnSpaces :: B.ByteString -> (B.ByteString, Maybe B.ByteString)
-splitOnSpaces bytes =
-  let (part, rest) = B.break (== byteOfChar ' ') bytes
-      rest' = B.dropWhile (== byteOfChar ' ') rest
-  in if B.length rest' > 0
-     then (part, Just rest')
-     else (part, Nothing)
+-- | Entry point.
+main :: IO ()
+main = runClient
