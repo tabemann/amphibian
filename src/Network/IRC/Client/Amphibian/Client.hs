@@ -374,7 +374,9 @@ formatMessage message = do
   currentTime <- getCurrentTime
   timeZone <- getCurrentTimeZone
   let localTime = utcToLocalTime timeZone currentTime
-  return . T.pack $ printf "[%s] %s\n" (show localTime) message
+      timeOfDay = localTimeOfDay localTime
+  return . T.pack $ printf "[%02d:%02d:%02d] %s\n" (todHour timeOfDay)
+    (todMin timeOfDay) ((floor $ todSec timeOfDay) :: Int) message
 
 -- | Display session message.
 displaySessionMessage :: Client -> Session -> T.Text -> IO ()
