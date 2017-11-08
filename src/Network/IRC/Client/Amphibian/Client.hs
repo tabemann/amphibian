@@ -816,6 +816,7 @@ handlePartMessage client session message =
                        else do
                          displayChannelMessage client channel "* You have left"
                          removeUserFromChannel client channel user
+                         removeAllUsersFromChannelTabs client channel
                          atomically $
                            writeTVar (channelState channel) NotInChannel
                    Nothing -> return ()
@@ -2451,3 +2452,9 @@ removeUserFromChannelTabs client channel user = do
         asyncHandleResponse response
       Right Nothing -> return ()
       Left (Error errorText) -> displayError errorText
+
+-- | Remove all users from channel tabs.
+removeAllUsersFromChannelTabs :: Client -> Channel -> IO ()
+removeAllUsersFromChannelTabs client channel = do
+  users <- atomically . readTVar $ channelUsers channel
+  forM_ users $ \user -> removeUserFromChannelTabs client channel user
