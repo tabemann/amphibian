@@ -639,11 +639,13 @@ handleNamreply client session message = do
           let (nickWithPrefix, rest) = splitOnSpaces coda
           if nickWithPrefix /= B.empty
             then do let (nick, userType') = getNickAndUserType nickWithPrefix
-                    atomically $ do
+                    user <- atomically $ do
                       user <- findOrCreateUserByNick client session nick
                       setUserTypeForChannel user channel userType'
                       users <- readTVar $ channelUsers channel
                       writeTVar (channelUsers channel) $ users |> user
+                      return user
+                    updateChannelTabsForUser client channel user
                     case rest of
                       Just rest -> handleUsers channel rest
                       Nothing -> return ()
@@ -757,6 +759,7 @@ handleJoinMessage client session message = do
                     users <- readTVar $ channelUsers channel
                     writeTVar (channelUsers channel) $ users |> user
                 else return ()
+              updateChannelTabsForUser client channel user
             Nothing -> return ()
         handleOurJoin client session name = do
           channel <- atomically $ findOrCreateChannelByName client session name
@@ -774,14 +777,18 @@ handleJoinMessage client session message = do
                     asyncHandleResponse response
                   Nothing -> return ()
               Left (Error errorText) -> displayError errorText
+            response <- atomically $ setSideVisible (clientTabTab tab) True
+            asyncHandleResponse response
           displayChannelMessage client channel . T.pack $
             printf "* Now talking on %s" (ourDecodeUtf8 name)
-          atomically $ do
+          user <- atomically $ do
             ourNick <- readTVar $ sessionNick session
             user <- findOrCreateUserByNick client session ourNick
             users <- readTVar $ channelUsers channel
             writeTVar (channelState channel) InChannel
             writeTVar (channelUsers channel) $ users |> user
+            return user
+          updateChannelTabsForUser client channel user
 
 -- | Handle PART message.
 handlePartMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -1109,6 +1116,7 @@ handleModeMessage client session message =
                     printf "* %s sets %s on %s" (ourDecodeUtf8 prefix)
                     text (ourDecodeUtf8 extraParam)
                   atomically $ addUserType user channel userType
+                  updateChannelTabsForUser client channel user
                 Nothing -> return ()
               parseChannelModeAdd client channel param prefix mode rest
             S.EmptyL ->
@@ -1228,6 +1236,7 @@ handleModeMessage client session message =
                     printf "* %s removes %s from %s" (ourDecodeUtf8 prefix)
                     text (ourDecodeUtf8 extraParam)
                   atomically $ removeUserType user channel userType
+                  updateChannelTabsForUser client channel user
                 Nothing -> return ()
               parseChannelModeRemove client channel param prefix mode rest
             S.EmptyL ->
@@ -1417,6 +1426,7 @@ removeUserFromChannel client channel user = do
     users <- readTVar $ channelUsers channel
     writeTVar (channelUsers channel) $
       S.filter (\user' -> userIndex user /= userIndex user') users
+  removeUserFromChannelTabs client channel user
   cleanupUserIfNoTabsOrChannels client user
 
 -- | Remove a user from all channels for a session.
@@ -2353,3 +2363,57 @@ setUserTypeForChannel user channel userType' = do
       writeTVar (userType user) $
         S.update userTypeIndex (channel, userType') userTypes
     Nothing -> writeTVar (userType user) $ userTypes |> (channel, userType')
+
+-- | Update channel tabs for user.
+updateChannelTabsForUser :: Client -> Channel -> User -> IO ()
+updateChannelTabsForUser client channel user = do
+  tabs <- atomically $ findChannelTabsForChannel client channel
+  nick <- atomically . readTVar $ userNick user
+  forM_ tabs $ \tab -> do
+    response <- atomically $ findTabUser (clientTabTab tab) nick
+    result <- atomically $ getResponse response
+    case result of
+      Right (Just tabUser) -> do
+        response <- atomically $ removeTabUser tabUser
+        asyncHandleResponse response
+        userType' <- atomically $ getSingleUserType user channel
+        response <- atomically $ addTabUser (clientTabTab tab) nick userType'
+        asyncHandleResponse response
+      Right Nothing -> do
+        userType' <- atomically $ getSingleUserType user channel
+        response <- atomically $ addTabUser (clientTabTab tab) nick userType'
+        asyncHandleResponse response
+      Left (Error errorText) -> displayError errorText
+
+-- | Get a single user type for a user
+getSingleUserType :: User -> Channel -> STM UserType
+getSingleUserType user channel = do
+  condenseUserType . findUserTypeForChannel <$> (readTVar $ userType user)
+  where findUserTypeForChannel userTypes =
+          case S.viewl userTypes of
+            (channel', userType') :< rest
+              | channelIndex channel == channelIndex channel' -> userType'
+              | otherwise -> findUserTypeForChannel rest
+            S.EmptyL -> S.empty
+        condenseUserType userType' =
+          if S.elemIndexL OwnerUser userType' /= Nothing then OwnerUser
+          else if S.elemIndexL AdminUser userType' /= Nothing then AdminUser
+          else if S.elemIndexL OpUser userType' /= Nothing then OpUser
+          else if S.elemIndexL HalfOpUser userType' /= Nothing then HalfOpUser
+          else if S.elemIndexL VoiceUser userType' /= Nothing then VoiceUser
+          else NormalUser
+
+-- | Remove user from channel tabs.
+removeUserFromChannelTabs :: Client -> Channel -> User -> IO ()
+removeUserFromChannelTabs client channel user = do
+  tabs <- atomically $ findChannelTabsForChannel client channel
+  nick <- atomically . readTVar $ userNick user
+  forM_ tabs $ \tab -> do
+    response <- atomically $ findTabUser (clientTabTab tab) nick
+    result <- atomically $ getResponse response
+    case result of
+      Right (Just tabUser) -> do
+        response <- atomically $ removeTabUser tabUser
+        asyncHandleResponse response
+      Right Nothing -> return ()
+      Left (Error errorText) -> displayError errorText
