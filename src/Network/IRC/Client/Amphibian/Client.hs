@@ -566,6 +566,8 @@ handleSessionEvent client session event =
         handleNicknameInUse client session message
       | ircMessageCommand message == rpl_NAMREPLY ->
         handleNamreply client session message
+      | ircMessageCommand message == rpl_TOPIC ->
+        handleTopicReply client session message
       | ircMessageCommand message == encodeUtf8 "PING" ->
         handlePingMessage client session message
       | ircMessageCommand message == encodeUtf8 "TOPIC" ->
@@ -640,6 +642,8 @@ handleNamreply client session message = do
                     atomically $ do
                       user <- findOrCreateUserByNick client session nick
                       setUserTypeForChannel user channel userType'
+                      users <- readTVar $ channelUsers channel
+                      writeTVar (channelUsers channel) $ users |> user
                     case rest of
                       Just rest -> handleUsers channel rest
                       Nothing -> return ()
@@ -659,6 +663,21 @@ handleNamreply client session message = do
                  Just (char, rest)
                    | char == byteOfChar '+' -> (rest, userType'' |> VoiceUser)
                  _ -> (nickWithPrefix'', userType'')
+
+-- | Handle topic reply message.
+handleTopicReply :: Client -> Session -> IRCMessage -> IO ()
+handleTopicReply client session message = do
+  case (ircMessageCoda message, S.lookup 1 $ ircMessageParams message) of
+    (Just topic, Just name) -> do
+      channel <- atomically $ findChannelByName session name
+      case channel of
+        Just channel -> do
+          atomically $ writeTVar (channelTopic channel) $ Just topic
+          tabs <- atomically $ findChannelTabsForChannel client channel
+          forM_ tabs $ \tab ->
+            atomically $ setTopic (clientTabTab tab) $ ourDecodeUtf8 topic
+        Nothing -> return ()
+    _ -> return ()
 
 -- | Handle PING message.
 handlePingMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -688,6 +707,7 @@ handleTopicMessage client session message = do
                        printf "* %s has changed the topic to: %s" nick text'
                   Nothing -> return ()
                 atomically $ do
+                  writeTVar (channelTopic channel) $ Just text
                   channelTabs <- findChannelTabsForChannel client channel
                   forM_ (clientTabTab <$> channelTabs) $ \tab ->
                     setTopic tab text'
@@ -740,7 +760,20 @@ handleJoinMessage client session message = do
             Nothing -> return ()
         handleOurJoin client session name = do
           channel <- atomically $ findOrCreateChannelByName client session name
-          (findOrCreateChannelTabsForChannel client channel) >> return ()
+          tabs <- findOrCreateChannelTabsForChannel client channel
+          forM_ tabs $ \tab -> do
+            response <- atomically $ setTopicVisible (clientTabTab tab) True
+            result <- atomically $ getResponse response
+            case result of
+              Right () -> do
+                topic <- atomically . readTVar $ channelTopic channel
+                case topic of
+                  Just topic -> do
+                    response <- atomically $ setTopic (clientTabTab tab)
+                                (ourDecodeUtf8 topic)
+                    asyncHandleResponse response
+                  Nothing -> return ()
+              Left (Error errorText) -> displayError errorText
           displayChannelMessage client channel . T.pack $
             printf "* Now talking on %s" (ourDecodeUtf8 name)
           atomically $ do
@@ -1257,7 +1290,7 @@ handlePrivmsgMessage client session message = do
           user <- atomically $ findOrCreateUserByNick client session source
           tabs <- findOrCreateUserTabsForUser client user
           displayMessageOnTabs client tabs . T.pack $
-            printf "<$s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+            printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
         else do
           channel <- atomically $ findChannelByName session target
           case channel of
@@ -2139,6 +2172,11 @@ cleanupChannelIfNoTabs client channel = do
           S.filter (\channel' ->
                       channelIndex channel /= channelIndex channel')
           channels
+        channels <- readTVar $ sessionChannels session
+        writeTVar (sessionChannels session) $
+          S.filter (\channel' ->
+                      channelIndex channel /= channelIndex channel')
+          channels
         return response
       case response of
         Just response -> asyncHandleResponse response
@@ -2263,12 +2301,14 @@ findOrCreateChannelByName client session name = do
       index <- getNextClientIndex client
       state <- newTVar InChannel
       users <- newTVar S.empty
+      topic <- newTVar Nothing
       mode <- newTVar S.empty
       let channel = Channel { channelIndex = index,
                               channelSession = session,
                               channelState = state,
                               channelName = name,
                               channelUsers = users,
+                              channelTopic = topic,
                               channelMode = mode }
       channels <- readTVar $ clientChannels client
       writeTVar (clientChannels client) $ channels |> channel

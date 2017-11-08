@@ -391,6 +391,7 @@ data Channel = Channel
     channelState :: TVar ChannelState,
     channelName :: B.ByteString,
     channelUsers :: TVar (S.Seq User),
+    channelTopic :: TVar (Maybe B.ByteString),
     channelMode :: TVar (S.Seq Mode) }
 
 -- | IRC channel state type
