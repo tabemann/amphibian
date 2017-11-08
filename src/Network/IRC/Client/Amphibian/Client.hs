@@ -916,28 +916,37 @@ handleErrorMessage client session message = do
 -- | Handle NICK message.
 handleNickMessage :: Client -> Session -> IRCMessage -> IO ()
 handleNickMessage client session message =
-  case (ircMessagePrefix message, ircMessageCoda message) of
-    (Just prefix, Just coda) -> do
+  case (ircMessagePrefix message) of
+    Just prefix -> do
       let nick = extractNick prefix
-          (newNick, _) = B.breakSubstring (encodeUtf8 " ") coda
-      join . atomically $ do
-        user <- findUserByNick session nick
-        case user of
-          Just user -> do
-            writeTVar (userNick user) newNick
-          Nothing -> return ()
-        ourNick <- readTVar $ sessionNick session
-        if nick == ourNick
-          then do
-            writeTVar (sessionNick session) newNick
-            return $ do
-              displaySessionMessageOnMostRecentTab client session . T.pack $
-                printf "* You are now known as %s" (ourDecodeUtf8 newNick)
-          else do
-            return $ do
-              displaySessionMessageOnMostRecentTab client session . T.pack $
-                printf "* %s is now known as %s" (ourDecodeUtf8 nick)
-                (ourDecodeUtf8 newNick)
+          newNick =
+            case S.lookup 0 $ ircMessageParams message of
+              Just newNick -> newNick
+              Nothing ->
+                case ircMessageCoda message of
+                  Just coda -> fst $ B.breakSubstring (encodeUtf8 " ") coda
+                  Nothing -> ""
+      if newNick /= ""
+        then
+          join . atomically $ do
+            user <- findUserByNick session nick
+            case user of
+              Just user -> do
+                writeTVar (userNick user) newNick
+              Nothing -> return ()
+            ourNick <- readTVar $ sessionNick session
+            if nick == ourNick
+              then do
+                writeTVar (sessionNick session) newNick
+                return $ do
+                  displaySessionMessageOnMostRecentTab client session . T.pack $
+                    printf "* You are now known as %s" (ourDecodeUtf8 newNick)
+              else do
+                return $ do
+                  displaySessionMessageOnMostRecentTab client session . T.pack $
+                    printf "* %s is now known as %s" (ourDecodeUtf8 nick)
+                    (ourDecodeUtf8 newNick)
+        else return ()
     _ -> return ()
 
 -- | Handle MODE message.
@@ -1649,6 +1658,7 @@ handleCommand client clientTab command = do
       | command == "topic" -> handleTopicCommand client clientTab rest
       | command == "mode" -> handleModeCommand client clientTab rest
       | command == "kick" -> handleKickCommand client clientTab rest
+      | command == "nick" -> handleNickCommand client clientTab rest
       | otherwise -> handleUnrecognizedCommand client clientTab command
     Nothing -> return ()
 
@@ -1889,6 +1899,20 @@ handleKickCommand client clientTab text = do
         sendIRCMessageToChannel channel message
     _ -> displayMessage client clientTab "* Syntax: /kick target [message]"
 
+-- | Handle the /nick command.
+handleNickCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleNickCommand client clientTab text =
+  case parseCommandField text of
+    Just (newNick, rest)
+      | rest == "" ->
+        handleCommandWithReadySession client clientTab $ \session -> do
+          let message = IRCMessage { ircMessagePrefix = Nothing,
+                                     ircMessageCommand = encodeUtf8 "NICK",
+                                     ircMessageParams = [encodeUtf8 newNick],
+                                     ircMessageCoda = Nothing }
+          sendIRCMessageToSession session message
+    _ -> displayMessage client clientTab "* Syntax: /nick new-nick"
+
 -- | Handle command for tab that requires a ready session.
 handleCommandWithReadySession :: Client -> ClientTab -> (Session -> IO ()) ->
                                  IO ()
@@ -2031,6 +2055,14 @@ createSession client hostname port nick username realName = do
                                 sessionChannels = channels,
                                 sessionUsers = users,
                                 sessionReconnecting = reconnecting }
+        ourUserIndex <- getNextClientIndex client
+        ourUserNick <- newTVar nick
+        ourUserType <- newTVar []
+        let user = User { userIndex = ourUserIndex,
+                          userSession = session,
+                          userNick = ourUserNick,
+                          userType = ourUserType }
+        writeTVar users [user]
         sessions <- readTVar $ clientSessions client
         writeTVar (clientSessions client) $ sessions |> session
         (connectIRC ircConnection hostname port) >> return ()
