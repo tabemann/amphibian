@@ -51,6 +51,7 @@ import Data.Functor ((<$>),
                       fmap)
 import Data.Sequence ((|>),
                       (<|),
+                      (><),
                       ViewL(..))
 import Data.Foldable (foldl',
                       toList)
@@ -593,12 +594,11 @@ handleSessionEvent client session event =
       | ircMessageCommand message == encodeUtf8 "NOTICE" ->
         handleNoticeMessage client session message
       | otherwise ->
-        displaySessionMessage client session . T.pack $ show message
+        handleOtherMessage client session message
 
 -- | Handle welcome message.
 handleWelcome :: Client -> Session -> IRCMessage -> IO ()
 handleWelcome client session message = do
-  displaySessionMessage client session . T.pack $ show message
   atomically $ writeTVar (sessionState session) SessionReady
 
 -- | Handle nickname in use message.
@@ -721,7 +721,6 @@ handleTopicMessage client session message = do
 -- | Handle JOIN message.
 handleJoinMessage :: Client -> Session -> IRCMessage -> IO ()
 handleJoinMessage client session message = do
-  displaySessionMessage client session . T.pack $ show message
   case ircMessagePrefix message of
     Just prefix ->
       let nick = extractNick prefix
@@ -879,12 +878,12 @@ handleKickMessage client session message =
                 (ourDecodeUtf8 $ channelName channel)
                 (ourDecodeUtf8 kickingNick)
           removeUserFromChannel client channel user
+          removeAllUsersFromChannelTabs client channel
           atomically $ writeTVar (channelState channel) NotInChannel
 
 -- | Handle QUIT message.
 handleQuitMessage :: Client -> Session -> IRCMessage -> IO ()
 handleQuitMessage client session message = do
-  displaySessionMessage client session . T.pack $ show message
   case ircMessagePrefix message of
     Just prefix -> do
       let nick = extractNick prefix
@@ -930,25 +929,38 @@ handleNickMessage client session message =
                   Just coda -> fst $ B.breakSubstring (encodeUtf8 " ") coda
                   Nothing -> ""
       if newNick /= ""
-        then
+        then do
+          user <- atomically $ findUserByNick session nick
+          case user of
+            Just user -> removeUserFromAllChannelTabs client user
+            Nothing -> return ()
           join . atomically $ do
-            user <- findUserByNick session nick
             case user of
-              Just user -> do
-                writeTVar (userNick user) newNick
+              Just user -> writeTVar (userNick user) newNick
               Nothing -> return ()
             ourNick <- readTVar $ sessionNick session
             if nick == ourNick
               then do
                 writeTVar (sessionNick session) newNick
                 return $ do
-                  displaySessionMessageOnMostRecentTab client session . T.pack $
-                    printf "* You are now known as %s" (ourDecodeUtf8 newNick)
+                  case user of
+                    Just user -> do
+                      updateTabTitleForAllUserTabs client user
+                      updateAllChannelTabsForUser client user
+                      displayUserMessageAll client user . T.pack $
+                        printf "* You are now known as %s"
+                        (ourDecodeUtf8 newNick)
+                    Nothing -> return ()
               else do
                 return $ do
-                  displaySessionMessageOnMostRecentTab client session . T.pack $
-                    printf "* %s is now known as %s" (ourDecodeUtf8 nick)
-                    (ourDecodeUtf8 newNick)
+                  case user of
+                    Just user -> do
+                      updateTabTitleForAllUserTabs client user
+                      updateAllChannelTabsForUser client user
+                      displayUserMessageAll client user . T.pack $
+                        printf "* %s is now known as %s" (ourDecodeUtf8 nick)
+                        (ourDecodeUtf8 newNick)
+                    Nothing -> return ()
         else return ()
     _ -> return ()
 
@@ -1309,15 +1321,23 @@ handlePrivmsgMessage client session message = do
       if target == ourNick
         then do
           user <- atomically $ findOrCreateUserByNick client session source
-          tabs <- findOrCreateUserTabsForUser client user
-          displayMessageOnTabs client tabs . T.pack $
-            printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+          case parseCtcp text of
+            Nothing -> do
+              tabs <- findOrCreateUserTabsForUser client user
+              displayMessageOnTabs client tabs . T.pack $
+                printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+            Just (command, param) ->
+              handleUserCtcp client user command param
         else do
           channel <- atomically $ findChannelByName session target
           case channel of
             Just channel -> do
-              displayChannelMessage client channel . T.pack $
-                printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+              case parseCtcp text of
+                Nothing -> do
+                  displayChannelMessage client channel . T.pack $
+                    printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+                Just (command, param) ->
+                  handleChannelCtcp client channel source command param
             Nothing -> return ()
     _ -> return ()
 
@@ -1342,6 +1362,50 @@ handleNoticeMessage client session message = do
                 printf "-%s- %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
             Nothing -> return ()
     _ -> return ()
+
+-- | Handle some other message.
+handleOtherMessage :: Client -> Session -> IRCMessage -> IO ()
+handleOtherMessage client session message = do
+  ourNick <- atomically . readTVar $ sessionNick session
+  let firstParts =
+        case S.viewl $ ircMessageParams message of
+          nick :< rest
+            | nick == ourNick -> rest
+          _ -> ircMessageParams message
+      coda =
+        case ircMessageCoda message of
+          Just coda -> S.singleton coda
+          Nothing -> S.empty
+      text = B.concat . toList . S.intersperse " " $ firstParts >< coda
+  displaySessionMessage client session . T.pack . printf ": %s" $
+    ourDecodeUtf8 text
+
+-- | Handle user CTCP message.
+handleUserCtcp :: Client -> User -> B.ByteString -> Maybe B.ByteString -> IO ()
+handleUserCtcp client user command param =
+  if command == encodeUtf8 "ACTION"
+  then
+    case param of
+      Just param -> do
+        tabs <- findOrCreateUserTabsForUser client user
+        nick <- atomically . readTVar $ userNick user
+        displayMessageOnTabs client tabs . T.pack $
+          printf "* %s %s" (ourDecodeUtf8 nick) (ourDecodeUtf8 param)
+      Nothing -> return ()
+  else return ()
+
+-- | Handle channel CTCP message.
+handleChannelCtcp :: Client -> Channel -> B.ByteString -> B.ByteString ->
+                     Maybe B.ByteString -> IO ()
+handleChannelCtcp client channel source command param =
+  if command == encodeUtf8 "ACTION"
+  then
+    case param of
+      Just param -> do
+        displayChannelMessage client channel . T.pack $
+          printf "* %s %s" (ourDecodeUtf8 source) (ourDecodeUtf8 param)
+      Nothing -> return ()
+  else return ()
 
 -- | Find or create channel tabs for channel.
 findOrCreateChannelTabsForChannel :: Client -> Channel -> IO (S.Seq ClientTab)
@@ -1662,6 +1726,7 @@ handleCommand client clientTab command = do
       | command == "mode" -> handleModeCommand client clientTab rest
       | command == "kick" -> handleKickCommand client clientTab rest
       | command == "nick" -> handleNickCommand client clientTab rest
+      | command == "me" -> handleMeCommand client clientTab rest
       | otherwise -> handleUnrecognizedCommand client clientTab command
     Nothing -> return ()
 
@@ -1916,6 +1981,31 @@ handleNickCommand client clientTab text =
           sendIRCMessageToSession session message
     _ -> displayMessage client clientTab "* Syntax: /nick new-nick"
 
+-- | Handle /me command.
+handleMeCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleMeCommand client clientTab text = do
+  session <- atomically $ getSessionForTab clientTab
+  case session of
+    Just session -> do
+      nick <- atomically . readTVar $ sessionNick session
+      handleCommandWithReadyChannelOrUser client clientTab (handleChannel nick)
+        (handleUser nick)
+    Nothing -> displayMessage client clientTab
+               "* Command must be executed in channel or user tab"
+  where handleChannel nick channel = do
+          displayChannelMessage client channel . T.pack $
+            printf "* %s %s" (ourDecodeUtf8 nick) text
+          let message = formatCtcp (channelName channel) (encodeUtf8 "ACTION")
+                        (Just $ encodeUtf8 text)
+          sendIRCMessageToChannel channel message
+        handleUser nick user = do
+          displayUserMessage client user . T.pack $
+            printf "* %s %s" (ourDecodeUtf8 nick) text
+          nick' <- atomically . readTVar $ userNick user
+          let message = formatCtcp nick' (encodeUtf8 "ACTION")
+                        (Just $ encodeUtf8 text)
+          sendIRCMessageToUser user message
+
 -- | Handle command for tab that requires a ready session.
 handleCommandWithReadySession :: Client -> ClientTab -> (Session -> IO ()) ->
                                  IO ()
@@ -1937,6 +2027,8 @@ handleCommandWithReadySession client clientTab func = do
           displayMessage client clientTab "* Session has been destroyed"
 
 -- | Handle client for tab that requires a channel tab.
+handleCommandWithReadyChannel :: Client -> ClientTab -> (Channel -> IO ()) ->
+                                 IO ()
 handleCommandWithReadyChannel client clientTab func = do
   subtype <- atomically . readTVar $ clientTabSubtype clientTab
   case subtype of
@@ -1962,6 +2054,47 @@ handleCommandWithReadyChannel client clientTab func = do
                  "* Command must be executed in channel tab"
     FreeTab -> displayMessage client clientTab
                "* Command must be executed in channel tab"
+
+-- | Handle client for tab that requires a channel tab.
+handleCommandWithReadyChannelOrUser :: Client -> ClientTab ->
+                                       (Channel -> IO ()) ->
+                                       (User -> IO ()) ->
+                                       IO ()
+handleCommandWithReadyChannelOrUser client clientTab channelFunc userFunc = do
+  subtype <- atomically . readTVar $ clientTabSubtype clientTab
+  case subtype of
+    ChannelTab channel -> do
+      state <- atomically . readTVar . sessionState $ channelSession channel
+      case state of
+        SessionReady -> do
+          state <- atomically . readTVar $ channelState channel
+          case state of
+            InChannel -> channelFunc channel
+            NotInChannel -> displayMessage client clientTab "* Not in channel"
+        SessionPreparing ->
+          displayMessage client clientTab "* Session is not ready"
+        SessionConnecting ->
+          displayMessage client clientTab "* Session is not connected"
+        SessionInactive ->
+          displayMessage client clientTab "* Session is not active"
+        SessionDestroyed ->
+          displayMessage client clientTab "* Session has been destroyed"
+    UserTab user -> do
+      state <- atomically . readTVar . sessionState $ userSession user
+      case state of
+        SessionReady -> userFunc user
+        SessionPreparing ->
+          displayMessage client clientTab "* Session is not ready"
+        SessionConnecting ->
+          displayMessage client clientTab "* Session is not connected"
+        SessionInactive ->
+          displayMessage client clientTab "* Session is not active"
+        SessionDestroyed ->
+          displayMessage client clientTab "* Session has been destroyed"
+    SessionTab _ -> displayMessage client clientTab
+                    "* Command must be executed in channel or user tab"
+    FreeTab -> displayMessage client clientTab
+               "* Command must be executed in channel or user tab"
 
 -- | Get session for tab.
 getSessionForTab :: ClientTab -> STM (Maybe Session)
@@ -2420,6 +2553,12 @@ updateChannelTabsForUser client channel user = do
         asyncHandleResponse response
       Left (Error errorText) -> displayError errorText
 
+-- | Update all channel tabs for user.
+updateAllChannelTabsForUser :: Client -> User -> IO ()
+updateAllChannelTabsForUser client user = do
+  channels <- atomically $ findAllChannelsForUser client user
+  forM_ channels $ \channel -> updateChannelTabsForUser client channel user
+
 -- | Get a single user type for a user
 getSingleUserType :: User -> Channel -> STM UserType
 getSingleUserType user channel = do
@@ -2453,8 +2592,70 @@ removeUserFromChannelTabs client channel user = do
       Right Nothing -> return ()
       Left (Error errorText) -> displayError errorText
 
+-- | Remove user from all channel tabs.
+removeUserFromAllChannelTabs :: Client -> User -> IO ()
+removeUserFromAllChannelTabs client user = do
+  channels <- atomically $ findAllChannelsForUser client user
+  forM_ channels $ \channel -> removeUserFromChannelTabs client channel user
+
 -- | Remove all users from channel tabs.
 removeAllUsersFromChannelTabs :: Client -> Channel -> IO ()
 removeAllUsersFromChannelTabs client channel = do
   users <- atomically . readTVar $ channelUsers channel
   forM_ users $ \user -> removeUserFromChannelTabs client channel user
+
+-- | Update tab title for all user tabs.
+updateTabTitleForAllUserTabs :: Client -> User -> IO ()
+updateTabTitleForAllUserTabs client user = do
+  nick <- ourDecodeUtf8 <$> (atomically . readTVar $ userNick user)
+  tabs <- atomically $ findUserTabsForUser client user
+  forM_ tabs $ \tab -> do
+    response <- atomically $ setTabTitle (clientTabTab tab) nick
+    asyncHandleResponse response
+
+-- | Find all channels user is in.
+findAllChannelsForUser :: Client -> User -> STM (S.Seq Channel)
+findAllChannelsForUser client user = do
+  foldM filterChannelsForUser S.empty =<< (readTVar $ clientChannels client)
+  where filterChannelsForUser acc channel = do
+          users <- readTVar $ channelUsers channel
+          return $ case S.findIndexL matchUser users of
+            Just _ -> acc |> channel
+            Nothing -> acc
+        matchUser user' = userIndex user == userIndex user'
+
+-- | Check whether text is for CTCP message, and if so, parse it.
+parseCtcp :: B.ByteString -> Maybe (B.ByteString, Maybe B.ByteString)
+parseCtcp message =
+  case B.uncons message of
+    Just (start, rest)
+      | start == 1 ->
+        case B.unsnoc rest of
+          Just (rest, end)
+            | end == 1 ->
+              let (command, rest') = B.breakSubstring (encodeUtf8 " ") rest
+              in case B.uncons rest' of
+                Just (sep, rest)
+                  | sep == byteOfChar ' ' -> Just (command, Just rest)
+                _ -> Just (command, Nothing)
+          _ -> Nothing
+    _ -> Nothing
+
+-- | Format a CTCP message.
+formatCtcp :: B.ByteString -> B.ByteString -> Maybe B.ByteString -> IRCMessage
+formatCtcp target command (Just param) =
+  IRCMessage { ircMessagePrefix = Nothing,
+               ircMessageCommand = encodeUtf8 "PRIVMSG",
+               ircMessageParams = S.singleton target,
+               ircMessageCoda = Just $ B.concat [B.singleton 1,
+                                                 command,
+                                                 B.singleton $ byteOfChar ' ',
+                                                 param,
+                                                 B.singleton 1] }
+formatCtcp target command Nothing =
+  IRCMessage { ircMessagePrefix = Nothing,
+               ircMessageCommand = encodeUtf8 "PRIVMSG",
+               ircMessageParams = S.singleton target,
+               ircMessageCoda = Just $ B.concat [B.singleton 1,
+                                                 command,
+                                                 B.singleton 1] }

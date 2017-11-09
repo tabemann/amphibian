@@ -90,7 +90,8 @@ import Data.Functor ((<$>))
 import Data.Sequence ((|>),
                       ViewL((:<)))
 import Data.List (elemIndex)
-import Control.Monad (forM_)
+import Control.Monad (forM_,
+                      join)
 import Data.Text.Encoding (decodeUtf8)
 import Control.Concurrent (forkOS)
 import Control.Concurrent.Async (Async,
@@ -775,12 +776,18 @@ installEventHandlers window = do
           else return ()
         return False
       Gtk.onNotebookSwitchPage notebook $ \widget index -> do
-        atomically $ do
+        join . atomically $ do
           tab <- S.lookup (fromIntegral index) <$>
                  (readTVar $ windowTabs window)
           case tab of
-            Just tab -> writeTChan (tabEventQueue tab) TabSelected
-            Nothing -> return ()
+            Just tab -> do
+              writeTChan (tabEventQueue tab) TabSelected
+              return $ do
+                GLib.idleAdd GLib.PRIORITY_DEFAULT $ do
+                  Gtk.widgetGrabFocus $ tabEntry tab
+                  return False
+                return ()
+            Nothing -> return $ return ()
       Gtk.onWidgetKeyPressEvent actualWindow $ \e ->
         Gdk.getEventKeyState e >>= \case
           [Gdk.ModifierTypeControlMask] ->
