@@ -402,6 +402,7 @@ runWindow window = do
               defaultWindowHeight
             Gtk.setWindowTitle actualWindow title
             notebook <- Gtk.notebookNew
+            Gtk.notebookSetScrollable notebook True
             atomically $ do
               putTMVar (windowWindow window) actualWindow
               putTMVar (windowNotebook window) notebook
