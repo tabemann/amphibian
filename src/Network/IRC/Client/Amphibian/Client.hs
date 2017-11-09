@@ -569,6 +569,7 @@ handleSessionEvent client session event =
         handleNicknameInUse client session message
       | ircMessageCommand message == rpl_NAMREPLY ->
         handleNamreply client session message
+      | ircMessageCommand message == rpl_ENDOFNAMES -> return ()
       | ircMessageCommand message == rpl_TOPIC ->
         handleTopicReply client session message
       | ircMessageCommand message == encodeUtf8 "PING" ->
@@ -604,7 +605,6 @@ handleWelcome client session message = do
 -- | Handle nickname in use message.
 handleNicknameInUse :: Client -> Session -> IRCMessage -> IO ()
 handleNicknameInUse client session message = do
-  displaySessionMessage client session . T.pack $ show message
   response <- atomically $ do
     state <- readTVar $ sessionState session
     case state of
