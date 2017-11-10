@@ -275,6 +275,25 @@ findSessionTabsForSession client session = do
           sessionIndex session == sessionIndex currentSession
         matchTab _ _ = False
 
+-- | Find all client tabs for session.
+findAllTabsForSession :: Client -> Session -> STM (S.Seq ClientTab)
+findAllTabsForSession client session = do
+  clientTabs <- mapM getSubtype =<< (readTVar $ clientTabs client)
+  return . fmap (\(clientTab, _) -> clientTab) $
+    S.filter (matchTab session) clientTabs
+  where getSubtype tab = do
+          subtype <- readTVar $ clientTabSubtype tab
+          return (tab, subtype)
+        matchTab session (tab, SessionTab currentSession) =
+          sessionIndex session == sessionIndex currentSession
+        matchTab session (tab, ChannelTab channel) =
+          let currentSession = channelSession channel
+          in sessionIndex session == sessionIndex currentSession
+        matchTab session (tab, UserTab user) =
+          let currentSession = userSession user
+          in sessionIndex session == sessionIndex currentSession
+        matchTab _ _ = False
+
 -- | Find client tabs for channel.
 findChannelTabsForChannel :: Client -> Channel -> STM (S.Seq ClientTab)
 findChannelTabsForChannel client channel = do
@@ -431,12 +450,22 @@ displayUserMessage client user message = do
       addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
 
--- | Display message in all tabs for user.
+-- | Display message on all tabs for user.
 displayUserMessageAll :: Client -> User -> T.Text -> IO ()
 displayUserMessageAll client user message = do
   message <- formatMessage message
   responses <- atomically $ do
     tabs <- findAllTabsForUser client user
+    forM tabs $ \clientTab ->
+      addTabText (clientTabTab clientTab) message
+  forM_ responses $ \response -> asyncHandleResponse response
+
+-- | Display messsage on all tabs for session.
+displaySessionMessageAll :: Client -> Session -> T.Text -> IO ()
+displaySessionMessageAll client session message = do
+  message <- formatMessage message
+  responses <- atomically $ do
+    tabs <- findAllTabsForSession client session
     forM tabs $ \clientTab ->
       addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
@@ -548,29 +577,29 @@ handleSessionEvent client session event =
       asyncHandleResponse response2
       asyncHandleResponse response3
     IRCConnectingCanceled -> do
-      displaySessionMessage client session "* Connecting canceled"
+      displaySessionMessageAll client session "* Connecting canceled"
       leaveAllChannelsInSession client session
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnected -> do
-      displaySessionMessage client session "* Disconnected"
+      displaySessionMessageAll client session "* Disconnected"
       leaveAllChannelsInSession client session
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnectError (Error errorText) -> do
-      displaySessionMessage client session
+      displaySessionMessageAll client session
         (T.pack $ printf "* Error disconnecting: %s" errorText)
       leaveAllChannelsInSession client session
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnectedByPeer -> do
-      displaySessionMessage client session "* Disconnected by peer"
+      displaySessionMessageAll client session "* Disconnected by peer"
       leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCSendError (Error errorText) -> do
-      displaySessionMessage client session
+      displaySessionMessageAll client session
         (T.pack $ printf "* Error sending: %s" errorText)
       leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCRecvError (Error errorText) -> do
-      displaySessionMessage client session
+      displaySessionMessageAll client session
         (T.pack $ printf "* Error receiving: %s" errorText)
       leaveAllChannelsInSession client session
       tryReconnectSession client session
