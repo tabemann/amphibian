@@ -334,7 +334,7 @@ findMostRecentTabForSession client session = do
                   _ -> False
                 then do
                   index' <- readTVar $ clientTabSelectIndex tab
-                  if index' > index
+                  if index' >= index
                     then findMostRecentTabForSession' session index' (Just tab)
                          rest
                     else findMostRecentTabForSession' session index  currentTab
@@ -1332,12 +1332,14 @@ handlePrivmsgMessage client session message = do
           channel <- atomically $ findChannelByName session target
           case channel of
             Just channel -> do
+              user <- atomically $ findOrCreateUserByNick client
+                      (channelSession channel) source
               case parseCtcp text of
                 Nothing -> do
                   displayChannelMessage client channel . T.pack $
                     printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
                 Just (command, param) ->
-                  handleChannelCtcp client channel source command param
+                  handleChannelCtcp client channel user command param
             Nothing -> return ()
     _ -> return ()
 
@@ -1392,20 +1394,41 @@ handleUserCtcp client user command param =
         displayMessageOnTabs client tabs . T.pack $
           printf "* %s %s" (ourDecodeUtf8 nick) (ourDecodeUtf8 param)
       Nothing -> return ()
+  else if command == encodeUtf8 "PING"
+  then
+    case param of
+      Just param -> handleCtcpPingMessage client user param
+      Nothing -> return ()
   else return ()
 
 -- | Handle channel CTCP message.
-handleChannelCtcp :: Client -> Channel -> B.ByteString -> B.ByteString ->
+handleChannelCtcp :: Client -> Channel -> User -> B.ByteString ->
                      Maybe B.ByteString -> IO ()
-handleChannelCtcp client channel source command param =
+handleChannelCtcp client channel user command param =
   if command == encodeUtf8 "ACTION"
   then
     case param of
       Just param -> do
+        nick <- atomically . readTVar $ userNick user
         displayChannelMessage client channel . T.pack $
-          printf "* %s %s" (ourDecodeUtf8 source) (ourDecodeUtf8 param)
+          printf "* %s %s" (ourDecodeUtf8 nick) (ourDecodeUtf8 param)
+      Nothing -> return ()
+  else if command == encodeUtf8 "PING"
+  then
+    case param of
+      Just param -> handleCtcpPingMessage client user param
       Nothing -> return ()
   else return ()
+
+-- | Handle CTCP PING message.
+handleCtcpPingMessage :: Client -> User -> B.ByteString -> IO ()
+handleCtcpPingMessage client user param = do
+  nick <- atomically . readTVar $ userNick user
+  sendIRCMessageToUser user $
+    formatCtcpReply nick (encodeUtf8 "PING") (Just param)
+  displaySessionMessageOnMostRecentTab client (userSession user) . T.pack $
+    printf "* Received a CTCP PING %s from %s" (ourDecodeUtf8 param)
+    (ourDecodeUtf8 nick)
 
 -- | Find or create channel tabs for channel.
 findOrCreateChannelTabsForChannel :: Client -> Channel -> IO (S.Seq ClientTab)
@@ -1995,14 +2018,14 @@ handleMeCommand client clientTab text = do
   where handleChannel nick channel = do
           displayChannelMessage client channel . T.pack $
             printf "* %s %s" (ourDecodeUtf8 nick) text
-          let message = formatCtcp (channelName channel) (encodeUtf8 "ACTION")
-                        (Just $ encodeUtf8 text)
+          let message = formatCtcpRequest (channelName channel)
+                        (encodeUtf8 "ACTION") (Just $ encodeUtf8 text)
           sendIRCMessageToChannel channel message
         handleUser nick user = do
           displayUserMessage client user . T.pack $
             printf "* %s %s" (ourDecodeUtf8 nick) text
           nick' <- atomically . readTVar $ userNick user
-          let message = formatCtcp nick' (encodeUtf8 "ACTION")
+          let message = formatCtcpRequest nick' (encodeUtf8 "ACTION")
                         (Just $ encodeUtf8 text)
           sendIRCMessageToUser user message
 
@@ -2641,9 +2664,10 @@ parseCtcp message =
           _ -> Nothing
     _ -> Nothing
 
--- | Format a CTCP message.
-formatCtcp :: B.ByteString -> B.ByteString -> Maybe B.ByteString -> IRCMessage
-formatCtcp target command (Just param) =
+-- | Format a CTCP request message.
+formatCtcpRequest :: B.ByteString -> B.ByteString -> Maybe B.ByteString ->
+                     IRCMessage
+formatCtcpRequest target command (Just param) =
   IRCMessage { ircMessagePrefix = Nothing,
                ircMessageCommand = encodeUtf8 "PRIVMSG",
                ircMessageParams = S.singleton target,
@@ -2652,9 +2676,29 @@ formatCtcp target command (Just param) =
                                                  B.singleton $ byteOfChar ' ',
                                                  param,
                                                  B.singleton 1] }
-formatCtcp target command Nothing =
+formatCtcpRequest target command Nothing =
   IRCMessage { ircMessagePrefix = Nothing,
                ircMessageCommand = encodeUtf8 "PRIVMSG",
+               ircMessageParams = S.singleton target,
+               ircMessageCoda = Just $ B.concat [B.singleton 1,
+                                                 command,
+                                                 B.singleton 1] }
+
+-- | Format a CTCP reply message.
+formatCtcpReply :: B.ByteString -> B.ByteString -> Maybe B.ByteString ->
+                     IRCMessage
+formatCtcpReply target command (Just param) =
+  IRCMessage { ircMessagePrefix = Nothing,
+               ircMessageCommand = encodeUtf8 "NOTICE",
+               ircMessageParams = S.singleton target,
+               ircMessageCoda = Just $ B.concat [B.singleton 1,
+                                                 command,
+                                                 B.singleton $ byteOfChar ' ',
+                                                 param,
+                                                 B.singleton 1] }
+formatCtcpReply target command Nothing =
+  IRCMessage { ircMessagePrefix = Nothing,
+               ircMessageCommand = encodeUtf8 "NOTICE",
                ircMessageParams = S.singleton target,
                ircMessageCoda = Just $ B.concat [B.singleton 1,
                                                  command,
