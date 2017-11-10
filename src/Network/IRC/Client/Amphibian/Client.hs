@@ -84,6 +84,12 @@ import Data.Time.LocalTime (getCurrentTimeZone,
                             utcToLocalTime,
                             LocalTime(..),
                             TimeOfDay(..))
+import System.Clock (getTime,
+                     toNanoSecs,
+                     fromNanoSecs,
+                     diffTimeSpec,
+                     TimeSpec(..),
+                     Clock(Monotonic))
 
 -- | Run the client.
 runClient :: IO ()
@@ -1354,8 +1360,12 @@ handleNoticeMessage client session message = do
       ourNick <- atomically . readTVar $ sessionNick session
       if target == ourNick
         then do
-          displaySessionMessageOnMostRecentTab client session . T.pack $
-            printf "-%s- %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+          user <- atomically $ findOrCreateUserByNick client session source
+          case parseCtcp text of
+            Just (command, rest) -> handleCtcpNotice client user command rest
+            Nothing -> do
+              displaySessionMessageOnMostRecentTab client session . T.pack $
+                printf "-%s- %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
         else do
           channel <- atomically $ findChannelByName session target
           case channel of
@@ -1429,6 +1439,29 @@ handleCtcpPingMessage client user param = do
   displaySessionMessageOnMostRecentTab client (userSession user) . T.pack $
     printf "* Received a CTCP PING %s from %s" (ourDecodeUtf8 param)
     (ourDecodeUtf8 nick)
+
+-- | Handle CTCP notice.
+handleCtcpNotice :: Client -> User -> B.ByteString -> Maybe B.ByteString ->
+                    IO ()
+handleCtcpNotice client user command param =
+  if command == encodeUtf8 "PING"
+  then
+    case param of
+      Just param ->
+        let origTime = readMaybe . T.unpack $ ourDecodeUtf8 param
+        in case origTime of
+             Just origTime -> do
+               nick <- atomically . readTVar $ userNick user
+               currentTime <- getTime Monotonic
+               let diff = toNanoSecs . diffTimeSpec currentTime $
+                          fromNanoSecs origTime
+               displaySessionMessageOnMostRecentTab client (userSession user) .
+                 T.pack $ printf "* Ping reply from %s: %.3f second(s)"
+                 (ourDecodeUtf8 nick) ((fromIntegral diff :: Double) /
+                                       1000000000.0)
+             Nothing -> return ()
+      Nothing -> return ()
+  else return ()
 
 -- | Find or create channel tabs for channel.
 findOrCreateChannelTabsForChannel :: Client -> Channel -> IO (S.Seq ClientTab)
@@ -1750,6 +1783,7 @@ handleCommand client clientTab command = do
       | command == "kick" -> handleKickCommand client clientTab rest
       | command == "nick" -> handleNickCommand client clientTab rest
       | command == "me" -> handleMeCommand client clientTab rest
+      | command == "ping" -> handlePingCommand client clientTab rest
       | otherwise -> handleUnrecognizedCommand client clientTab command
     Nothing -> return ()
 
@@ -2028,6 +2062,30 @@ handleMeCommand client clientTab text = do
           let message = formatCtcpRequest nick' (encodeUtf8 "ACTION")
                         (Just $ encodeUtf8 text)
           sendIRCMessageToUser user message
+
+-- | Handle /ping command.
+handlePingCommand :: Client -> ClientTab -> T.Text -> IO ()
+handlePingCommand client clientTab text =
+  case parseCommandField text of
+    Just (target, rest)
+      | rest == "" -> handlePingCommandWithTarget $ encodeUtf8 target
+      | otherwise -> displayMessage client clientTab "* Syntax: /ping [target]"
+    Nothing -> handlePingCommandWithoutTarget
+  where handlePingCommandWithTarget target = do
+          handleCommandWithReadySession client clientTab $ \session -> do
+            sendIRCMessageToSession session =<< formatPing target
+        handlePingCommandWithoutTarget =
+          handleCommandWithReadyChannelOrUser client clientTab handleChannel
+          handleUser
+        handleChannel channel = do
+          message <- formatPing (channelName channel)
+          sendIRCMessageToChannel channel message
+        handleUser user = do
+          nick <- atomically . readTVar $ userNick user
+          sendIRCMessageToUser user =<< formatPing nick
+        formatPing target =
+          formatCtcpRequest target (encodeUtf8 "PING") . Just . encodeUtf8 .
+          T.pack . printf "%d" . toNanoSecs <$> getTime Monotonic
 
 -- | Handle command for tab that requires a ready session.
 handleCommandWithReadySession :: Client -> ClientTab -> (Session -> IO ()) ->
