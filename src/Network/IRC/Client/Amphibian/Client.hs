@@ -549,24 +549,30 @@ handleSessionEvent client session event =
       asyncHandleResponse response3
     IRCConnectingCanceled -> do
       displaySessionMessage client session "* Connecting canceled"
+      leaveAllChannelsInSession client session
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnected -> do
       displaySessionMessage client session "* Disconnected"
+      leaveAllChannelsInSession client session
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnectError (Error errorText) -> do
       displaySessionMessage client session
         (T.pack $ printf "* Error disconnecting: %s" errorText)
+      leaveAllChannelsInSession client session
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnectedByPeer -> do
       displaySessionMessage client session "* Disconnected by peer"
+      leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCSendError (Error errorText) -> do
       displaySessionMessage client session
         (T.pack $ printf "* Error sending: %s" errorText)
+      leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCRecvError (Error errorText) -> do
       displaySessionMessage client session
         (T.pack $ printf "* Error receiving: %s" errorText)
+      leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCRecvMessage message
       | ircMessageCommand message == rpl_WELCOME ->
@@ -820,8 +826,7 @@ handlePartMessage client session message =
                          removeUserFromChannel client channel user
                        else do
                          displayChannelMessage client channel "* You have left"
-                         removeUserFromChannel client channel user
-                         removeAllUsersFromChannelTabs client channel
+                         removeAllUsersFromChannel client channel
                          atomically $
                            writeTVar (channelState channel) NotInChannel
                    Nothing -> return ()
@@ -920,6 +925,7 @@ handleErrorMessage client session message = do
     writeTVar (sessionState session) SessionInactive
     return response
   asyncHandleResponse response
+  leaveAllChannelsInSession client session
 
 -- | Handle NICK message.
 handleNickMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -1561,6 +1567,24 @@ removeUserFromChannel client channel user = do
   removeUserFromChannelTabs client channel user
   cleanupUserIfNoTabsOrChannels client user
 
+-- | Remove all users from a channel.
+removeAllUsersFromChannel :: Client -> Channel -> IO ()
+removeAllUsersFromChannel client channel = do
+  removeAllUsersFromChannelTabs client channel
+  users <- atomically $ do
+    users <- readTVar $ channelUsers channel
+    writeTVar (channelUsers channel) S.empty
+    return users
+  forM_ users $ \user -> cleanupUserIfNoTabsOrChannels client user
+
+-- | Remove all users from all channels for session.
+leaveAllChannelsInSession :: Client -> Session -> IO ()
+leaveAllChannelsInSession client session = do
+  channels <- atomically . readTVar $ sessionChannels session
+  forM_ channels $ \channel -> do
+    atomically $ writeTVar (channelState channel) NotInChannel
+    removeAllUsersFromChannel client channel
+
 -- | Remove a user from all channels for a session.
 removeUserFromAllChannels :: Client -> Session -> User -> IO ()
 removeUserFromAllChannels client session user = do
@@ -1901,6 +1925,11 @@ handleQuitCommand client clientTab text = do
   case session of
     Nothing -> displayMessage client clientTab "* Tab has no associated session"
     Just session -> do
+      atomically $ writeTVar (sessionReconnectOnFailure session) False
+      reconnecting <- atomically . readTVar $ sessionReconnecting session
+      case reconnecting of
+        Just reconnecting -> cancel reconnecting
+        Nothing -> return ()
       state <- atomically . readTVar $ sessionState session
       case state of
         SessionReady -> sendQuitMessage session
