@@ -401,8 +401,10 @@ formatMessage message = do
   timeZone <- getCurrentTimeZone
   let localTime = utcToLocalTime timeZone currentTime
       timeOfDay = localTimeOfDay localTime
-  return . T.pack $ printf "[%02d:%02d:%02d] %s\n" (todHour timeOfDay)
-    (todMin timeOfDay) ((floor $ todSec timeOfDay) :: Int) message
+      text = T.pack $ printf "[%02d:%02d:%02d] %s\n" (todHour timeOfDay)
+             (todMin timeOfDay) ((floor $ todSec timeOfDay) :: Int) message
+  let greaterLength = B.length (encodeUtf8 text) - T.length text
+  return $ T.concat [text, T.replicate greaterLength "\n"]
 
 -- | Display session message.
 displaySessionMessage :: Client -> Session -> T.Text -> IO ()
