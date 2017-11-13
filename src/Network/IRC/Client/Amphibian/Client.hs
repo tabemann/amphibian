@@ -90,6 +90,7 @@ import System.Clock (getTime,
                      diffTimeSpec,
                      TimeSpec(..),
                      Clock(Monotonic))
+import Data.Char (isSpace)
 
 -- | Run the client.
 runClient :: IO ()
@@ -1813,8 +1814,9 @@ handleNormalLine client clientTab text = do
       let session = userSession user
       ourNick <- atomically . readTVar $ sessionNick session
       nick <- atomically .  readTVar $ userNick user
+      let displayText = filterMessageText nick text
       displayUserMessage client user . T.pack $
-        printf "<%s> %s" (ourDecodeUtf8 ourNick) text
+        printf "<%s> %s" (ourDecodeUtf8 ourNick) displayText
       let message = IRCMessage { ircMessagePrefix = Nothing,
                                  ircMessageCommand = encodeUtf8 "PRIVMSG",
                                  ircMessageParams = S.singleton nick,
@@ -2013,8 +2015,9 @@ handleMsgCommand client clientTab text =
   case parseCommandField text of
     Just (nickOrName, rest) -> do
       handleCommandWithReadySession client clientTab $ \session -> do
+        let displayText = filterMessageText (encodeUtf8 nickOrName) rest
         displayMessage client clientTab . T.pack $
-          printf ">%s< %s" nickOrName rest
+          printf ">%s< %s" nickOrName displayText
         let nickOrName' = encodeUtf8 nickOrName
             rest' = encodeUtf8 rest
             message = IRCMessage { ircMessagePrefix = Nothing,
@@ -2821,3 +2824,20 @@ formatCtcpReply target command Nothing =
                ircMessageCoda = Just $ B.concat [B.singleton 1,
                                                  command,
                                                  B.singleton 1] }
+
+-- | Filter message text to eliminate passwords and like.
+filterMessageText :: B.ByteString -> T.Text -> T.Text
+filterMessageText nickOrName text =
+  if nickOrName == encodeUtf8 "NickServ"
+  then
+    let (part0, part1) = T.span isSpace text
+        (part1', part2) = T.span (not . isSpace) part1
+        (part2', part3) = T.span isSpace part2
+        (part3', part4) = T.span (not . isSpace) part3
+        (part4', part5) = T.span isSpace part4
+    in if part1' == "identify"
+       then T.concat [part0, part1', part2', "****"]
+       else if part1' == "release"
+            then T.concat [part0, part1', part2', part3', part4', "****"]
+            else text
+  else text

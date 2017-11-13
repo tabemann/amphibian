@@ -1,4 +1,4 @@
-Amphibian
-=========
+Amphibian IRC
+=============
 
-A scriptable, pluggable IRC client written in Haskell.
+An IRC client written in Haskell.
