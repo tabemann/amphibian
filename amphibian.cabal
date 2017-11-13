@@ -68,3 +68,11 @@ executable amphibian
   -- Base language which the package is written in.
   default-language:    Haskell2010
   
+  other-modules:
+                Network.IRC.Client.Amphibian.ServerReplies
+                Network.IRC.Client.Amphibian.Connection
+                Network.IRC.Client.Amphibian.Client
+                Network.IRC.Client.Amphibian.Utility
+                Network.IRC.Client.Amphibian.UI
+                Network.IRC.Client.Amphibian.Types
+                Network.IRC.Client.Amphibian.IRCConnection
