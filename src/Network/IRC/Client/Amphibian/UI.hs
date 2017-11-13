@@ -79,6 +79,7 @@ module Network.IRC.Client.Amphibian.UI
 where
 
 import Network.IRC.Client.Amphibian.Types
+import Network.IRC.Client.Amphibian.Utility
 import qualified Data.Text as T
 import qualified Data.Sequence as S
 import qualified Data.ByteString as B
@@ -691,15 +692,6 @@ runWindow window = do
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window       
-
--- | Get prefix character for user type.
-userTypePrefix :: UserType -> T.Text
-userTypePrefix OwnerUser = "~"
-userTypePrefix AdminUser = "&"
-userTypePrefix OpUser = "@"
-userTypePrefix HalfOpUser = "%"
-userTypePrefix VoiceUser = "+"
-userTypePrefix NormalUser = ""
 
 -- | Find index of first item larger than item.
 findFirstLarger :: Ord a => a -> S.Seq a -> Int

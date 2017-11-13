@@ -36,7 +36,8 @@ module Network.IRC.Client.Amphibian.Utility
    getResponse,
    tryGetResponse,
    byteOfChar,
-   splitOnSpaces)
+   splitOnSpaces,
+   userTypePrefix)
 
 where
 
@@ -70,3 +71,12 @@ splitOnSpaces bytes =
   in if B.length rest' > 0
      then (part, Just rest')
      else (part, Nothing)
+
+-- | Get prefix character for user type.
+userTypePrefix :: UserType -> T.Text
+userTypePrefix OwnerUser = "~"
+userTypePrefix AdminUser = "&"
+userTypePrefix OpUser = "@"
+userTypePrefix HalfOpUser = "%"
+userTypePrefix VoiceUser = "+"
+userTypePrefix NormalUser = ""

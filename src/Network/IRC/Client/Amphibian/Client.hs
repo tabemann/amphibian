@@ -700,17 +700,29 @@ handleNamreply client session message = do
           let (nickWithPrefix', userType') =
                 case B.uncons nickWithPrefix of
                   Just (char, rest)
-                    | char == byteOfChar '@' -> (rest, S.singleton OpUser)
+                    | char == byteOfChar '~' -> (rest, S.singleton OwnerUser)
                   _ -> (nickWithPrefix, S.empty)
               (nickWithPrefix'', userType'') =
                 case B.uncons nickWithPrefix' of
                   Just (char, rest)
-                    | char == byteOfChar '%' -> (rest, userType' |> HalfOpUser)
+                    | char == byteOfChar '&' -> (rest, userType' |> AdminUser)
                   _ -> (nickWithPrefix', userType')
-            in case B.uncons nickWithPrefix'' of
+              (nickWithPrefix''', userType''') =
+                case B.uncons nickWithPrefix'' of
+                  Just (char, rest)
+                    | char == byteOfChar '@' -> (rest, userType'' |> OpUser)
+                  _ -> (nickWithPrefix'', userType'')
+              (nickWithPrefix'''', userType'''') =
+                case B.uncons nickWithPrefix''' of
+                  Just (char, rest)
+                    | char == byteOfChar '%' ->
+                        (rest, userType''' |> HalfOpUser)
+                  _ -> (nickWithPrefix''', userType''')
+            in case B.uncons nickWithPrefix'''' of
                  Just (char, rest)
-                   | char == byteOfChar '+' -> (rest, userType'' |> VoiceUser)
-                 _ -> (nickWithPrefix'', userType'')
+                   | char == byteOfChar '+' ->
+                     (rest, userType'''' |> VoiceUser)
+                 _ -> (nickWithPrefix'''', userType'''')
 
 -- | Handle topic reply message.
 handleTopicReply :: Client -> Session -> IRCMessage -> IO ()
@@ -1378,10 +1390,13 @@ handlePrivmsgMessage client session message = do
             Just channel -> do
               user <- atomically $ findOrCreateUserByNick client
                       (channelSession channel) source
+              userPrefix <-
+                userTypePrefix <$> (atomically $ getSingleUserType user channel)
               case parseCtcp text of
                 Nothing -> do
                   displayChannelMessage client channel . T.pack $
-                    printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+                    printf "<%s%s> %s" userPrefix (ourDecodeUtf8 source)
+                    (ourDecodeUtf8 text)
                 Just (command, param) ->
                   handleChannelCtcp client channel user command param
             Nothing -> return ()
@@ -1798,11 +1813,17 @@ handleNormalLine client clientTab text = do
     ChannelTab channel -> do
       let session = channelSession channel
       ourNick <- atomically . readTVar $ sessionNick session
+      ourUser <- atomically $ findUserByNick session ourNick
+      userPrefix <-
+        case ourUser of
+          Just ourUser ->
+            userTypePrefix <$> (atomically $ getSingleUserType ourUser channel)
+          Nothing -> return ""
       state <- atomically . readTVar $ channelState channel
       case state of
         InChannel -> do
           displayChannelMessage client channel . T.pack $
-            printf "<%s> %s" (ourDecodeUtf8 ourNick) text
+            printf "<%s%s> %s" userPrefix (ourDecodeUtf8 ourNick) text
           let message = IRCMessage { ircMessagePrefix = Nothing,
                                      ircMessageCommand = encodeUtf8 "PRIVMSG",
                                      ircMessageParams =
