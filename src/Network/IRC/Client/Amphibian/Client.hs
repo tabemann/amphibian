@@ -2951,8 +2951,9 @@ openLog log session nickOrName = do
                     printf "%s:%d" origHostname (fromIntegral port :: Int)
           createDirectoryIfMissing True logDir
           let filePath = logDir </> (T.unpack $ ourDecodeUtf8 nickOrName)
-          atomically . writeTVar (logText log) . S.singleton =<<
-            readFile filePath
+          (atomically . writeTVar (logText log) . S.singleton =<<
+            readFile filePath) `catch`
+            (\e -> return $ const () (e :: SomeException))
           atomically . writeTVar (logHandle log) =<< Just <$>
             openFile filePath AppendMode
 
@@ -2975,8 +2976,11 @@ populateTabFromLog session clientTab nickOrName log = do
     Just _ -> return ()
     Nothing -> openLog log session nickOrName
   logText' <- T.concat . toList <$> (atomically . readTVar $ logText log)
-  let logText'' = fmap (\text -> fixUnicodeProblems $ T.snoc text '\n') $
-                  T.splitOn "\n" logText'
+  let logText'' =
+        if not $ T.null logText'
+        then fmap (\text -> fixUnicodeProblems $ T.snoc text '\n') $
+             T.splitOn "\n" logText'
+        else [""]
   response <- atomically . addTabText (clientTabTab clientTab) $
               T.concat logText''
   asyncHandleResponse response

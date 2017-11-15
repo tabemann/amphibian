@@ -60,7 +60,7 @@ executable amphibian
   other-extensions:    OverloadedStrings, OverloadedLists, RecordWildCards
   
   -- Other library packages from which modules are imported.
-  build-depends:       base, stm, async, bytestring, text, utf8-string, time, network, containers >=0.5.8, gi-gtk, gi-gdk, gi-glib, clock
+  build-depends:       base, stm, async, bytestring, text, utf8-string, time, network, containers >=0.5.8, gi-gtk, gi-gdk, gi-glib, clock, xdg-basedir, filepath, directory
   
   -- Directories containing source files.
   hs-source-dirs:      src
