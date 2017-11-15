@@ -46,7 +46,7 @@ module Network.IRC.Client.Amphibian.UI
    TabUserEvent(..),
    TabUserEventSub,
    UserType(..),
-   initWindowing,
+   withWindowing,
    newWindow,
    startWindow,
    stopWindow,
@@ -134,17 +134,25 @@ defaultWindowWidth = 800
 defaultWindowHeight :: Int32
 defaultWindowHeight = 600
 
--- | Initialize windowing.
-initWindowing :: IO (Response ())
-initWindowing = do
-  response <- atomically $ newEmptyTMVar
+-- | Execute with windowing windowing.
+withWindowing :: IO () -> IO ()
+withWindowing action = do
+  lock0 <- atomically $ newEmptyTMVar
+  lock1 <- atomically $ newEmptyTMVar
   Gtk.init Nothing
   forkOS $ do
-    GLib.idleAdd GLib.PRIORITY_DEFAULT $ do
-      atomically $ putTMVar response $ Right ()
+    atomically $ takeTMVar lock0
+    action
+    Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
+      Gtk.mainQuit
       return False
-    Gtk.main
-  return $ Response response
+    atomically $ takeTMVar lock1
+    return ()
+  GLib.idleAdd GLib.PRIORITY_DEFAULT $ do
+    atomically $ putTMVar lock0 ()
+    return False
+  Gtk.main
+  atomically $ putTMVar lock1 ()
 
 -- | Create a new window.
 newWindow :: STM Window

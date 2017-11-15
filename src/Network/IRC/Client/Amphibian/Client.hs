@@ -95,37 +95,41 @@ import Data.Char (isSpace)
 -- | Run the client.
 runClient :: IO ()
 runClient = do
-  response <- initWindowing
-  result <- atomically $ getResponse response
-  case result of
-    Right () -> do
-      running <- atomically $ newTVar True
-      nextIndex <- atomically $ newTVar 0
-      nextTabSelectIndex <- atomically $ newTVar 0
-      nextWindowFocusIndex <- atomically $ newTVar 0
-      sessions <- atomically $ newTVar S.empty
-      channels <- atomically $ newTVar S.empty
-      users <- atomically $ newTVar S.empty
-      windows <- atomically $ newTVar S.empty
-      tabs <- atomically $ newTVar S.empty
-      settings <- atomically . newTVar $
-                  Settings { settingsReconnectDelay = 10.0 }
-      let client =
-            Client { clientRunning = running,
-                     clientNextIndex = nextIndex,
-                     clientNextTabSelectIndex = nextTabSelectIndex,
-                     clientNextWindowFocusIndex = nextWindowFocusIndex,
-                     clientSessions = sessions,
-                     clientChannels = channels,
-                     clientUsers = users,
-                     clientWindows = windows,
-                     clientTabs = tabs,
-                     clientSettings = settings }
-      result <- openClientWindow client "Amphibian IRC" "<Not Connected>"
-      case result of
-        Right _ -> handleClientEvents client
-        Left (Error errorText) -> displayError errorText
-    Left (Error errorText) -> displayError errorText
+  withWindowing $ do
+    running <- atomically $ newTVar True
+    nextIndex <- atomically $ newTVar 0
+    nextTabSelectIndex <- atomically $ newTVar 0
+    nextWindowFocusIndex <- atomically $ newTVar 0
+    sessions <- atomically $ newTVar S.empty
+    channels <- atomically $ newTVar S.empty
+    users <- atomically $ newTVar S.empty
+    windows <- atomically $ newTVar S.empty
+    tabs <- atomically $ newTVar S.empty
+    settings <- atomically . newTVar $
+                Settings { settingsReconnectDelay = 10.0 }
+    let client =
+          Client { clientRunning = running,
+                   clientNextIndex = nextIndex,
+                   clientNextTabSelectIndex = nextTabSelectIndex,
+                   clientNextWindowFocusIndex = nextWindowFocusIndex,
+                   clientSessions = sessions,
+                   clientChannels = channels,
+                   clientUsers = users,
+                   clientWindows = windows,
+                   clientTabs = tabs,
+                   clientSettings = settings }
+    result <- openClientWindow client "Amphibian IRC" "<Not Connected>"
+    case result of
+      Right _ -> do
+        handleClientEvents client
+        windows <- atomically . readTVar $ clientWindows client
+        forM_ windows $ \window -> do
+          response <- atomically . stopWindow $ clientWindowWindow window
+          result <- atomically $ getResponse response
+          case result of
+            Right () -> return ()
+            Left (Error errorText) -> displayError errorText
+      Left (Error errorText) -> displayError errorText
 
 -- | Display an error.
 displayError :: T.Text -> IO ()
