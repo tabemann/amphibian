@@ -70,7 +70,8 @@ module Network.IRC.Client.Amphibian.Types
    ClientTab(..),
    Client(..),
    ClientTaggedEvent(..),
-   Settings(..))
+   Settings(..),
+   Log(..))
    
 where
 
@@ -86,6 +87,7 @@ import Control.Concurrent.STM (TVar)
 import Control.Concurrent.STM.TChan (TChan)
 import Control.Concurrent.STM.TQueue (TQueue)
 import Control.Concurrent.STM.TMVar (TMVar)
+import System.IO (Handle)
 
 -- | Responses
 newtype Response a = Response (TMVar (Either Error a))
@@ -367,6 +369,7 @@ data Session = Session
     sessionIRCConnection :: IRCConnection,
     sessionIRCConnectionEventSub :: IRCConnectionEventSub,
     sessionHostname :: TVar NS.HostName,
+    sessionOrigHostname :: TVar NS.HostName,
     sessionPort :: TVar NS.PortNumber,
     sessionNick :: TVar B.ByteString,
     sessionUsername :: TVar B.ByteString,
@@ -384,6 +387,11 @@ data SessionState = SessionInactive
                   | SessionDestroyed
                   deriving (Eq, Show)
 
+-- | Log type.
+data Log = Log
+  { logHandle :: TVar (Maybe Handle),
+    logText :: TVar (S.Seq T.Text) }
+
 -- | IRC channel type
 data Channel = Channel
   { channelIndex :: Integer,
@@ -392,7 +400,8 @@ data Channel = Channel
     channelName :: B.ByteString,
     channelUsers :: TVar (S.Seq User),
     channelTopic :: TVar (Maybe B.ByteString),
-    channelMode :: TVar (S.Seq Mode) }
+    channelMode :: TVar (S.Seq Mode),
+    channelLog :: Log }
 
 -- | IRC channel state type
 data ChannelState = InChannel
@@ -404,7 +413,8 @@ data User = User
   { userIndex :: Integer,
     userSession :: Session,
     userNick :: TVar B.ByteString,
-    userType :: TVar (S.Seq (Channel, S.Seq UserType)) }
+    userType :: TVar (S.Seq (Channel, S.Seq UserType)),
+    userLog :: Log }
 
 -- | IRC mode type
 newtype Mode = Mode Word8

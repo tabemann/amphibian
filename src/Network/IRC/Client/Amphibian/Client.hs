@@ -55,8 +55,13 @@ import Data.Sequence ((|>),
                       ViewL(..))
 import Data.Foldable (foldl',
                       toList)
-import System.IO (stderr)
-import Data.Text.IO (hPutStr)
+import System.IO (stderr,
+                  openFile,
+                  hClose,
+                  IOMode(..),
+                  Handle)
+import Data.Text.IO (hPutStr,
+                     readFile)
 import Text.Printf (printf)
 import Control.Monad ((=<<),
                       join,
@@ -64,6 +69,9 @@ import Control.Monad ((=<<),
                       forM,
                       forM_,
                       foldM)
+import Control.Exception (catch,
+                          IOException,
+                          SomeException)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async,
                                  async,
@@ -91,6 +99,10 @@ import System.Clock (getTime,
                      TimeSpec(..),
                      Clock(Monotonic))
 import Data.Char (isSpace)
+import System.Environment.XDG.BaseDir (getUserDataDir)
+import System.FilePath.Posix ((</>))
+import System.Directory (createDirectoryIfMissing)
+import Prelude hiding (readFile)
 
 -- | Run the client.
 runClient :: IO ()
@@ -406,85 +418,121 @@ formatMessage message = do
   timeZone <- getCurrentTimeZone
   let localTime = utcToLocalTime timeZone currentTime
       timeOfDay = localTimeOfDay localTime
-      text = T.pack $ printf "[%02d:%02d:%02d] %s\n" (todHour timeOfDay)
-             (todMin timeOfDay) ((floor $ todSec timeOfDay) :: Int) message
-  let greaterLength = B.length (encodeUtf8 text) - T.length text
-  return $ T.concat [text, T.replicate greaterLength "\n"]
+  return . T.pack $ printf "[%02d:%02d:%02d] %s\n" (todHour timeOfDay)
+    (todMin timeOfDay) ((floor $ todSec timeOfDay) :: Int) message
+
+-- | Fix unicode problems.
+fixUnicodeProblems :: T.Text -> T.Text
+fixUnicodeProblems text =
+  let greaterLength = (B.length (encodeUtf8 text) - T.length text)
+  in T.concat [text, T.replicate greaterLength "\n"]
+
+-- | Log text for a tab if the tab has a log.
+writeToLog :: ClientTab -> T.Text -> IO ()
+writeToLog tab text = do
+  subtype <- atomically . readTVar $ clientTabSubtype tab
+  let log = case subtype of
+              ChannelTab channel -> Just $ channelLog channel
+              UserTab user -> Just $ userLog user
+              _ -> Nothing
+  case log of
+    Just log -> do
+      handle <- atomically $ do
+        logText' <- readTVar $ logText log
+        writeTVar (logText log) $ logText' |> text
+        readTVar $ logHandle log
+      case handle of
+        Just handle -> hPutStr handle text
+        Nothing -> return ()
+    Nothing -> return ()
 
 -- | Display session message.
 displaySessionMessage :: Client -> Session -> T.Text -> IO ()
 displaySessionMessage client session message = do
   message <- formatMessage message
-  responses <- atomically $ do
-    clientTabs <- findSessionTabsForSession client session
-    clientTabs <-
+  responses <- do
+    clientTabs <- atomically $ do
+      clientTabs <- findSessionTabsForSession client session
       if S.length clientTabs > 0
-      then return clientTabs
-      else do
-        clientTab <- getCurrentTabForSession client session
-        case clientTab of
-          Just clientTab -> return $ S.singleton clientTab
-          Nothing -> return S.empty
-    forM clientTabs $ \clientTab ->
-      addTabText (clientTabTab clientTab) message
+        then return clientTabs
+        else do
+          clientTab <- getCurrentTabForSession client session
+          case clientTab of
+            Just clientTab -> return $ S.singleton clientTab
+            Nothing -> return S.empty
+    forM clientTabs $ \clientTab -> do
+      writeToLog clientTab message
+      atomically . addTabText (clientTabTab clientTab) $
+        fixUnicodeProblems message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display channel message.
 displayChannelMessage :: Client -> Channel -> T.Text -> IO ()
 displayChannelMessage client channel message = do
   message <- formatMessage message
-  responses <- atomically $ do
-    clientTabs <- findChannelTabsForChannel client channel
-    forM clientTabs $ \clientTab ->
-      addTabText (clientTabTab clientTab) message
+  responses <- do
+    clientTabs <- atomically $ findChannelTabsForChannel client channel
+    forM clientTabs $ \clientTab -> do
+      writeToLog clientTab message
+      atomically . addTabText (clientTabTab clientTab) $
+        fixUnicodeProblems message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display user message.
 displayUserMessage :: Client -> User -> T.Text -> IO ()
 displayUserMessage client user message = do
   message <- formatMessage message
-  responses <- atomically $ do
-    clientTabs <- findUserTabsForUser client user
-    clientTabs <-
+  responses <- do
+    clientTabs <- atomically $ do
+      clientTabs <- findUserTabsForUser client user
       if S.length clientTabs > 0
-      then return clientTabs
-      else do
-        clientTab <- getCurrentTabForSession client $ userSession user
-        case clientTab of
-          Just clientTab -> return $ S.singleton clientTab
-          Nothing -> return S.empty
-    forM clientTabs $ \clientTab ->
-      addTabText (clientTabTab clientTab) message
+        then return clientTabs
+        else do
+          clientTab <- getCurrentTabForSession client $ userSession user
+          case clientTab of
+            Just clientTab -> return $ S.singleton clientTab
+            Nothing -> return S.empty
+    forM clientTabs $ \clientTab -> do
+      writeToLog clientTab message
+      atomically . addTabText (clientTabTab clientTab) $
+        fixUnicodeProblems message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display message on all tabs for user.
 displayUserMessageAll :: Client -> User -> T.Text -> IO ()
 displayUserMessageAll client user message = do
   message <- formatMessage message
-  responses <- atomically $ do
-    tabs <- findAllTabsForUser client user
-    forM tabs $ \clientTab ->
-      addTabText (clientTabTab clientTab) message
+  responses <- do
+    tabs <- atomically $ findAllTabsForUser client user
+    forM tabs $ \clientTab -> do
+      writeToLog clientTab message
+      atomically . addTabText (clientTabTab clientTab) $
+        fixUnicodeProblems message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display messsage on all tabs for session.
 displaySessionMessageAll :: Client -> Session -> T.Text -> IO ()
 displaySessionMessageAll client session message = do
   message <- formatMessage message
-  responses <- atomically $ do
-    tabs <- findAllTabsForSession client session
-    forM tabs $ \clientTab ->
-      addTabText (clientTabTab clientTab) message
+  responses <- do
+    tabs <- atomically $ findAllTabsForSession client session
+    forM tabs $ \clientTab -> do
+      writeToLog clientTab message
+      atomically . addTabText (clientTabTab clientTab) $
+        fixUnicodeProblems message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display message on most recent tab for session.
 displaySessionMessageOnMostRecentTab :: Client -> Session -> T.Text -> IO ()
 displaySessionMessageOnMostRecentTab client session message = do
   message <- formatMessage message
-  response <- atomically $ do
-    clientTab <- findMostRecentTabForSession client session
+  response <- do
+    clientTab <- atomically $ findMostRecentTabForSession client session
     case clientTab of
-      Just clientTab -> Just <$> addTabText (clientTabTab clientTab) message
+      Just clientTab -> do
+        writeToLog clientTab message
+        Just <$> (atomically . addTabText (clientTabTab clientTab) $
+                  fixUnicodeProblems message)
       Nothing -> return Nothing
   case response of
     Just response -> asyncHandleResponse response
@@ -494,15 +542,19 @@ displaySessionMessageOnMostRecentTab client session message = do
 displayMessage :: Client -> ClientTab -> T.Text -> IO ()
 displayMessage client clientTab message = do
   message <- formatMessage message
-  response <- atomically $ addTabText (clientTabTab clientTab) message
+  writeToLog clientTab message
+  response <- atomically $
+    addTabText (clientTabTab clientTab) $ fixUnicodeProblems message
   asyncHandleResponse response
 
 -- | Display message on tabs.
 displayMessageOnTabs :: Client -> S.Seq ClientTab -> T.Text -> IO ()
 displayMessageOnTabs client tabs message = do
   message <- formatMessage message
+  forM_ tabs $ \clientTab -> writeToLog clientTab message
   responses <- atomically $
-    forM tabs $ \clientTab -> addTabText (clientTabTab clientTab) message
+    forM tabs $ \clientTab ->
+    addTabText (clientTabTab clientTab) $ fixUnicodeProblems message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Handle a session event.
@@ -541,10 +593,11 @@ handleSessionEvent client session event =
         port <- getIRCConnectionPort connection
         return (hostname, port)
       case (hostname, port) of
-        (Just hostname, Just port) ->
+        (Just hostname, Just port) -> do
           displaySessionMessage client session
-          (T.pack $ printf "* Connected to %s:%d" hostname
-           (fromIntegral port :: Int))
+            (T.pack $ printf "* Connected to %s:%d" hostname
+             (fromIntegral port :: Int))
+          atomically $ writeTVar (sessionHostname session) hostname
         _ -> return ()
       (response0, response1, response2, response3) <- atomically $ do
         let capReqMessage =
@@ -1534,6 +1587,8 @@ findOrCreateChannelTabsForChannel client channel = do
             openClientTab client window . ourDecodeUtf8 $ channelName channel
           case result of
             Right tab -> do
+              populateTabFromLog (channelSession channel) tab
+                (channelName channel) $ channelLog channel
               atomically $ writeTVar (clientTabSubtype tab) $ ChannelTab channel
               return $ S.singleton tab
             Left (Error errorText) -> do
@@ -1557,6 +1612,7 @@ findOrCreateUserTabsForUser client user = do
           result <- openClientTab client window (ourDecodeUtf8 nick)
           case result of
             Right tab -> do
+              populateTabFromLog (userSession user) tab nick $ userLog user
               atomically . writeTVar (clientTabSubtype tab) $ UserTab user
               return $ S.singleton tab
             Left (Error errorText) -> do
@@ -1689,7 +1745,7 @@ tryReconnectSession client session = do
               active <- isIRCConnectionActive connection
               if not active
                 then do
-                   hostname <- readTVar $ sessionHostname session
+                   hostname <- readTVar $ sessionOrigHostname session
                    port <- readTVar $ sessionPort session
                    response <- connectIRC connection hostname port
                    return $ Just response
@@ -1946,7 +2002,7 @@ handleServerCommand client clientTab text = do
           case state of
             SessionInactive -> do
               currentHostname <-
-                atomically . readTVar $ sessionHostname session
+                atomically . readTVar $ sessionOrigHostname session
               currentPort <- atomically . readTVar $ sessionPort session
               if hostname == currentHostname && port == currentPort
                 then reuseSession client session nick username realName
@@ -2283,7 +2339,7 @@ reuseSession client session nick username realName = do
     writeTVar (sessionNick session) nick
     writeTVar (sessionUsername session) username
     writeTVar (sessionRealName session) realName
-    hostname <- readTVar $ sessionHostname session
+    hostname <- readTVar $ sessionOrigHostname session
     port <- readTVar $ sessionPort session
     (connectIRC (sessionIRCConnection session) hostname port) >> return ()
     writeTVar (sessionState session) SessionConnecting
@@ -2338,6 +2394,7 @@ createSession client hostname port nick username realName = do
         state <- newTVar SessionConnecting
         reconnectOnFailure <- newTVar False
         hostname' <- newTVar hostname
+        origHostname <- newTVar hostname
         port' <- newTVar port
         nick' <- newTVar nick
         username' <- newTVar username
@@ -2352,6 +2409,7 @@ createSession client hostname port nick username realName = do
                                 sessionIRCConnection = ircConnection,
                                 sessionIRCConnectionEventSub = sub,
                                 sessionHostname = hostname',
+                                sessionOrigHostname = origHostname,
                                 sessionPort = port',
                                 sessionNick = nick',
                                 sessionUsername = username',
@@ -2363,10 +2421,12 @@ createSession client hostname port nick username realName = do
         ourUserIndex <- getNextClientIndex client
         ourUserNick <- newTVar nick
         ourUserType <- newTVar []
+        ourUserLog <- createLog
         let user = User { userIndex = ourUserIndex,
                           userSession = session,
                           userNick = ourUserNick,
-                          userType = ourUserType }
+                          userType = ourUserType,
+                          userLog = ourUserLog }
         writeTVar users [user]
         sessions <- readTVar $ clientSessions client
         writeTVar (clientSessions client) $ sessions |> session
@@ -2528,6 +2588,7 @@ cleanupChannelIfNoTabs client channel = do
       case response of
         Just response -> asyncHandleResponse response
         Nothing -> return ()
+      closeLog $ channelLog channel
     else return ()
 
 -- | Get whether there is a tab open for a channel.
@@ -2558,6 +2619,7 @@ cleanupUserIfNoTabsOrChannels client user = do
         users <- readTVar $ sessionUsers session
         writeTVar (sessionUsers session) $
           S.filter (\user' -> index /= userIndex user') users
+      closeLog $ userLog user
     else return ()
 
 -- | Get whether there is a tab open for a user.
@@ -2628,10 +2690,12 @@ findOrCreateUserByNick client session nick = do
       index <- getNextClientIndex client
       nick' <- newTVar nick
       type' <- newTVar S.empty
+      log <- createLog
       let user = User { userIndex = index,
                         userSession = session,
                         userNick = nick',
-                        userType = type' }
+                        userType = type',
+                        userLog = log }
       users <- readTVar $ clientUsers client
       writeTVar (clientUsers client) $ users |> user
       users <- readTVar $ sessionUsers session
@@ -2650,13 +2714,15 @@ findOrCreateChannelByName client session name = do
       users <- newTVar S.empty
       topic <- newTVar Nothing
       mode <- newTVar S.empty
+      log <- createLog
       let channel = Channel { channelIndex = index,
                               channelSession = session,
                               channelState = state,
                               channelName = name,
                               channelUsers = users,
                               channelTopic = topic,
-                              channelMode = mode }
+                              channelMode = mode,
+                              channelLog = log }
       channels <- readTVar $ clientChannels client
       writeTVar (clientChannels client) $ channels |> channel
       channels <- readTVar $ sessionChannels session
@@ -2866,3 +2932,51 @@ filterMessageText nickOrName text =
             then T.concat [part0, part1', part2', part3', part4', "****"]
             else text
   else text
+
+-- | Create a log
+createLog :: STM Log
+createLog = do
+  logHandle' <- newTVar Nothing
+  logText' <- newTVar S.empty
+  return $ Log { logHandle = logHandle', logText = logText' }
+
+-- | Open log.
+openLog :: Log -> Session -> B.ByteString -> IO ()
+openLog log session nickOrName = do
+  openLog' `catch` (\e -> displayError . T.pack $ show (e :: SomeException))
+  where openLog' = do
+          origHostname <- atomically . readTVar $ sessionOrigHostname session
+          port <- atomically . readTVar $ sessionPort session
+          logDir <- getUserDataDir $ ".amphibian" </> "log" </>
+                    printf "%s:%d" origHostname (fromIntegral port :: Int)
+          createDirectoryIfMissing True logDir
+          let filePath = logDir </> (T.unpack $ ourDecodeUtf8 nickOrName)
+          atomically . writeTVar (logText log) . S.singleton =<<
+            readFile filePath
+          atomically . writeTVar (logHandle log) =<< Just <$>
+            openFile filePath AppendMode
+
+-- | Close log.
+closeLog :: Log -> IO ()
+closeLog log = do
+  logHandle' <- atomically $ do
+    logHandle' <- readTVar $ logHandle log
+    writeTVar (logHandle log) Nothing
+    return logHandle'
+  case logHandle' of
+    Just logHandle' -> hClose logHandle'
+    Nothing -> return ()
+
+-- | Populate a client tab from a log.
+populateTabFromLog :: Session -> ClientTab -> B.ByteString -> Log -> IO ()
+populateTabFromLog session clientTab nickOrName log = do
+  logHandle' <- atomically . readTVar $ logHandle log
+  case logHandle' of
+    Just _ -> return ()
+    Nothing -> openLog log session nickOrName
+  logText' <- T.concat . toList <$> (atomically . readTVar $ logText log)
+  let logText'' = fmap (\text -> fixUnicodeProblems $ T.snoc text '\n') $
+                  T.splitOn "\n" logText'
+  response <- atomically . addTabText (clientTabTab clientTab) $
+              T.concat logText''
+  asyncHandleResponse response
