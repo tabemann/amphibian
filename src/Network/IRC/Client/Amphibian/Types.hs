@@ -63,8 +63,9 @@ module Network.IRC.Client.Amphibian.Types
    SessionState(..),
    Channel(..),
    ChannelState(..),
-   User (..),
-   Mode (..),
+   User(..),
+   Mode(..),
+   Delay(..),
    ClientTabSubtype(..),
    ClientWindow(..),
    ClientTab(..),
@@ -406,6 +407,7 @@ data Channel = Channel
 -- | IRC channel state type
 data ChannelState = InChannel
                   | NotInChannel
+                  | AwaitingReconnect
                   deriving (Eq, Show)
 
 -- | IRC user type
@@ -419,6 +421,11 @@ data User = User
 -- | IRC mode type
 newtype Mode = Mode Word8
                deriving (Eq, Show)
+
+-- | Reconnect with or without delay.
+data Delay = WithDelay
+           | WithoutDelay
+           deriving (Eq, Show)
 
 -- | Client tab subtype type
 data ClientTabSubtype = FreeTab

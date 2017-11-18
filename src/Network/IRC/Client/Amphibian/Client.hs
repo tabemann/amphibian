@@ -604,7 +604,9 @@ handleSessionEvent client session event =
           displaySessionMessage client session
             (T.pack $ printf "* Connected to %s:%d" hostname
              (fromIntegral port :: Int))
-          atomically $ writeTVar (sessionHostname session) hostname
+          atomically $ do
+            writeTVar (sessionHostname session) hostname
+            writeTVar (sessionReconnectOnFailure session) True
         _ -> return ()
       (response0, response1, response2, response3) <- atomically $ do
         let capReqMessage =
@@ -645,30 +647,24 @@ handleSessionEvent client session event =
       asyncHandleResponse response3
     IRCConnectingCanceled -> do
       displaySessionMessageAll client session "* Connecting canceled"
-      leaveAllChannelsInSession client session
-      atomically $ writeTVar (sessionState session) SessionInactive
+      tryReconnectSession client session
     IRCDisconnected -> do
       displaySessionMessageAll client session "* Disconnected"
-      leaveAllChannelsInSession client session
-      atomically $ writeTVar (sessionState session) SessionInactive
+      tryReconnectSession client session
     IRCDisconnectError (Error errorText) -> do
       displaySessionMessageAll client session
         (T.pack $ printf "* Error disconnecting: %s" errorText)
-      leaveAllChannelsInSession client session
-      atomically $ writeTVar (sessionState session) SessionInactive
+      tryReconnectSession client session
     IRCDisconnectedByPeer -> do
       displaySessionMessageAll client session "* Disconnected by peer"
-      leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCSendError (Error errorText) -> do
       displaySessionMessageAll client session
         (T.pack $ printf "* Error sending: %s" errorText)
-      leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCRecvError (Error errorText) -> do
       displaySessionMessageAll client session
         (T.pack $ printf "* Error receiving: %s" errorText)
-      leaveAllChannelsInSession client session
       tryReconnectSession client session
     IRCRecvMessage message
       | ircMessageCommand message == rpl_WELCOME ->
@@ -709,6 +705,18 @@ handleSessionEvent client session event =
 handleWelcome :: Client -> Session -> IRCMessage -> IO ()
 handleWelcome client session message = do
   atomically $ writeTVar (sessionState session) SessionReady
+  channels <- atomically . readTVar $ sessionChannels session
+  forM_ channels $ \channel -> do
+    state <- atomically . readTVar $ channelState channel
+    if state == InChannel || state == AwaitingReconnect
+      then do
+        let message = IRCMessage { ircMessagePrefix = Nothing,
+                                   ircMessageCommand = encodeUtf8 "JOIN",
+                                   ircMessageParams =
+                                     S.singleton $ channelName channel,
+                                   ircMessageCoda = Nothing }
+        sendIRCMessageToSession session message
+      else return ()
 
 -- | Handle nickname in use message.
 handleNicknameInUse :: Client -> Session -> IRCMessage -> IO ()
@@ -884,6 +892,7 @@ handleJoinMessage client session message = do
             Nothing -> return ()
         handleOurJoin client session name = do
           channel <- atomically $ findOrCreateChannelByName client session name
+          removeAllUsersFromChannel client channel
           tabs <- findOrCreateChannelTabsForChannel client channel
           forM_ tabs $ \tab -> do
             response <- atomically $ setTopicVisible (clientTabTab tab) True
@@ -1028,12 +1037,12 @@ handleQuitMessage client session message = do
 -- | Handle ERROR message.
 handleErrorMessage :: Client -> Session -> IRCMessage -> IO ()
 handleErrorMessage client session message = do
+  leaveAllChannelsInSession client session
   response <- atomically $ do
     response <- disconnectIRC $ sessionIRCConnection session
     writeTVar (sessionState session) SessionInactive
     return response
   asyncHandleResponse response
-  leaveAllChannelsInSession client session
 
 -- | Handle NICK message.
 handleNickMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -1735,36 +1744,48 @@ findUserByNick session nick = do
 -- | Try to reconnect a session.
 tryReconnectSession :: Client -> Session -> IO ()
 tryReconnectSession client session = do
+  markChannelsAsAwaitingReconnect client session
   reconnectOnFailure <- atomically . readTVar $
                         sessionReconnectOnFailure session
   if reconnectOnFailure
-    then do
+    then reconnectSession client session WithDelay
+    else atomically $ writeTVar (sessionState session) SessionInactive
+
+-- | Reconnect a session.
+reconnectSession :: Client -> Session -> Delay -> IO ()
+reconnectSession client session withDelay = do
+  reconnectingAsync <- atomically . readTVar $ sessionReconnecting session
+  case reconnectingAsync of
+    Nothing -> do
       atomically $ writeTVar (sessionState session) SessionConnecting
-      delay <- settingsReconnectDelay <$>
-        (atomically . readTVar $ clientSettings client)
+      delay <- case withDelay of
+                 WithDelay -> settingsReconnectDelay <$>
+                              (atomically . readTVar $ clientSettings client)
+                 WithoutDelay -> return 0
       reconnectingAsync <- async $ do
         threadDelay $ floor (delay * 1000000.0)
-        response <- atomically $ do
-          let connection = sessionIRCConnection session
-          state <- getIRCConnectionState connection
-          if state /= IRCConnectionNotStarted
-            then do
-              active <- isIRCConnectionActive connection
-              if not active
-                then do
-                   hostname <- readTVar $ sessionOrigHostname session
-                   port <- readTVar $ sessionPort session
-                   response <- connectIRC connection hostname port
-                   return $ Just response
-                else return Nothing
-            else return Nothing
-        case response of
-          Just response -> asyncHandleResponse response
-          Nothing -> return ()
+        let connection = sessionIRCConnection session
+        state <- atomically $ getIRCConnectionState connection
+        if state /= IRCConnectionNotStarted
+          then do
+            active <- atomically $ isIRCConnectionActive connection
+            if active
+              then do
+                response <- atomically $ disconnectIRC connection
+                result <- atomically $ getResponse response
+                case result of
+                  Right () -> return ()
+                  Left (Error errorText) -> displayError errorText
+              else return ()
+            hostname <- atomically . readTVar $ sessionOrigHostname session
+            port <- atomically . readTVar $ sessionPort session
+            response <- atomically $ connectIRC connection hostname port
+            asyncHandleResponse response
+          else return ()
         atomically $ writeTVar (sessionReconnecting session) Nothing
       atomically $ writeTVar (sessionReconnecting session)
         (Just reconnectingAsync)
-    else atomically $ writeTVar (sessionState session) SessionInactive
+    Just _ -> return ()
 
 -- | Handle client window event.
 handleClientWindowEvent :: Client -> ClientWindow -> WindowEvent -> IO ()
@@ -1898,6 +1919,8 @@ handleNormalLine client clientTab text = do
                                      ircMessageCoda = Just $ encodeUtf8 text }
           sendIRCMessageToSession session message
         NotInChannel -> displayMessage client clientTab "* Not in channel"
+        AwaitingReconnect -> displayMessage client clientTab
+                             "* Awaiting reconnection..."
     UserTab user -> do
       let session = userSession user
       ourNick <- atomically . readTVar $ sessionNick session
@@ -1929,6 +1952,7 @@ handleCommand client clientTab command = do
       | command == "nick" -> handleNickCommand client clientTab rest
       | command == "me" -> handleMeCommand client clientTab rest
       | command == "ping" -> handlePingCommand client clientTab rest
+      | command == "reconnect" -> handleReconnectCommand client clientTab rest
       | otherwise -> handleUnrecognizedCommand client clientTab command
     Nothing -> return ()
 
@@ -2238,6 +2262,21 @@ handlePingCommand client clientTab text =
           formatCtcpRequest target (encodeUtf8 "PING") . Just . encodeUtf8 .
           T.pack . printf "%d" . toNanoSecs <$> getTime Monotonic
 
+-- | Handle /reconnect command.
+handleReconnectCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleReconnectCommand client clientTab text =
+  case parseCommandField text of
+    Nothing -> do
+      session <- atomically $ getSessionForTab clientTab
+      case session of
+        Just session -> do
+          displaySessionMessageAll client session "* Attempting to reconnect..."
+          markChannelsAsAwaitingReconnect client session
+          reconnectSession client session WithoutDelay
+        Nothing -> displayMessage client clientTab
+                   "* Tab has no associated session"
+    _ -> displayMessage client clientTab "* Syntax: /reconnect"
+
 -- | Handle command for tab that requires a ready session.
 handleCommandWithReadySession :: Client -> ClientTab -> (Session -> IO ()) ->
                                  IO ()
@@ -2272,6 +2311,8 @@ handleCommandWithReadyChannel client clientTab func = do
           case state of
             InChannel -> func channel
             NotInChannel -> displayMessage client clientTab "* Not in channel"
+            AwaitingReconnect -> displayMessage client clientTab
+                                 "* Awaiting reconnection..."
         SessionPreparing ->
           displayMessage client clientTab "* Session is not ready"
         SessionConnecting ->
@@ -2303,6 +2344,8 @@ handleCommandWithReadyChannelOrUser client clientTab channelFunc userFunc = do
           case state of
             InChannel -> channelFunc channel
             NotInChannel -> displayMessage client clientTab "* Not in channel"
+            AwaitingReconnect -> displayMessage client clientTab
+                                 "* Awaiting reconnection..."
         SessionPreparing ->
           displayMessage client clientTab "* Session is not ready"
         SessionConnecting ->
@@ -2495,6 +2538,8 @@ handleTopicEntered client clientTab text = do
                                  ircMessageCoda = Just $ encodeUtf8 text }
               sendIRCMessageToChannel channel topicMessage
             NotInChannel -> displayMessage client clientTab "* Not in channel"
+            AwaitingReconnect -> displayMessage client clientTab
+                                 "* Awaiting reconnection..."
         SessionPreparing ->
           displayMessage client clientTab "* Session is not ready"
         SessionConnecting ->
@@ -2652,10 +2697,17 @@ isUserInAnyChannel client user = do
 -- | Get whether a user is in a channel.
 isUserInChannel :: Channel -> User -> STM Bool
 isUserInChannel channel user = do
-  users <- readTVar $ channelUsers channel
-  return $ foldl' (\found user' ->
-                     (userIndex user == userIndex user') || found)
-    False users
+  ourNick <- readTVar . sessionNick $ channelSession channel
+  userNick' <- readTVar $ userNick user
+  if ourNick /= userNick'
+    then do
+      users <- readTVar $ channelUsers channel
+      return $ foldl' (\found user' ->
+                         (userIndex user == userIndex user') || found)
+        False users
+    else do
+      state <- readTVar $ channelState channel
+      return $ state == InChannel || state == AwaitingReconnect
 
 -- | Find current tab for session.
 getCurrentTabForSession :: Client -> Session -> STM (Maybe ClientTab)
@@ -2986,3 +3038,17 @@ populateTabFromLog session clientTab nickOrName log = do
   let logText'' = fixUnicodeProblems logText'
   response <- atomically . addTabText (clientTabTab clientTab) $ logText''
   asyncHandleResponse response
+
+-- | Mark channels as awaiting reconnect.
+markChannelsAsAwaitingReconnect :: Client -> Session -> IO ()
+markChannelsAsAwaitingReconnect client session = do
+  channels <- atomically $ do
+    channels <- readTVar $ sessionChannels session
+    forM_ channels $ \channel -> do
+      state <- readTVar $ channelState channel
+      case state of
+        InChannel -> writeTVar (channelState channel) AwaitingReconnect
+        _ -> return ()
+    return channels
+  forM_ channels $ \channel -> removeAllUsersFromChannel client channel
+    
