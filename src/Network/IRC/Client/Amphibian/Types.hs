@@ -48,7 +48,6 @@ module Network.IRC.Client.Amphibian.Types
    WindowState(..),
    WindowAction(..),
    WindowEvent(..),
-   KeyModifier(..),
    WindowEventSub(..),
    Tab(..),
    TabState(..),
@@ -72,7 +71,8 @@ module Network.IRC.Client.Amphibian.Types
    Client(..),
    ClientTaggedEvent(..),
    Settings(..),
-   Log(..))
+   Log(..),
+   History(..))
    
 where
 
@@ -245,6 +245,7 @@ data WindowAction = OpenWindow T.Text (Response ())
                   | StopWindow (Response ())
                   | SetTabTitle Tab T.Text (Response ())
                   | AddTabText Tab T.Text (Response ())
+                  | SetEntry Tab T.Text (Response ())
                   | SetTopicVisible Tab Bool (Response ())
                   | SetTopic Tab T.Text (Response ())
                   | SetSideVisible Tab Bool (Response ())
@@ -254,14 +255,7 @@ data WindowAction = OpenWindow T.Text (Response ())
 
 -- | IRC window event type
 data WindowEvent = WindowClosed
-                 | UserPressedKey (S.Seq KeyModifier) T.Text
                  | WindowFocused
-                 deriving (Eq, Show)
-
--- | Key modifier type.
-data KeyModifier = KeyControl
-                 | KeyShift
-                 | KeyAlt
                  deriving (Eq, Show)
 
 -- | IRC window event subscription
@@ -303,6 +297,8 @@ data TabEvent = TabClosed
               | LineEntered T.Text
               | TopicEntered T.Text
               | TabSelected
+              | UpPressed
+              | DownPressed
               deriving (Eq, Show)
 
 -- | IRC tab event subscription
@@ -378,7 +374,7 @@ data Session = Session
     sessionMode :: TVar (S.Seq Mode),
     sessionChannels :: TVar (S.Seq Channel),
     sessionUsers :: TVar (S.Seq User),
-    sessionReconnecting :: TVar (Maybe (Async ()))}
+    sessionReconnecting :: TVar (Maybe (Async ())) }
 
 -- | IRC session state
 data SessionState = SessionInactive
@@ -392,6 +388,12 @@ data SessionState = SessionInactive
 data Log = Log
   { logHandle :: TVar (Maybe Handle),
     logText :: TVar (S.Seq T.Text) }
+
+-- | History type.
+data History = History
+  { historyHandle :: TVar (Maybe Handle),
+    historyLines :: TVar (S.Seq T.Text),
+    historyPosition :: TVar (Maybe Int) }
 
 -- | IRC channel type
 data Channel = Channel
@@ -447,7 +449,8 @@ data ClientTab = ClientTab
     clientTabTab :: Tab,
     clientTabEventSub :: TabEventSub,
     clientTabSubtype :: TVar ClientTabSubtype,
-    clientTabWindow :: ClientWindow }
+    clientTabWindow :: ClientWindow,
+    clientTabHistory :: History }
 
 -- | Client type
 data Client = Client

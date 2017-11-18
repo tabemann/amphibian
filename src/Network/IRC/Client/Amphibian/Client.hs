@@ -217,13 +217,15 @@ openClientTab client clientWindow tabTitle = do
       selectIndex <- atomically $ newTVar (-1)
       tabEventSub <- atomically $ subscribeTab tab
       subtype <- atomically $ newTVar FreeTab
+      history <- atomically $ createHistory
       let clientTab =
             ClientTab { clientTabIndex = index,
                         clientTabSelectIndex = selectIndex,
                         clientTabTab = tab,
                         clientTabEventSub = tabEventSub,
                         clientTabSubtype = subtype,
-                        clientTabWindow = clientWindow }
+                        clientTabWindow = clientWindow,
+                        clientTabHistory = history }
       atomically $ do
         tabs <- readTVar $ clientTabs client
         writeTVar (clientTabs client) $ tabs |> clientTab
@@ -566,7 +568,7 @@ displayMessageOnTabs client tabs message = do
 
 -- | Handle a session event.
 handleSessionEvent :: Client -> Session -> IRCConnectionEvent -> IO ()
-handleSessionEvent client session event =
+handleSessionEvent client session event = do
   case event of
     IRCFoundAddr address -> do
       displaySessionMessage client session
@@ -1604,7 +1606,9 @@ findOrCreateChannelTabsForChannel client channel = do
           case result of
             Right tab -> do
               populateTabFromLog (channelSession channel) tab
-                (channelName channel) $ channelLog channel
+                (channelName channel) (channelLog channel)
+              populateHistory (channelSession channel)
+                (Just $ channelName channel) (clientTabHistory tab)
               atomically $ writeTVar (clientTabSubtype tab) $ ChannelTab channel
               return $ S.singleton tab
             Left (Error errorText) -> do
@@ -1628,7 +1632,9 @@ findOrCreateUserTabsForUser client user = do
           result <- openClientTab client window (ourDecodeUtf8 nick)
           case result of
             Right tab -> do
-              populateTabFromLog (userSession user) tab nick $ userLog user
+              populateTabFromLog (userSession user) tab nick (userLog user)
+              populateHistory (userSession user) (Just nick)
+                (clientTabHistory tab)
               atomically . writeTVar (clientTabSubtype tab) $ UserTab user
               return $ S.singleton tab
             Left (Error errorText) -> do
@@ -1792,11 +1798,6 @@ handleClientWindowEvent :: Client -> ClientWindow -> WindowEvent -> IO ()
 handleClientWindowEvent client clientWindow event = do
   case event of
     WindowClosed -> handleWindowClosed client clientWindow
-    UserPressedKey modifiers key
-      | modifiers == [KeyControl] && key == "n" -> handleOpenClientWindow client
-      | modifiers == [KeyControl] && key == "t" ->
-        handleOpenClientTab client clientWindow
-      | otherwise -> return ()
     WindowFocused -> handleWindowFocused client clientWindow
 
 -- | Handle window closed.
@@ -1829,19 +1830,6 @@ cleanupClosedWindow client clientWindow = do
     UserTab user -> cleanupUserIfNoTabsOrChannels client user
     _ -> return ()
 
--- | Handle opening a client window.
-handleOpenClientWindow :: Client -> IO ()
-handleOpenClientWindow client = do
-  result <- openClientWindow client "Amphibian IRC" "<Not Connected>"
-  case result of
-    Right _ -> return ()
-    Left (Error errorText) -> displayError errorText
-
--- | Handle opening a client tab.
-handleOpenClientTab :: Client -> ClientWindow -> IO ()
-handleOpenClientTab client clientWindow =
-  (openClientTab client clientWindow "<Not Connected>") >> return ()
-
 -- | Handle window focused.
 handleWindowFocused :: Client -> ClientWindow -> IO ()
 handleWindowFocused client clientWindow = do
@@ -1857,14 +1845,57 @@ handleClientTabEvent client clientTab event = do
     LineEntered text -> handleLineEntered client clientTab text
     TopicEntered text -> handleTopicEntered client clientTab text
     TabSelected -> handleTabSelected client clientTab
+    UpPressed -> handleUpPressed client clientTab
+    DownPressed -> handleDownPressed client clientTab
 
 -- | Handle a tab closed event.
 handleTabClosed :: Client -> ClientTab -> IO ()
 handleTabClosed = cleanupClosedTab
 
+-- | Handle an up pressed event.
+handleUpPressed :: Client -> ClientTab -> IO ()
+handleUpPressed client clientTab = handleHistoryMove moveUp clientTab
+  where moveUp Nothing historyLength
+          | historyLength > 0 = Just 0
+          | otherwise = Nothing
+        moveUp (Just position) historyLength
+          | position < historyLength - 1 = Just $ position + 1
+          | otherwise = Just position
+
+-- | Handle a down pressed event
+handleDownPressed :: Client -> ClientTab -> IO ()
+handleDownPressed client clientTab = handleHistoryMove moveDown clientTab
+  where moveDown Nothing historyLength = Nothing
+        moveDown (Just position) historyLength
+          | position > 0 = Just $ position - 1
+          | otherwise = Nothing
+
+-- | Handle history movement
+handleHistoryMove :: (Maybe Int -> Int -> Maybe Int) -> ClientTab -> IO ()
+handleHistoryMove func clientTab = do
+  let history = clientTabHistory clientTab
+  response <- atomically $ do
+    position <- readTVar $ historyPosition history
+    lines <- readTVar $ historyLines history
+    let historyLength = S.length lines
+        newPosition = func position historyLength
+    writeTVar (historyPosition history) newPosition
+    if newPosition /= position
+      then case newPosition of
+             Nothing -> Just <$> setEntry (clientTabTab clientTab) ""
+             Just newPosition ->
+               case S.lookup ((historyLength - 1) - newPosition) lines of
+                 Just line -> Just <$> setEntry (clientTabTab clientTab) line
+                 Nothing -> error "impossible"
+      else return $ Nothing
+  case response of
+    Just response -> asyncHandleResponse response
+    Nothing -> return ()
+
 -- | Actually handle a closed tab.
 cleanupClosedTab :: Client -> ClientTab -> IO ()
 cleanupClosedTab client clientTab = do
+  closeHistory $ clientTabHistory clientTab
   subtype <- atomically $ do
     tabs <- readTVar $ clientTabs client
     let index = clientTabIndex clientTab
@@ -1880,6 +1911,19 @@ cleanupClosedTab client clientTab = do
 -- | Handle a line entered event.
 handleLineEntered :: Client -> ClientTab -> T.Text -> IO ()
 handleLineEntered client clientTab text = do
+  let history = clientTabHistory clientTab
+  handle <- atomically . readTVar $ historyHandle history
+  case handle of
+    Just handle -> do
+      nickOrName <- atomically $ getTabNickOrName clientTab
+      let text' = filterLineForHistoryFile nickOrName text
+      hPutStr handle . T.pack $ printf "%s\n" text'
+      hFlush handle
+    Nothing -> return ()
+  atomically $ do
+    lines <- readTVar $ historyLines history
+    writeTVar (historyLines history) $ lines |> text
+    writeTVar (historyPosition history) Nothing
   case T.uncons text of
     Just ('/', rest) ->
       case T.uncons rest of
@@ -1888,6 +1932,24 @@ handleLineEntered client clientTab text = do
         Nothing -> return ()
     Just _ -> handleNormalLine client clientTab text
     Nothing -> return ()
+
+-- | Filter a line before it goes in the history file.
+filterLineForHistoryFile :: Maybe B.ByteString -> T.Text -> T.Text
+filterLineForHistoryFile nickOrName text =
+  let text' =
+        case nickOrName of
+          Just nickOrName -> filterMessageText nickOrName text
+          Nothing -> text
+      (part0, part1) = T.span isSpace text'
+      (part1', part2) = T.span (not . isSpace) part1
+      (part2', part3) = T.span isSpace part2
+      (part3', part4) = T.span (not . isSpace) part3
+      (part4', part5) = T.span isSpace part4
+  in if part1' == "/msg"
+     then
+       T.concat [part0, part1', part2', part3', part4',
+                 filterMessageText (encodeUtf8 part3') part5]
+     else text'
 
 -- | Handle a normal line that has been entered.
 handleNormalLine :: Client -> ClientTab -> T.Text -> IO ()
@@ -1940,6 +2002,7 @@ handleCommand client clientTab command = do
   case parseCommandField command of
     Just (command, rest)
       | command == "new" -> handleNewCommand client clientTab rest
+      | command == "new-window" -> handleNewWindowCommand client clientTab rest
       | command == "close" -> handleCloseCommand client clientTab rest
       | command == "server" -> handleServerCommand client clientTab rest
       | command == "quit" -> handleQuitCommand client clientTab rest
@@ -1967,6 +2030,17 @@ handleNewCommand client clientTab text =
       Right _ -> return ()
       Left (Error errorText) -> displayError errorText
   else displayMessage client clientTab "* Syntax: /new"
+
+-- | Handle the /new-window command.
+handleNewWindowCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleNewWindowCommand client clientTab text =
+  if text == ""
+  then do
+    response <- openClientWindow client "Amphibian IRC" "<Not Connected>"
+    case response of
+      Right _ -> return ()
+      Left (Error errorText) -> displayError errorText
+  else displayMessage client clientTab "* Syntax: /new-window"
 
 -- | Handle the /close command.
 handleCloseCommand :: Client -> ClientTab -> T.Text -> IO ()
@@ -2272,6 +2346,7 @@ handleReconnectCommand client clientTab text =
         Just session -> do
           displaySessionMessageAll client session "* Attempting to reconnect..."
           markChannelsAsAwaitingReconnect client session
+          atomically $ writeTVar (sessionReconnectOnFailure session) False
           reconnectSession client session WithoutDelay
         Nothing -> displayMessage client clientTab
                    "* Tab has no associated session"
@@ -2425,6 +2500,7 @@ createSessionInTab client clientTab hostname port nick username realName = do
         SessionTab session
       (atomically . setTabTitle (clientTabTab clientTab) $ T.pack hostname) >>
         return ()
+      populateHistory session Nothing (clientTabHistory clientTab)
       return $ Right session
     Left failure -> return $ Left failure
 
@@ -3039,6 +3115,59 @@ populateTabFromLog session clientTab nickOrName log = do
   response <- atomically . addTabText (clientTabTab clientTab) $ logText''
   asyncHandleResponse response
 
+-- | Create a history
+createHistory :: STM History
+createHistory = do
+  historyHandle' <- newTVar Nothing
+  historyLines' <- newTVar S.empty
+  historyPosition' <- newTVar Nothing
+  return $ History { historyHandle = historyHandle',
+                     historyLines = historyLines',
+                     historyPosition = historyPosition' }
+
+-- | Open history.
+openHistory :: History -> Session -> Maybe B.ByteString -> IO ()
+openHistory history session nickOrName = do
+  openHistory' `catch` (\e -> displayError . T.pack $ show (e :: SomeException))
+  where openHistory' = do
+          origHostname <- atomically . readTVar $ sessionOrigHostname session
+          port <- atomically . readTVar $ sessionPort session
+          historyDir <- getUserDataDir $ "amphibian" </> "history" </>
+                        printf "%s:%d" origHostname (fromIntegral port :: Int)
+          createDirectoryIfMissing True historyDir
+          let filePath =
+                case nickOrName of
+                  Just nickOrName ->
+                    historyDir </> (T.unpack $ ourDecodeUtf8 nickOrName)
+                  Nothing -> historyDir ++ ".session"
+          oldLines <- S.filter (not . T.null) . S.fromList . T.splitOn "\n" <$>
+            (readFile filePath `catch` (\e -> return $ const ""
+                                         (e :: SomeException)))
+          atomically $ do
+            newLines <- readTVar $ historyLines history
+            writeTVar (historyLines history) $ oldLines >< newLines
+          atomically . writeTVar (historyHandle history) =<< Just <$>
+            openFile filePath AppendMode
+
+-- | Close history.
+closeHistory :: History -> IO ()
+closeHistory history = do
+  historyHandle' <- atomically $ do
+    historyHandle' <- readTVar $ historyHandle history
+    writeTVar (historyHandle history) Nothing
+    return historyHandle'
+  case historyHandle' of
+    Just historyHandle' -> hClose historyHandle'
+    Nothing -> return ()
+
+-- | Populate history.
+populateHistory :: Session -> Maybe B.ByteString -> History -> IO ()
+populateHistory session nickOrName history = do
+  historyHandle' <- atomically . readTVar $ historyHandle history
+  case historyHandle' of
+    Just _ -> return ()
+    Nothing -> openHistory history session nickOrName
+
 -- | Mark channels as awaiting reconnect.
 markChannelsAsAwaitingReconnect :: Client -> Session -> IO ()
 markChannelsAsAwaitingReconnect client session = do
@@ -3052,3 +3181,12 @@ markChannelsAsAwaitingReconnect client session = do
     return channels
   forM_ channels $ \channel -> removeAllUsersFromChannel client channel
     
+-- | Get nick or name for client tab.
+getTabNickOrName :: ClientTab -> STM (Maybe B.ByteString)
+getTabNickOrName clientTab = do
+  subtype <- readTVar $ clientTabSubtype clientTab
+  case subtype of
+    ChannelTab channel -> return . Just $ channelName channel
+    UserTab user -> Just <$> readTVar (userNick user)
+    SessionTab _ -> return Nothing
+    FreeTab -> return Nothing

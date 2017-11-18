@@ -61,6 +61,7 @@ module Network.IRC.Client.Amphibian.UI
    closeTab,
    setTabTitle,
    addTabText,
+   setEntry,
    setTopicVisible,
    setTopic,
    setSideVisible,
@@ -290,6 +291,17 @@ addTabText tab text = do
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue $ tabWindow tab)
          (AddTabText tab text $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Set the entered text of a tab.
+setEntry :: Tab -> T.Text -> STM (Response ())
+setEntry tab text = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (SetEntry tab text $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
@@ -553,22 +565,22 @@ runWindow window = do
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
-    SetTopicVisible tab visible (Response response) -> do
+    SetEntry tab text (Response response) -> do
       tabState' <- atomically . readTVar $ tabState tab
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING TOPIC VISIBILITY\n"
+          printf "*** SETTING ENTRY TEXT\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
-            if visible
-              then Gtk.widgetShow $ tabTopicEntry tab
-              else Gtk.widgetHide $ tabTopicEntry tab
+            Gtk.entrySetText (tabEntry tab) text
+            Gtk.editableSetPosition (tabEntry tab) . fromIntegral $
+              T.length text
             atomically $ do
               putTMVar response $ Right ()
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING TOPIC VISIBILITY\n"
+          printf "*** DONE SETTING ENTRY TEXT\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -586,6 +598,25 @@ runWindow window = do
             return False
           (atomically $ takeTMVar lock) >> return ()
           printf "*** DONE SETTING TOPIC TEXT\n"
+        TabIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
+    SetTopicVisible tab visible (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> do
+          lock <- atomically $ newEmptyTMVar
+          printf "*** SETTING TOPIC VISIBILITY\n"
+          Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
+            if visible
+              then Gtk.widgetShow $ tabTopicEntry tab
+              else Gtk.widgetHide $ tabTopicEntry tab
+            atomically $ do
+              putTMVar response $ Right ()
+              putTMVar lock ()
+            return False
+          (atomically $ takeTMVar lock) >> return ()
+          printf "*** DONE SETTING TOPIC VISIBILITY\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -789,20 +820,6 @@ installEventHandlers window = do
                   return False
                 return ()
             Nothing -> return $ return ()
-      Gtk.onWidgetKeyPressEvent actualWindow $ \e ->
-        Gdk.getEventKeyState e >>= \case
-          [Gdk.ModifierTypeControlMask] ->
-            Gdk.getEventKeyKeyval e >>= Gdk.keyvalName >>= \case
-              Just "n" -> do
-                atomically . writeTChan (windowEventQueue window) $
-                  UserPressedKey (S.singleton KeyControl) "n"
-                return True
-              Just "t" -> do
-                atomically . writeTChan (windowEventQueue window) $
-                  UserPressedKey (S.singleton KeyControl) "t"
-                return True
-              _ -> return False
-          _ -> return False
       return ()
     _ -> return ()
 
@@ -919,6 +936,15 @@ createTab window title = do
             text <- Gtk.entryGetText topicEntry
             atomically . writeTChan (tabEventQueue tab) $ TopicEntered text
           TabIsClosed -> return ()
+      Gtk.onWidgetKeyPressEvent entry $ \e ->
+        Gdk.getEventKeyKeyval e >>= Gdk.keyvalName >>= \case
+          Just "Up" -> do
+            atomically $ writeTChan (tabEventQueue tab) UpPressed
+            return True
+          Just "Down" -> do
+            atomically $ writeTChan (tabEventQueue tab) DownPressed
+            return True
+          _ -> return False
       Gtk.notebookAppendPageMenu notebook bodyBox (Just tabBox) (Just menuLabel)
       printf "*** DONE CREATING TAB\n"
       return $ Just tab
