@@ -2016,6 +2016,8 @@ handleCommand client clientTab command = do
       | command == "me" -> handleMeCommand client clientTab rest
       | command == "ping" -> handlePingCommand client clientTab rest
       | command == "reconnect" -> handleReconnectCommand client clientTab rest
+      | command == "whois" -> handleWhoisCommand client clientTab rest
+      | command == "whowas" -> handleWhowasCommand client clientTab rest
       | otherwise -> handleUnrecognizedCommand client clientTab command
     Nothing -> return ()
 
@@ -2352,6 +2354,36 @@ handleReconnectCommand client clientTab text =
                    "* Tab has no associated session"
     _ -> displayMessage client clientTab "* Syntax: /reconnect"
 
+-- | Handle /whois command.
+handleWhoisCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleWhoisCommand client clientTab text =
+  case parseCommandField text of
+    Just (target, rest)
+      | rest == "" ->
+        handleCommandWithReadySession client clientTab $ \session ->
+          let message = IRCMessage { ircMessagePrefix = Nothing,
+                                     ircMessageCommand = encodeUtf8 "WHOIS",
+                                     ircMessageParams =
+                                       S.singleton $ encodeUtf8 target,
+                                     ircMessageCoda = Nothing }
+          in sendIRCMessageToSession session message
+    _ -> displayMessage client clientTab "* Syntax: /whois target"
+
+-- | Handle /whowas command.
+handleWhowasCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleWhowasCommand client clientTab text =
+  case parseCommandField text of
+    Just (target, rest)
+      | rest == "" ->
+        handleCommandWithReadySession client clientTab $ \session ->
+          let message = IRCMessage { ircMessagePrefix = Nothing,
+                                     ircMessageCommand = encodeUtf8 "WHOWAS",
+                                     ircMessageParams =
+                                       S.singleton $ encodeUtf8 target,
+                                     ircMessageCoda = Nothing }
+          in sendIRCMessageToSession session message
+    _ -> displayMessage client clientTab "* Syntax: /whowas target"
+
 -- | Handle command for tab that requires a ready session.
 handleCommandWithReadySession :: Client -> ClientTab -> (Session -> IO ()) ->
                                  IO ()
@@ -2403,7 +2435,7 @@ handleCommandWithReadyChannel client clientTab func = do
     FreeTab -> displayMessage client clientTab
                "* Command must be executed in channel tab"
 
--- | Handle client for tab that requires a channel tab.
+-- | Handle client for tab that requires a channel or user tab.
 handleCommandWithReadyChannelOrUser :: Client -> ClientTab ->
                                        (Channel -> IO ()) ->
                                        (User -> IO ()) ->
@@ -2445,6 +2477,30 @@ handleCommandWithReadyChannelOrUser client clientTab channelFunc userFunc = do
                     "* Command must be executed in channel or user tab"
     FreeTab -> displayMessage client clientTab
                "* Command must be executed in channel or user tab"
+
+-- | Handle client for tab that requires a user tab.
+handleCommandWithReadyUser :: Client -> ClientTab -> (User -> IO ()) -> IO ()
+handleCommandWithReadyUser client clientTab userFunc = do
+  subtype <- atomically . readTVar $ clientTabSubtype clientTab
+  case subtype of
+    ChannelTab channel ->
+      displayMessage client clientTab "* Command must be executed in user tab"
+    UserTab user -> do
+      state <- atomically . readTVar . sessionState $ userSession user
+      case state of
+        SessionReady -> userFunc user
+        SessionPreparing ->
+          displayMessage client clientTab "* Session is not ready"
+        SessionConnecting ->
+          displayMessage client clientTab "* Session is not connected"
+        SessionInactive ->
+          displayMessage client clientTab "* Session is not active"
+        SessionDestroyed ->
+          displayMessage client clientTab "* Session has been destroyed"
+    SessionTab _ ->
+      displayMessage client clientTab "* Command must be executed in user tab"
+    FreeTab ->
+      displayMessage client clientTab "* Command must be executed in user tab"
 
 -- | Get session for tab.
 getSessionForTab :: ClientTab -> STM (Maybe Session)
