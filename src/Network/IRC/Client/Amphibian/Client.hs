@@ -1914,7 +1914,7 @@ handleWindowClosed = cleanupClosedWindow
 -- | Actually handle a closed window.
 cleanupClosedWindow :: Client -> ClientWindow -> IO ()
 cleanupClosedWindow client clientWindow = do
-  subtypes <- atomically $ do
+  deletedTabs <- atomically $ do
     let index = clientWindowIndex clientWindow
     windows <- readTVar $ clientWindows client
     let windows' =
@@ -1925,17 +1925,12 @@ cleanupClosedWindow client clientWindow = do
       then writeTVar (clientRunning client) False
       else return ()
     tabs <- readTVar $ clientTabs client
-    let (tabs', deletedTabs) =
+    let (_, deletedTabs) =
           S.partition (\clientTab' ->
                          (clientWindowIndex $ clientTabWindow clientTab') /=
                          index) tabs
-    writeTVar (clientTabs client) tabs'
-    forM deletedTabs $ \tab -> readTVar $ clientTabSubtype tab
-  forM_ subtypes $ \case
-    SessionTab session -> cleanupSessionIfNoTabs client session
-    ChannelTab channel -> cleanupChannelIfNoTabs client channel
-    UserTab user -> cleanupUserIfNoTabsOrChannels client user
-    _ -> return ()
+    return deletedTabs
+  forM_ deletedTabs $ \tab -> cleanupClosedTab client tab
 
 -- | Handle window focused.
 handleWindowFocused :: Client -> ClientWindow -> IO ()
@@ -2881,7 +2876,9 @@ cleanupChannelIfNoTabs client channel = do
         Just response -> asyncHandleResponse response
         Nothing -> return ()
       closeLog $ channelLog channel
+      cleanupSessionIfNoTabs client $ channelSession channel
     else return ()
+    
 
 -- | Get whether there is a tab open for a channel.
 isTabOpenForChannel :: Client -> Channel -> STM Bool
@@ -2912,6 +2909,7 @@ cleanupUserIfNoTabsOrChannels client user = do
         writeTVar (sessionUsers session) $
           S.filter (\user' -> index /= userIndex user') users
       closeLog $ userLog user
+      cleanupSessionIfNoTabs client $ userSession user
     else return ()
 
 -- | Get whether there is a tab open for a user.
