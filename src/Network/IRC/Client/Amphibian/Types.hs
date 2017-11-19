@@ -451,6 +451,7 @@ data ClientWindow = ClientWindow
 data Notification = NoNotification
                   | UserChanged
                   | Messaged
+                  | Noticed
                   | Mentioned
                   deriving (Eq, Show, Ord)
 

@@ -485,39 +485,49 @@ writeToLog tab text = do
         Nothing -> return ()
     Nothing -> return ()
 
--- | Update style of tab titles based on text.
+-- | Update style of tab titles based on message text.
 updateTabTitleForMessage :: Client -> ClientTab -> T.Text -> IO ()
 updateTabTitleForMessage client clientTab text = do
+  session <- atomically $ getSessionForTab clientTab
+  case session of
+    Just session -> do
+      nick <- atomically . readTVar $ sessionNick session
+      if T.isInfixOf (ourDecodeUtf8 nick) text
+        then setNotification client clientTab Mentioned
+        else setNotification client clientTab Messaged
+    Nothing -> return ()    
+
+-- | Update style of tab titles based on notice text.
+updateTabTitleForNotice :: Client -> ClientTab -> T.Text -> IO ()
+updateTabTitleForNotice client clientTab text = do
+  session <- atomically $ getSessionForTab clientTab
+  case session of
+    Just session -> do
+      nick <- atomically . readTVar $ sessionNick session
+      if T.isInfixOf (ourDecodeUtf8 nick) text
+        then setNotification client clientTab Mentioned
+        else setNotification client clientTab Noticed
+    Nothing -> return ()    
+
+-- | Set notification for tab
+setNotification :: Client -> ClientTab -> Notification -> IO ()
+setNotification client clientTab notification = do
   mostRecent <- atomically $ isTabMostRecentTabForWindow client clientTab
   if not mostRecent
     then do
-      session <- atomically $ getSessionForTab clientTab
-      case session of
-        Just session -> do
-          nick <- atomically . readTVar $ sessionNick session
-          if T.isInfixOf (ourDecodeUtf8 nick) text
-            then setNotification clientTab Mentioned
-            else setNotification clientTab Messaged
-        Nothing -> return ()    
+      response <- atomically $ do
+        oldNotification <- readTVar $ clientTabNotification clientTab
+        let newNotification = max oldNotification notification
+        writeTVar (clientTabNotification clientTab) newNotification
+        setTabTitleStyle (clientTabTab clientTab) $
+          case newNotification of
+            NoNotification -> ""
+            UserChanged -> "foreground=\"brown\""
+            Messaged -> "foreground=\"blue\""
+            Noticed -> "foreground=\"purple\""
+            Mentioned -> "foreground=\"orange\""
+      asyncHandleResponse response
     else return ()
-
--- | Set notification for tab
-setNotification :: ClientTab -> Notification -> IO ()
-setNotification clientTab notification = do
-  response <- atomically $ do
-    oldNotification <- readTVar $ clientTabNotification clientTab
-    let newNotification = max oldNotification notification
-    writeTVar (clientTabNotification clientTab) newNotification
-    case newNotification of
-      NoNotification ->
-        setTabTitleStyle (clientTabTab clientTab) ""
-      UserChanged ->
-        setTabTitleStyle (clientTabTab clientTab) "foreground=\"brown\""
-      Messaged ->
-        setTabTitleStyle (clientTabTab clientTab) "foreground=\"blue\""
-      Mentioned ->
-        setTabTitleStyle (clientTabTab clientTab) "foreground=\"orange\""
-  asyncHandleResponse response
 
 -- | Reset notification for tab
 resetNotification :: ClientTab -> IO ()
@@ -962,7 +972,7 @@ handleJoinMessage client session message = do
                     users <- readTVar $ channelUsers channel
                     writeTVar (channelUsers channel) $ users |> user
                   tabs <- atomically $ findChannelTabsForChannel client channel
-                  forM_ tabs $ \tab -> setNotification tab UserChanged
+                  forM_ tabs $ \tab -> setNotification client tab UserChanged
                 else return ()
               updateChannelTabsForUser client channel user
             Nothing -> return ()
@@ -1019,7 +1029,8 @@ handlePartMessage client session message =
                          removeUserFromChannel client channel user
                          tabs <- atomically $ findChannelTabsForChannel client
                                  channel
-                         forM_ tabs $ \tab -> setNotification tab UserChanged
+                         forM_ tabs $ \tab ->
+                           setNotification client tab UserChanged
                        else do
                          displayChannelMessage client channel "* You have left"
                          removeAllUsersFromChannel client channel
@@ -1098,7 +1109,7 @@ handleQuitMessage client session message = do
       case user of
         Just user -> do
           tabs <- atomically $ findAllTabsForUser client user
-          forM_ tabs $ \tab -> setNotification tab UserChanged
+          forM_ tabs $ \tab -> setNotification client tab UserChanged
           ourNick <- atomically . readTVar $ sessionNick session
           if nick /= ourNick
             then do
@@ -1144,7 +1155,7 @@ handleNickMessage client session message =
           case user of
             Just user -> do
               tabs <- atomically $ findAllTabsForUser client user
-              forM_ tabs $ \tab -> setNotification tab UserChanged
+              forM_ tabs $ \tab -> setNotification client tab UserChanged
               removeUserFromAllChannelTabs client user
             Nothing -> return ()
           join . atomically $ do
@@ -1530,6 +1541,7 @@ handlePrivmsgMessage client session message = do
         ircMessageCoda message) of
     (Just prefix, Just target, Just text) -> do
       let source = extractNick prefix
+          text' = ourDecodeUtf8 text
       ourNick <- atomically . readTVar $ sessionNick session
       if target == ourNick
         then do
@@ -1538,9 +1550,9 @@ handlePrivmsgMessage client session message = do
             Nothing -> do
               tabs <- findOrCreateUserTabsForUser client user
               forM_ tabs $ \tab ->
-                updateTabTitleForMessage client tab (ourDecodeUtf8 text)
+                updateTabTitleForMessage client tab text'
               displayMessageOnTabs client tabs . T.pack $
-                printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+                printf "<%s> %s" (ourDecodeUtf8 source) text'
             Just (command, param) ->
               handleUserCtcp client user command param
         else do
@@ -1555,10 +1567,9 @@ handlePrivmsgMessage client session message = do
                 Nothing -> do
                   tabs <- atomically $ findChannelTabsForChannel client channel
                   forM_ tabs $ \tab ->
-                    updateTabTitleForMessage client tab (ourDecodeUtf8 text)
+                    updateTabTitleForMessage client tab text'
                   displayChannelMessage client channel . T.pack $
-                    printf "<%s%s> %s" userPrefix (ourDecodeUtf8 source)
-                    (ourDecodeUtf8 text)
+                    printf "<%s%s> %s" userPrefix (ourDecodeUtf8 source) text'
                 Just (command, param) ->
                   handleChannelCtcp client channel user command param
             Nothing -> return ()
@@ -1572,6 +1583,7 @@ handleNoticeMessage client session message = do
         ircMessageCoda message) of
     (Just prefix, Just target, Just text) -> do
       let source = extractNick prefix
+          text' = ourDecodeUtf8 text
       ourNick <- atomically . readTVar $ sessionNick session
       if target == ourNick
         then do
@@ -1579,14 +1591,22 @@ handleNoticeMessage client session message = do
           case parseCtcp text of
             Just (command, rest) -> handleCtcpNotice client user command rest
             Nothing -> do
+              tab <-
+                atomically $ findMostRecentTabForSession client session
+              case tab of
+                Just tab ->
+                  updateTabTitleForNotice client tab text'
               displaySessionMessageOnMostRecentTab client session . T.pack $
-                printf "-%s- %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+                printf "-%s- %s" (ourDecodeUtf8 source) text'
         else do
           channel <- atomically $ findChannelByName session target
           case channel of
             Just channel -> do
+              tabs <- atomically $ findChannelTabsForChannel client channel
+              forM_ tabs $ \tab ->
+                updateTabTitleForNotice client tab text'
               displayChannelMessage client channel . T.pack $
-                printf "-%s- %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
+                printf "-%s- %s" (ourDecodeUtf8 source) text'
             Nothing -> return ()
     _ -> return ()
 
