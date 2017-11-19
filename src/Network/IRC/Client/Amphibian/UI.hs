@@ -59,7 +59,9 @@ module Network.IRC.Client.Amphibian.UI
    tryRecvWindow,
    openTab,
    closeTab,
-   setTabTitle,
+   setTabTitleText,
+   setTabTitleStyle,
+   setTabTitleTextAndStyle,
    addTabText,
    setEntry,
    setTopicVisible,
@@ -251,13 +253,13 @@ tryRecvWindow :: WindowEventSub -> STM (Maybe WindowEvent)
 tryRecvWindow (WindowEventSub sub) = tryReadTChan sub
 
 -- | Open a tab on a window.
-openTab :: Window -> T.Text -> STM (Response Tab)
-openTab window title = do
+openTab :: Window -> T.Text -> T.Text -> STM (Response Tab)
+openTab window titleText titleStyle = do
   state <- readTVar $ windowState window
   response <- newEmptyTMVar
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue window)
-         (OpenTab title $ Response response)
+         (OpenTab titleText titleStyle $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
@@ -272,14 +274,36 @@ closeTab tab = do
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
--- | Set the title of a tab.
-setTabTitle :: Tab -> T.Text -> STM (Response ())
-setTabTitle tab title = do
+-- | Set the title text of a tab.
+setTabTitleText :: Tab -> T.Text -> STM (Response ())
+setTabTitleText tab titleText = do
   state <- readTVar . windowState $ tabWindow tab
   response <- newEmptyTMVar
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue $ tabWindow tab)
-         (SetTabTitle tab title $ Response response)
+         (SetTabTitleText tab titleText $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Set the title style of a tab.
+setTabTitleStyle :: Tab -> T.Text -> STM (Response ())
+setTabTitleStyle tab titleStyle = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (SetTabTitleStyle tab titleStyle $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Set the title text and style of a tab.
+setTabTitleTextAndStyle :: Tab -> T.Text -> T.Text -> STM (Response ())
+setTabTitleTextAndStyle tab titleText titleStyle = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (SetTabTitleTextAndStyle tab titleText titleStyle $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
@@ -456,13 +480,13 @@ runWindow window = do
       atomically $ do
         writeTVar (windowState window) WindowNotStarted
         putTMVar response $ Right ()
-    OpenTab title (Response response) -> do
+    OpenTab titleText titleStyle (Response response) -> do
       if state == WindowShown
         then do
           lock <- atomically $ newEmptyTMVar
           printf "*** OPENING TAB\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
-            tab <- createTab window title
+            tab <- createTab window titleText titleStyle
             case tab of
               Just tab -> atomically . putTMVar response $ Right tab
               Nothing ->
@@ -528,20 +552,35 @@ runWindow window = do
                        Error "could not find window"
         else atomically . putTMVar response . Left $ Error "window not open"
       runWindow window
-    SetTabTitle tab title (Response response) -> do
+    SetTabTitleText tab titleText (Response response) -> do
       tabState' <- atomically . readTVar $ tabState tab
       case tabState' of
         TabIsOpen -> do
-          lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING TAB TITLE\n"
-          Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
-            Gtk.labelSetText (tabLabel tab) title
-            atomically $ do
-              putTMVar response $ Right ()
-              putTMVar lock ()
-            return False
-          (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING TAB TITLE\n"
+          atomically $ writeTVar (tabTitleText tab) titleText
+          updateTabTitle tab
+          atomically . putTMVar response $ Right ()
+        TabIsClosed -> atomically .  putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
+    SetTabTitleStyle tab titleStyle (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> do
+          atomically $ writeTVar (tabTitleStyle tab) titleStyle
+          updateTabTitle tab
+          atomically . putTMVar response $ Right ()
+        TabIsClosed -> atomically .  putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
+    SetTabTitleTextAndStyle tab titleText titleStyle (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> do
+          atomically $ do
+            writeTVar (tabTitleText tab) titleText
+            writeTVar (tabTitleStyle tab) titleStyle
+          updateTabTitle tab
+          atomically . putTMVar response $ Right ()
         TabIsClosed -> atomically .  putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -823,9 +862,25 @@ installEventHandlers window = do
       return ()
     _ -> return ()
 
+-- | Update tab title.
+updateTabTitle :: Tab -> IO ()
+updateTabTitle tab = do
+  printf "*** SETTING TAB TITLE\n"
+  (text, style) <- atomically $ do
+    text <- readTVar $ tabTitleText tab
+    style <- readTVar $ tabTitleStyle tab
+    return (text, style)
+  Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
+    escapedText <- GLib.markupEscapeText text (fromIntegral $ T.length text)
+    let titleMarkup = T.pack $ printf "<span %s>%s</span>" style
+                      escapedText
+    Gtk.labelSetMarkup (tabLabel tab) titleMarkup
+    return False
+  printf "*** DONE SETTING TAB TITLE\n"
+
 -- | Attempt to create a tab for a window.
-createTab :: Window -> T.Text -> IO (Maybe Tab)
-createTab window title = do
+createTab :: Window -> T.Text -> T.Text -> IO (Maybe Tab)
+createTab window titleText titleStyle = do
   (state, actualWindow, notebook, nextTabIndex) <- atomically $ do
     state <- readTVar $ windowState window
     actualWindow <- tryReadTMVar $ windowWindow window
@@ -872,7 +927,7 @@ createTab window title = do
       Gtk.widgetHide sideBox
       Gtk.widgetHide topicEntry
       tabBox <- Gtk.boxNew Gtk.OrientationHorizontal 10
-      label <- Gtk.labelNew $ Just title
+      label <- Gtk.labelNew Nothing
       image <- Gtk.imageNewFromIconName (Just "window-close") 12
       closeButton <- Gtk.toolButtonNew (Just image) (Nothing :: Maybe T.Text)
       Gtk.boxPackStart tabBox label False False 0
@@ -881,6 +936,8 @@ createTab window title = do
       menuLabel <- Gtk.labelNew (Nothing :: Maybe T.Text)
       nextUserIndex <- atomically $ newTVar 0
       users <- atomically $ newTVar S.empty
+      tabTitleText' <- atomically $ newTVar titleText
+      tabTitleStyle' <- atomically $ newTVar titleStyle
       state <- atomically $ newTVar TabIsOpen
       eventQueue <- atomically $ newBroadcastTChan
       let tab = Tab { tabIndex = nextTabIndex,
@@ -896,8 +953,11 @@ createTab window title = do
                       tabTabBox = tabBox,
                       tabNextUserIndex = nextUserIndex,
                       tabUsers = users,
+                      tabTitleText = tabTitleText',
+                      tabTitleStyle = tabTitleStyle',
                       tabState = state,
                       tabEventQueue = eventQueue }
+      updateTabTitle tab
       atomically $ do
         tabs <- readTVar $ windowTabs window
         writeTVar (windowTabs window) $ tabs |> tab

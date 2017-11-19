@@ -210,6 +210,7 @@ openClientWindow client windowTitle tabTitle = do
 openClientTab :: Client -> ClientWindow -> T.Text -> IO (Either Error ClientTab)
 openClientTab client clientWindow tabTitle = do
   response <- atomically $ openTab (clientWindowWindow clientWindow) tabTitle
+    ""
   result <- atomically $ getResponse response
   case result of
     Right tab -> do
@@ -217,6 +218,7 @@ openClientTab client clientWindow tabTitle = do
       selectIndex <- atomically $ newTVar (-1)
       tabEventSub <- atomically $ subscribeTab tab
       subtype <- atomically $ newTVar FreeTab
+      notification <- atomically $ newTVar NoNotification
       history <- atomically $ createHistory
       let clientTab =
             ClientTab { clientTabIndex = index,
@@ -225,6 +227,7 @@ openClientTab client clientWindow tabTitle = do
                         clientTabEventSub = tabEventSub,
                         clientTabSubtype = subtype,
                         clientTabWindow = clientWindow,
+                        clientTabNotification = notification,
                         clientTabHistory = history }
       atomically $ do
         tabs <- readTVar $ clientTabs client
@@ -418,6 +421,33 @@ findMostRecentWindow client = do
                 else findMostRecentWindow' index currentWindow rest
             S.EmptyL -> return currentWindow
 
+-- | Find the most recent tab for a window.
+findMostRecentTabForWindow :: Client -> ClientWindow -> STM (Maybe ClientTab)
+findMostRecentTabForWindow client window = do
+  findMostRecentTabForWindow' (-1) Nothing =<< (readTVar $ clientTabs client)
+  where findMostRecentTabForWindow' index currentTab tabs =
+          case S.viewl tabs of
+            tab :< rest -> do
+              let windowIndex = clientWindowIndex window
+                  windowIndex' = clientWindowIndex $ clientTabWindow tab
+              if windowIndex == windowIndex'
+                then do
+                  index' <- readTVar $ clientTabSelectIndex tab
+                  if index' >= index
+                    then findMostRecentTabForWindow' index' (Just tab) rest
+                    else findMostRecentTabForWindow' index currentTab rest
+                else findMostRecentTabForWindow' index currentTab rest
+            S.EmptyL -> return currentTab
+
+-- | Is tab most recent tab for window.
+isTabMostRecentTabForWindow :: Client -> ClientTab -> STM Bool
+isTabMostRecentTabForWindow client clientTab = do
+  clientTab' <- findMostRecentTabForWindow client $ clientTabWindow clientTab
+  case clientTab' of
+    Just clientTab' ->
+      return $ clientTabIndex clientTab == clientTabIndex clientTab'
+    Nothing -> return False
+
 -- | Format a message.
 formatMessage :: T.Text -> IO T.Text
 formatMessage message = do
@@ -454,6 +484,48 @@ writeToLog tab text = do
           hFlush handle
         Nothing -> return ()
     Nothing -> return ()
+
+-- | Update style of tab titles based on text.
+updateTabTitleForMessage :: Client -> ClientTab -> T.Text -> IO ()
+updateTabTitleForMessage client clientTab text = do
+  mostRecent <- atomically $ isTabMostRecentTabForWindow client clientTab
+  if not mostRecent
+    then do
+      session <- atomically $ getSessionForTab clientTab
+      case session of
+        Just session -> do
+          nick <- atomically . readTVar $ sessionNick session
+          if T.isInfixOf (ourDecodeUtf8 nick) text
+            then setNotification clientTab Mentioned
+            else setNotification clientTab Messaged
+        Nothing -> return ()    
+    else return ()
+
+-- | Set notification for tab
+setNotification :: ClientTab -> Notification -> IO ()
+setNotification clientTab notification = do
+  response <- atomically $ do
+    oldNotification <- readTVar $ clientTabNotification clientTab
+    let newNotification = max oldNotification notification
+    writeTVar (clientTabNotification clientTab) newNotification
+    case newNotification of
+      NoNotification ->
+        setTabTitleStyle (clientTabTab clientTab) ""
+      UserChanged ->
+        setTabTitleStyle (clientTabTab clientTab) "foreground=\"brown\""
+      Messaged ->
+        setTabTitleStyle (clientTabTab clientTab) "foreground=\"blue\""
+      Mentioned ->
+        setTabTitleStyle (clientTabTab clientTab) "foreground=\"orange\""
+  asyncHandleResponse response
+
+-- | Reset notification for tab
+resetNotification :: ClientTab -> IO ()
+resetNotification clientTab = do
+  response <- atomically $ do
+    writeTVar (clientTabNotification clientTab) NoNotification
+    setTabTitleStyle (clientTabTab clientTab) ""
+  asyncHandleResponse response
 
 -- | Display session message.
 displaySessionMessage :: Client -> Session -> T.Text -> IO ()
@@ -889,6 +961,8 @@ handleJoinMessage client session message = do
                     writeTVar (userType user) $ type'' |> (channel, S.empty)
                     users <- readTVar $ channelUsers channel
                     writeTVar (channelUsers channel) $ users |> user
+                  tabs <- atomically $ findChannelTabsForChannel client channel
+                  forM_ tabs $ \tab -> setNotification tab UserChanged
                 else return ()
               updateChannelTabsForUser client channel user
             Nothing -> return ()
@@ -943,6 +1017,9 @@ handlePartMessage client session message =
                            printf "* %s (%s) has left" (ourDecodeUtf8 nick)
                            (ourDecodeUtf8 prefix)
                          removeUserFromChannel client channel user
+                         tabs <- atomically $ findChannelTabsForChannel client
+                                 channel
+                         forM_ tabs $ \tab -> setNotification tab UserChanged
                        else do
                          displayChannelMessage client channel "* You have left"
                          removeAllUsersFromChannel client channel
@@ -1020,6 +1097,8 @@ handleQuitMessage client session message = do
       user <- atomically $ findUserByNick session nick
       case user of
         Just user -> do
+          tabs <- atomically $ findAllTabsForUser client user
+          forM_ tabs $ \tab -> setNotification tab UserChanged
           ourNick <- atomically . readTVar $ sessionNick session
           if nick /= ourNick
             then do
@@ -1063,7 +1142,10 @@ handleNickMessage client session message =
         then do
           user <- atomically $ findUserByNick session nick
           case user of
-            Just user -> removeUserFromAllChannelTabs client user
+            Just user -> do
+              tabs <- atomically $ findAllTabsForUser client user
+              forM_ tabs $ \tab -> setNotification tab UserChanged
+              removeUserFromAllChannelTabs client user
             Nothing -> return ()
           join . atomically $ do
             case user of
@@ -1455,6 +1537,8 @@ handlePrivmsgMessage client session message = do
           case parseCtcp text of
             Nothing -> do
               tabs <- findOrCreateUserTabsForUser client user
+              forM_ tabs $ \tab ->
+                updateTabTitleForMessage client tab (ourDecodeUtf8 text)
               displayMessageOnTabs client tabs . T.pack $
                 printf "<%s> %s" (ourDecodeUtf8 source) (ourDecodeUtf8 text)
             Just (command, param) ->
@@ -1469,6 +1553,9 @@ handlePrivmsgMessage client session message = do
                 userTypePrefix <$> (atomically $ getSingleUserType user channel)
               case parseCtcp text of
                 Nothing -> do
+                  tabs <- atomically $ findChannelTabsForChannel client channel
+                  forM_ tabs $ \tab ->
+                    updateTabTitleForMessage client tab (ourDecodeUtf8 text)
                   displayChannelMessage client channel . T.pack $
                     printf "<%s%s> %s" userPrefix (ourDecodeUtf8 source)
                     (ourDecodeUtf8 text)
@@ -2554,8 +2641,8 @@ createSessionInTab client clientTab hostname port nick username realName = do
     Right session -> do
       atomically . writeTVar (clientTabSubtype clientTab) $
         SessionTab session
-      (atomically . setTabTitle (clientTabTab clientTab) $ T.pack hostname) >>
-        return ()
+      (atomically . setTabTitleText (clientTabTab clientTab) $ T.pack hostname)
+        >> return ()
       populateHistory session Nothing (clientTabHistory clientTab)
       return $ Right session
     Left failure -> return $ Left failure
@@ -2685,9 +2772,10 @@ handleTopicEntered client clientTab text = do
 -- | Handle a tab selected event.
 handleTabSelected :: Client -> ClientTab -> IO ()
 handleTabSelected client clientTab = do
-  atomically $
+  atomically $ do
     writeTVar (clientTabSelectIndex clientTab) =<<
-    getNextClientTabSelectIndex client
+      getNextClientTabSelectIndex client
+  resetNotification clientTab
 
 -- | Close a session if no tabs are open for it.
 cleanupSessionIfNoTabs :: Client -> Session -> IO ()
@@ -3036,7 +3124,7 @@ updateTabTitleForAllUserTabs client user = do
   nick <- ourDecodeUtf8 <$> (atomically . readTVar $ userNick user)
   tabs <- atomically $ findUserTabsForUser client user
   forM_ tabs $ \tab -> do
-    response <- atomically $ setTabTitle (clientTabTab tab) nick
+    response <- atomically $ setTabTitleText (clientTabTab tab) nick
     asyncHandleResponse response
 
 -- | Find all channels user is in.

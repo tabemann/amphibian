@@ -67,6 +67,7 @@ module Network.IRC.Client.Amphibian.Types
    Delay(..),
    ClientTabSubtype(..),
    ClientWindow(..),
+   Notification(..),
    ClientTab(..),
    Client(..),
    ClientTaggedEvent(..),
@@ -239,11 +240,13 @@ data WindowState = WindowNotStarted
 -- | IRC window action type
 data WindowAction = OpenWindow T.Text (Response ())
                   | CloseWindow (Response ())
-                  | OpenTab T.Text (Response Tab)
+                  | OpenTab T.Text T.Text (Response Tab)
                   | CloseTab Tab (Response ())
                   | SetWindowTitle T.Text (Response ())
                   | StopWindow (Response ())
-                  | SetTabTitle Tab T.Text (Response ())
+                  | SetTabTitleText Tab T.Text (Response ())
+                  | SetTabTitleStyle Tab T.Text (Response ())
+                  | SetTabTitleTextAndStyle Tab T.Text T.Text (Response ())
                   | AddTabText Tab T.Text (Response ())
                   | SetEntry Tab T.Text (Response ())
                   | SetTopicVisible Tab Bool (Response ())
@@ -276,6 +279,8 @@ data Tab = Tab
     tabTabBox :: Gtk.Box,
     tabNextUserIndex :: TVar Integer,
     tabUsers :: TVar (S.Seq TabUser),
+    tabTitleText :: TVar T.Text,
+    tabTitleStyle :: TVar T.Text,
     tabState :: TVar TabState,
     tabEventQueue :: TChan TabEvent }
 
@@ -442,6 +447,13 @@ data ClientWindow = ClientWindow
     clientWindowWindow :: Window,
     clientWindowEventSub :: WindowEventSub }
 
+-- | Notification level
+data Notification = NoNotification
+                  | UserChanged
+                  | Messaged
+                  | Mentioned
+                  deriving (Eq, Show, Ord)
+
 -- | Client tab type
 data ClientTab = ClientTab
   { clientTabIndex :: Integer,
@@ -450,6 +462,7 @@ data ClientTab = ClientTab
     clientTabEventSub :: TabEventSub,
     clientTabSubtype :: TVar ClientTabSubtype,
     clientTabWindow :: ClientWindow,
+    clientTabNotification :: TVar Notification,
     clientTabHistory :: History }
 
 -- | Client type
