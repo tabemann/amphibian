@@ -77,7 +77,8 @@ module Network.IRC.Client.Amphibian.UI
    getTabUserState,
    subscribeTabUser,
    recvTabUser,
-   tryRecvTabUser)
+   tryRecvTabUser,
+   escapeText)
 
 where
 
@@ -92,7 +93,9 @@ import qualified GI.GLib as GLib
 import Data.Int (Int32)
 import Data.Functor ((<$>))
 import Data.Sequence ((|>),
+                      (><),
                       ViewL((:<)))
+import Data.Foldable (toList)
 import Data.List (elemIndex)
 import Control.Monad (forM_,
                       join)
@@ -128,6 +131,7 @@ import Control.Concurrent.STM.TMVar (TMVar,
                                      takeTMVar,
                                      readTMVar)
 import Text.Printf (printf)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- | Default window width.
 defaultWindowWidth :: Int32
@@ -593,8 +597,9 @@ runWindow window = do
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             iter <- Gtk.textBufferGetStartIter $ tabTextBuffer tab
             Gtk.textIterForwardToEnd iter
-            Gtk.textBufferInsert (tabTextBuffer tab) iter text
-              (fromIntegral $ T.length text)
+            let text' = formatText text
+            Gtk.textBufferInsertMarkup (tabTextBuffer tab) iter text'
+              (fromIntegral $ T.length text')
             atomically $ do
               putTMVar response $ Right ()
               putTMVar lock ()
@@ -1009,3 +1014,178 @@ createTab window titleText titleStyle = do
       printf "*** DONE CREATING TAB\n"
       return $ Just tab
     _ -> return Nothing
+
+-- | Escape text for markup.
+escapeText :: T.Text -> T.Text
+escapeText text =
+  unsafePerformIO $ GLib.markupEscapeText text (fromIntegral $ T.length text)
+
+
+-- | Format text for markup.
+formatText :: T.Text -> T.Text
+formatText text =
+  let parts = T.splitOn "\n" text
+      parts' = fmap (\part -> formatText' part [] $ StyleAndColor [] 1 0) parts
+  in T.intercalate "\n" parts'
+  where formatText' text parts styleAndColor =
+          case T.uncons text of
+            Just (char, rest)
+              | char == '\x000002' ->
+                handleStyle rest parts styleAndColor Bold
+              | char == '\x00001D' ->
+                handleStyle rest parts styleAndColor Italic
+              | char == '\x00001F' ->
+                handleStyle rest parts styleAndColor Underline
+              | char == '\x000016' ->
+                handleStyle rest parts styleAndColor Reverse
+              | char == '\x00000F' ->
+                clearStyle rest parts styleAndColor
+              | char == '\x000003' ->
+                handleColor rest parts styleAndColor
+              | otherwise ->
+                let (text', rest) = T.span (not . isFormattingChar) text
+                in formatText' rest (parts |> escapeText text') styleAndColor
+            Nothing -> T.concat . toList $ closeStyle parts styleAndColor
+        closeStyle parts styleAndColor =
+          if styleAndColor /= StyleAndColor [] 1 0
+          then parts |> "</span>"
+          else parts
+        handleStyle text parts styleAndColor changedStyle =
+          let newStyleAndColor = toggleStyle styleAndColor changedStyle
+              parts' = closeStyle parts styleAndColor
+              parts'' = styleMarkup parts' newStyleAndColor
+          in formatText' text parts'' newStyleAndColor
+        clearStyle text parts styleAndColor =
+          formatText' text (closeStyle parts styleAndColor)
+          (StyleAndColor [] 1 0)
+        handleColor text parts styleAndColor =
+          case parse0To15 text of
+            (Just foreground, rest) ->
+              case T.uncons rest of
+                Just (',', rest') ->
+                  case parse0To15 rest' of
+                    (Just background, rest'') ->
+                      let newStyleAndColor =
+                            styleAndColor { currentForeground = foreground,
+                                            currentBackground = background }
+                          parts' = closeStyle parts styleAndColor
+                          parts'' = styleMarkup parts' newStyleAndColor
+                      in formatText' rest'' parts'' newStyleAndColor
+                    (Nothing, _) ->
+                      let newStyleAndColor =
+                            styleAndColor { currentForeground = foreground,
+                                            currentBackground = 0 }
+                          parts' = closeStyle parts styleAndColor
+                          parts'' = styleMarkup parts' newStyleAndColor
+                      in formatText' rest parts'' newStyleAndColor
+                _ ->
+                  let newStyleAndColor = styleAndColor { currentForeground =
+                                                           foreground,
+                                                         currentBackground = 0 }
+                      parts' = closeStyle parts styleAndColor
+                      parts'' = styleMarkup parts' newStyleAndColor
+                  in formatText' rest parts'' newStyleAndColor
+            (Nothing, rest) ->
+              let newStyleAndColor = styleAndColor { currentForeground = 1,
+                                                     currentBackground = 0 }
+                  parts' = closeStyle parts styleAndColor
+                  parts'' = styleMarkup parts' newStyleAndColor
+              in formatText' rest parts'' newStyleAndColor
+        styleMarkup parts styleAndColor =
+          if styleAndColor /= StyleAndColor [] 1 0
+          then
+            let part0 =
+                  case S.elemIndexL Bold $ currentStyle styleAndColor of
+                    Just _ -> " weight=\"bold\""
+                    Nothing -> ""
+                part1 =
+                  case S.elemIndexL Italic $ currentStyle styleAndColor of
+                    Just _ -> " style=\"italic\""
+                    Nothing -> ""
+                part2 =
+                  case S.elemIndexL Underline $ currentStyle styleAndColor of
+                    Just _ -> " underline=\"single\""
+                    Nothing -> ""
+                part3 =
+                  case S.elemIndexL Reverse $ currentStyle styleAndColor of
+                    Just _ ->
+                      T.pack $ printf " foreground=\"%s\" background=\"%s\""
+                      (getColor $ currentBackground styleAndColor)
+                      (getColor $ currentForeground styleAndColor)
+                    Nothing ->
+                      T.pack $ printf " foreground=\"%s\" background=\"%s\""
+                      (getColor $ currentForeground styleAndColor)
+                      (getColor $ currentBackground styleAndColor)
+            in parts >< ["<span", part0, part1, part2, part3, ">"]
+          else parts
+
+-- | Parse a number from 0 to 15 from text
+parse0To15 :: T.Text -> (Maybe Int, T.Text)
+parse0To15 text =
+  case T.uncons text of
+    Just (char, rest)
+      | char == '0' ->
+        case T.uncons rest of
+          Just (char, rest')
+            | char == '0' -> (Just 0, rest')
+            | char == '1' -> (Just 1, rest')
+            | char == '2' -> (Just 2, rest')
+            | char == '3' -> (Just 3, rest')
+            | char == '4' -> (Just 4, rest')
+            | char == '5' -> (Just 5, rest')
+            | char == '6' -> (Just 6, rest')
+            | char == '7' -> (Just 7, rest')
+            | char == '8' -> (Just 8, rest')
+            | char == '9' -> (Just 9, rest')
+          _ -> (Nothing, text)
+      | char == '1' ->
+        case T.uncons rest of
+          Just (char, rest')
+            | char == '0' -> (Just 10, rest')
+            | char == '1' -> (Just 11, rest')
+            | char == '2' -> (Just 12, rest')
+            | char == '3' -> (Just 13, rest')
+            | char == '4' -> (Just 14, rest')
+            | char == '5' -> (Just 15, rest')
+          _ -> (Nothing, text)
+    _ -> (Nothing, text)
+
+-- | Get whether char is formatting char.
+isFormattingChar :: Char -> Bool
+isFormattingChar '\x000002' = True
+isFormattingChar '\x00001D' = True
+isFormattingChar '\x00001F' = True
+isFormattingChar '\x000016' = True
+isFormattingChar '\x00000F' = True
+isFormattingChar '\x000003' = True
+isFormattingChar _ = False
+
+-- | Colors.
+getColor :: Int -> T.Text
+getColor 0 = "#FFFFFF"
+getColor 1 = "#000000"
+getColor 2 = "#00007F"
+getColor 3 = "#009300"
+getColor 4 = "#FF0000"
+getColor 5 = "#7F0000"
+getColor 6 = "#9C009C"
+getColor 7 = "#FC7F00"
+getColor 8 = "#FFFF00"
+getColor 9 = "#00FC00"
+getColor 10 = "#009393"
+getColor 11 = "#00FFFF"
+getColor 12 = "#0000FC"
+getColor 13 = "#FF00FF"
+getColor 14 = "#7F7F7F"
+getColor 15 = "#D2D2D2"
+getColor _ = "#000000"
+
+-- | Toggle style.
+toggleStyle :: StyleAndColor -> Style -> StyleAndColor
+toggleStyle styleAndColor style =
+  case S.elemIndexL style (currentStyle styleAndColor) of
+    Just _ ->
+      styleAndColor { currentStyle =
+                        S.filter (/= style) $ currentStyle styleAndColor }
+    Nothing ->
+      styleAndColor { currentStyle = currentStyle styleAndColor |> style }

@@ -654,10 +654,11 @@ handleSessionEvent client session event = do
   case event of
     IRCFoundAddr address -> do
       displaySessionMessage client session
-        (T.pack . printf "* Found address: %s" $ show address)
+        (T.pack . printf "* Found address: %s" . stripText . T.pack $
+         show address)
     IRCNoAddrFound (Error errorText) -> do
       displaySessionMessage client session
-        (T.pack $ printf "* Unable to find address: %s" errorText)
+        (T.pack $ printf "* Unable to find address: %s" $ stripText errorText)
       tryReconnectSession client session
     IRCLookupCanceled -> do
       displaySessionMessage client session
@@ -665,17 +666,17 @@ handleSessionEvent client session event = do
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCFoundName hostname -> do
       displaySessionMessage client session
-        (T.pack $ printf "* Found hostname: %s" hostname)
+        (T.pack $ printf "* Found hostname: %s" . stripText $ T.pack hostname)
     IRCNoNameFound (Error errorText) -> do
       displaySessionMessage client session
-        (T.pack $ printf "* No name found: %s" errorText)
+        (T.pack $ printf "* No name found: %s" $ stripText errorText)
     IRCReverseLookupCanceled -> do
       displaySessionMessage client session
         "* Reverse lookup canceled"
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCConnectingFailed (Error errorText) -> do
       displaySessionMessage client session
-        (T.pack $ printf "* Connecting failed: %s" errorText)
+        (T.pack $ printf "* Connecting failed: %s" $ stripText errorText)
       tryReconnectSession client session
     IRCConnected -> do
       let connection = sessionIRCConnection session
@@ -686,7 +687,8 @@ handleSessionEvent client session event = do
       case (hostname, port) of
         (Just hostname, Just port) -> do
           displaySessionMessage client session
-            (T.pack $ printf "* Connected to %s:%d" hostname
+            (T.pack $ printf "* Connected to %s:%d"
+             (stripText $ T.pack hostname)
              (fromIntegral port :: Int))
           atomically $ do
             writeTVar (sessionHostname session) hostname
@@ -737,18 +739,18 @@ handleSessionEvent client session event = do
       tryReconnectSession client session
     IRCDisconnectError (Error errorText) -> do
       displaySessionMessageAll client session
-        (T.pack $ printf "* Error disconnecting: %s" errorText)
+        (T.pack $ printf "* Error disconnecting: %s" $ stripText errorText)
       tryReconnectSession client session
     IRCDisconnectedByPeer -> do
       displaySessionMessageAll client session "* Disconnected by peer"
       tryReconnectSession client session
     IRCSendError (Error errorText) -> do
       displaySessionMessageAll client session
-        (T.pack $ printf "* Error sending: %s" errorText)
+        (T.pack $ printf "* Error sending: %s" $ stripText errorText)
       tryReconnectSession client session
     IRCRecvError (Error errorText) -> do
       displaySessionMessageAll client session
-        (T.pack $ printf "* Error receiving: %s" errorText)
+        (T.pack $ printf "* Error receiving: %s" $ stripText errorText)
       tryReconnectSession client session
     IRCRecvMessage message
       | ircMessageCommand message == rpl_WELCOME ->
@@ -920,7 +922,8 @@ handleTopicMessage client session message = do
                   Just prefix ->
                     let nick = ourDecodeUtf8 $ extractNick prefix
                     in displayChannelMessage client channel . T.pack $
-                       printf "* %s has changed the topic to: %s" nick text'
+                       printf "* %s has changed the topic to: %s" nick
+                       (ourDecodeUtf8 text)
                   Nothing -> return ()
                 atomically $ do
                   writeTVar (channelTopic channel) $ Just text
@@ -960,8 +963,9 @@ handleJoinMessage client session message = do
               if not inChannel
                 then do
                   displayChannelMessage client channel . T.pack $
-                    printf "* %s (%s) has joined" (ourDecodeUtf8 nick)
-                    (ourDecodeUtf8 prefix)
+                    printf "* %s (%s) has joined"
+                    (stripText $ ourDecodeUtf8 nick)
+                    (stripText $ ourDecodeUtf8 prefix)
                   atomically $ do
                     type' <- readTVar $ userType user
                     let index = channelIndex channel
@@ -996,7 +1000,7 @@ handleJoinMessage client session message = do
             response <- atomically $ setSideVisible (clientTabTab tab) True
             asyncHandleResponse response
           displayChannelMessage client channel . T.pack $
-            printf "* Now talking on %s" (ourDecodeUtf8 name)
+            printf "* Now talking on %s" (stripText $ ourDecodeUtf8 name)
           user <- atomically $ do
             ourNick <- readTVar $ sessionNick session
             user <- findOrCreateUserByNick client session ourNick
@@ -1024,8 +1028,9 @@ handlePartMessage client session message =
                      if nick /= ourNick
                        then do
                          displayChannelMessage client channel . T.pack $
-                           printf "* %s (%s) has left" (ourDecodeUtf8 nick)
-                           (ourDecodeUtf8 prefix)
+                           printf "* %s (%s) has left"
+                           (stripText $ ourDecodeUtf8 nick)
+                           (stripText $ ourDecodeUtf8 prefix)
                          removeUserFromChannel client channel user
                          tabs <- atomically $ findChannelTabsForChannel client
                                  channel
@@ -1071,30 +1076,30 @@ handleKickMessage client session message =
             Just coda -> do
               displayChannelMessage client channel . T.pack $
                 printf "* %s has kicked %s from %s (%s)"
-                (ourDecodeUtf8 kickingNick)
-                (ourDecodeUtf8 kickedNick)
-                (ourDecodeUtf8 $ channelName channel)
-                (ourDecodeUtf8 coda)
+                (stripText $ ourDecodeUtf8 kickingNick)
+                (stripText $ ourDecodeUtf8 kickedNick)
+                (stripText . ourDecodeUtf8 $ channelName channel)
+                (stripText $ ourDecodeUtf8 coda)
             Nothing -> do
               displayChannelMessage client channel . T.pack $
                 printf "* %s has kicked %s from %s"
-                (ourDecodeUtf8 kickingNick)
-                (ourDecodeUtf8 kickedNick)
-                (ourDecodeUtf8 $ channelName channel)
+                (stripText $ ourDecodeUtf8 kickingNick)
+                (stripText $ ourDecodeUtf8 kickedNick)
+                (stripText . ourDecodeUtf8 $ channelName channel)
           removeUserFromChannel client channel user
         handleOurKick client channel user kickingNick coda = do
           case ircMessageCoda message of
             Just coda -> do
               displayChannelMessage client channel . T.pack $
                 printf "* You have been kicked from %s by %s (%s)"
-                (ourDecodeUtf8 $ channelName channel)
-                (ourDecodeUtf8 kickingNick)
-                (ourDecodeUtf8 coda)
+                (stripText . ourDecodeUtf8 $ channelName channel)
+                (stripText $ ourDecodeUtf8 kickingNick)
+                (stripText $ ourDecodeUtf8 coda)
             Nothing -> do
               displayChannelMessage client channel . T.pack $
                 printf "* You have been kicked from %s by %s"
-                (ourDecodeUtf8 $ channelName channel)
-                (ourDecodeUtf8 kickingNick)
+                (stripText . ourDecodeUtf8 $ channelName channel)
+                (stripText $ ourDecodeUtf8 kickingNick)
           removeUserFromChannel client channel user
           removeAllUsersFromChannelTabs client channel
           atomically $ writeTVar (channelState channel) NotInChannel
@@ -1116,11 +1121,13 @@ handleQuitMessage client session message = do
               case ircMessageCoda message of
                 Just coda -> do
                   displayUserMessageAll client user . T.pack $
-                    printf "* %s has quit (%s)" (ourDecodeUtf8 nick)
-                    (ourDecodeUtf8 coda)
+                    printf "* %s has quit (%s)"
+                    (stripText $ ourDecodeUtf8 nick)
+                    (stripText $ ourDecodeUtf8 coda)
                 Nothing -> do
                   displayUserMessageAll client user . T.pack $
-                    printf "* %s has quit" (ourDecodeUtf8 nick)
+                    printf "* %s has quit"
+                    (stripText $ ourDecodeUtf8 nick)
             else return ()
           removeUserFromAllChannels client session user
         Nothing -> return ()
@@ -1173,7 +1180,7 @@ handleNickMessage client session message =
                       updateAllChannelTabsForUser client user
                       displayUserMessageAll client user . T.pack $
                         printf "* You are now known as %s"
-                        (ourDecodeUtf8 newNick)
+                        (stripText $ ourDecodeUtf8 newNick)
                     Nothing -> return ()
               else do
                 return $ do
@@ -1182,8 +1189,9 @@ handleNickMessage client session message =
                       updateTabTitleForAllUserTabs client user
                       updateAllChannelTabsForUser client user
                       displayUserMessageAll client user . T.pack $
-                        printf "* %s is now known as %s" (ourDecodeUtf8 nick)
-                        (ourDecodeUtf8 newNick)
+                        printf "* %s is now known as %s"
+                        (stripText $ ourDecodeUtf8 nick)
+                        (stripText $ ourDecodeUtf8 newNick)
                     Nothing -> return ()
         else return ()
     _ -> return ()
@@ -1216,8 +1224,9 @@ handleModeMessage client session message =
                     Just prefix -> do
                       displaySessionMessageOnMostRecentTab client session .
                         T.pack $ printf "* %s sets mode %s on %s"
-                        (ourDecodeUtf8 prefix) (ourDecodeUtf8 param)
-                        (ourDecodeUtf8 nickOrChannel)
+                        (stripText $ ourDecodeUtf8 prefix)
+                        (stripText $ ourDecodeUtf8 param)
+                        (stripText $ ourDecodeUtf8 nickOrChannel)
                       atomically $ do
                         mode <- readTVar $ sessionMode session
                         writeTVar (sessionMode session) $
@@ -1328,9 +1337,10 @@ handleModeMessage client session message =
                        extraParams
                   else do
                     displayChannelMessage client channel . T.pack $
-                      printf "* %s sets mode +%s on %s" (ourDecodeUtf8 prefix)
-                      (ourDecodeUtf8 $ B.singleton byte)
-                      (ourDecodeUtf8 $ channelName channel)
+                      printf "* %s sets mode +%s on %s"
+                      (stripText $ ourDecodeUtf8 prefix)
+                      (stripText . ourDecodeUtf8 $ B.singleton byte)
+                      (stripText . ourDecodeUtf8 $ channelName channel)
                     parseChannelModeAdd client channel rest prefix mode
                       extraParams
               | otherwise -> parseChannelMode client channel param prefix mode
@@ -1343,8 +1353,9 @@ handleModeMessage client session message =
           case S.viewl extraParams of
             extraParam :< rest -> do
               displayChannelMessage client channel . T.pack $
-                printf "* %s sets ban on %s" (ourDecodeUtf8 prefix)
-                (ourDecodeUtf8 extraParam)
+                printf "* %s sets ban on %s"
+                (stripText $ ourDecodeUtf8 prefix)
+                (stripText $ ourDecodeUtf8 extraParam)
               parseChannelModeAdd client channel param prefix mode rest
             S.EmptyL ->
               parseChannelModeAdd client channel param prefix mode extraParams
@@ -1361,8 +1372,10 @@ handleModeMessage client session message =
               case user of
                 Just user -> do
                   displayChannelMessage client channel . T.pack $
-                    printf "* %s sets %s on %s" (ourDecodeUtf8 prefix)
-                    text (ourDecodeUtf8 extraParam)
+                    printf "* %s sets %s on %s"
+                    (stripText $ ourDecodeUtf8 prefix)
+                    (stripText text)
+                    (stripText $ ourDecodeUtf8 extraParam)
                   atomically $ addUserType user channel userType
                   updateChannelTabsForUser client channel user
                 Nothing -> return ()
@@ -1378,7 +1391,8 @@ handleModeMessage client session message =
             extraParam :< rest -> do
               displayChannelMessage client channel . T.pack $
                 printf "* %s adds %s to the invite mask"
-                (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+                (stripText $ ourDecodeUtf8 prefix)
+                (stripText $ ourDecodeUtf8 extraParam)
               parseChannelModeAdd client channel param prefix mode rest
             S.EmptyL ->
               parseChannelModeAdd client channel param prefix mode extraParams
@@ -1391,7 +1405,8 @@ handleModeMessage client session message =
             extraParam :< rest -> do
               displayChannelMessage client channel . T.pack $
                 printf "* %s sets keyword to %s"
-                (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+                (stripText $ ourDecodeUtf8 prefix)
+                (stripText $ ourDecodeUtf8 extraParam)
               parseChannelModeAdd client channel param prefix mode rest
             S.EmptyL ->
               parseChannelModeAdd client channel param prefix mode extraParams
@@ -1404,7 +1419,8 @@ handleModeMessage client session message =
             extraParam :< rest -> do
               displayChannelMessage client channel . T.pack $
                 printf "* %s sets user limit to %s"
-                (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+                (stripText $ ourDecodeUtf8 prefix)
+                (stripText $ ourDecodeUtf8 extraParam)
               parseChannelModeAdd client channel param prefix mode rest
             S.EmptyL ->
               parseChannelModeAdd client channel param prefix mode extraParams
@@ -1446,9 +1462,10 @@ handleModeMessage client session message =
                        mode extraParams
                   else do
                     displayChannelMessage client channel . T.pack $
-                      printf "* %s sets mode -%s on %s" (ourDecodeUtf8 prefix)
-                      (ourDecodeUtf8 $ B.singleton byte)
-                      (ourDecodeUtf8 $ channelName channel)
+                      printf "* %s sets mode -%s on %s"
+                      (stripText $ ourDecodeUtf8 prefix)
+                      (stripText . ourDecodeUtf8 $ B.singleton byte)
+                      (stripText . ourDecodeUtf8 $ channelName channel)
                     parseChannelModeRemove client channel rest prefix mode
                       extraParams
               | otherwise -> parseChannelMode client channel param prefix mode
@@ -1462,8 +1479,9 @@ handleModeMessage client session message =
           case S.viewl extraParams of
             extraParam :< rest -> do
               displayChannelMessage client channel . T.pack $
-                printf "* %s removes ban from %s" (ourDecodeUtf8 prefix)
-                (ourDecodeUtf8 extraParam)
+                printf "* %s removes ban from %s"
+                (stripText $ ourDecodeUtf8 prefix)
+                (stripText $ ourDecodeUtf8 extraParam)
               parseChannelModeRemove client channel param prefix mode rest
             S.EmptyL ->
               parseChannelModeRemove client channel param prefix mode
@@ -1481,8 +1499,10 @@ handleModeMessage client session message =
               case user of
                 Just user -> do
                   displayChannelMessage client channel . T.pack $
-                    printf "* %s removes %s from %s" (ourDecodeUtf8 prefix)
-                    text (ourDecodeUtf8 extraParam)
+                    printf "* %s removes %s from %s"
+                    (stripText $ ourDecodeUtf8 prefix)
+                    (stripText text)
+                    (stripText $ ourDecodeUtf8 extraParam)
                   atomically $ removeUserType user channel userType
                   updateChannelTabsForUser client channel user
                 Nothing -> return ()
@@ -1506,7 +1526,8 @@ handleModeMessage client session message =
                 Just user -> do
                   displayChannelMessage client channel . T.pack $
                     printf "* %s removes %s from the invite mask"
-                    (ourDecodeUtf8 prefix) (ourDecodeUtf8 extraParam)
+                    (stripText $ ourDecodeUtf8 prefix)
+                    (stripText $ ourDecodeUtf8 extraParam)
                 Nothing -> return ()
               parseChannelModeRemove client channel param prefix mode rest
             S.EmptyL ->
@@ -1517,7 +1538,7 @@ handleModeMessage client session message =
         handleChannelModeRemoveKeyword client channel param prefix mode
           extraParams = do
           displayChannelMessage client channel . T.pack $
-            printf "* %s unsets keyword" (ourDecodeUtf8 prefix)
+            printf "* %s unsets keyword" (stripText $ ourDecodeUtf8 prefix)
           parseChannelModeRemove client channel param prefix mode extraParams
         handleChannelModeRemoveLimit :: Client -> Channel -> B.ByteString ->
                                         B.ByteString -> S.Seq Mode ->
@@ -1525,7 +1546,7 @@ handleModeMessage client session message =
         handleChannelModeRemoveLimit client channel param prefix mode
           extraParams = do
           displayChannelMessage client channel . T.pack $
-            printf "* %s unsets user limit" (ourDecodeUtf8 prefix)
+            printf "* %s unsets user limit" (stripText $ ourDecodeUtf8 prefix)
           parseChannelModeRemove client channel param prefix mode extraParams
 
 -- | Channel modes with parameters.
@@ -1541,7 +1562,6 @@ handlePrivmsgMessage client session message = do
         ircMessageCoda message) of
     (Just prefix, Just target, Just text) -> do
       let source = extractNick prefix
-          text' = ourDecodeUtf8 text
       ourNick <- atomically . readTVar $ sessionNick session
       if target == ourNick
         then do
@@ -1550,9 +1570,10 @@ handlePrivmsgMessage client session message = do
             Nothing -> do
               tabs <- findOrCreateUserTabsForUser client user
               forM_ tabs $ \tab ->
-                updateTabTitleForMessage client tab text'
+                updateTabTitleForMessage client tab $ ourDecodeUtf8 text
               displayMessageOnTabs client tabs . T.pack $
-                printf "<%s> %s" (ourDecodeUtf8 source) text'
+                printf "<%s>; %s" (stripText $ ourDecodeUtf8 source)
+                (ourDecodeUtf8 text)
             Just (command, param) ->
               handleUserCtcp client user command param
         else do
@@ -1567,9 +1588,10 @@ handlePrivmsgMessage client session message = do
                 Nothing -> do
                   tabs <- atomically $ findChannelTabsForChannel client channel
                   forM_ tabs $ \tab ->
-                    updateTabTitleForMessage client tab text'
+                    updateTabTitleForMessage client tab $ ourDecodeUtf8 text
                   displayChannelMessage client channel . T.pack $
-                    printf "<%s%s> %s" userPrefix (ourDecodeUtf8 source) text'
+                    printf "<%s%s> %s" (stripText $ userPrefix)
+                    (stripText $ ourDecodeUtf8 source) (ourDecodeUtf8 text)
                 Just (command, param) ->
                   handleChannelCtcp client channel user command param
             Nothing -> return ()
@@ -1583,7 +1605,6 @@ handleNoticeMessage client session message = do
         ircMessageCoda message) of
     (Just prefix, Just target, Just text) -> do
       let source = extractNick prefix
-          text' = ourDecodeUtf8 text
       ourNick <- atomically . readTVar $ sessionNick session
       if target == ourNick
         then do
@@ -1595,18 +1616,20 @@ handleNoticeMessage client session message = do
                 atomically $ findMostRecentTabForSession client session
               case tab of
                 Just tab ->
-                  updateTabTitleForNotice client tab text'
+                  updateTabTitleForNotice client tab $ ourDecodeUtf8 text
               displaySessionMessageOnMostRecentTab client session . T.pack $
-                printf "-%s- %s" (ourDecodeUtf8 source) text'
+                printf "-%s- %s" (stripText $ ourDecodeUtf8 source)
+                (ourDecodeUtf8 text)
         else do
           channel <- atomically $ findChannelByName session target
           case channel of
             Just channel -> do
               tabs <- atomically $ findChannelTabsForChannel client channel
               forM_ tabs $ \tab ->
-                updateTabTitleForNotice client tab text'
+                updateTabTitleForNotice client tab $ ourDecodeUtf8 text
               displayChannelMessage client channel . T.pack $
-                printf "-%s- %s" (ourDecodeUtf8 source) text'
+                printf "-%s- %s" (stripText $ ourDecodeUtf8 source)
+                (ourDecodeUtf8 text)
             Nothing -> return ()
     _ -> return ()
 
@@ -1624,7 +1647,7 @@ handleOtherMessage client session message = do
           Just coda -> S.singleton coda
           Nothing -> S.empty
       text = B.concat . toList . S.intersperse " " $ firstParts >< coda
-  displaySessionMessage client session . T.pack . printf ": %s" $
+  displaySessionMessage client session . T.pack . printf ": %s" . stripText $
     ourDecodeUtf8 text
 
 -- | Handle user CTCP message.
@@ -1637,7 +1660,7 @@ handleUserCtcp client user command param =
         tabs <- findOrCreateUserTabsForUser client user
         nick <- atomically . readTVar $ userNick user
         displayMessageOnTabs client tabs . T.pack $
-          printf "* %s %s" (ourDecodeUtf8 nick) (ourDecodeUtf8 param)
+          printf "* %s %s" (stripText $ ourDecodeUtf8 nick) (ourDecodeUtf8 param)
       Nothing -> return ()
   else if command == encodeUtf8 "PING"
   then
@@ -1656,7 +1679,7 @@ handleChannelCtcp client channel user command param =
       Just param -> do
         nick <- atomically . readTVar $ userNick user
         displayChannelMessage client channel . T.pack $
-          printf "* %s %s" (ourDecodeUtf8 nick) (ourDecodeUtf8 param)
+          printf "* %s %s" (stripText $ ourDecodeUtf8 nick) (ourDecodeUtf8 param)
       Nothing -> return ()
   else if command == encodeUtf8 "PING"
   then
@@ -1672,8 +1695,9 @@ handleCtcpPingMessage client user param = do
   sendIRCMessageToUser user $
     formatCtcpReply nick (encodeUtf8 "PING") (Just param)
   displaySessionMessageOnMostRecentTab client (userSession user) . T.pack $
-    printf "* Received a CTCP PING %s from %s" (ourDecodeUtf8 param)
-    (ourDecodeUtf8 nick)
+    printf "* Received a CTCP PING %s from %s"
+    (stripText $ ourDecodeUtf8 param)
+    (stripText $ ourDecodeUtf8 nick)
 
 -- | Handle CTCP notice.
 handleCtcpNotice :: Client -> User -> B.ByteString -> Maybe B.ByteString ->
@@ -1692,8 +1716,8 @@ handleCtcpNotice client user command param =
                           fromNanoSecs origTime
                displaySessionMessageOnMostRecentTab client (userSession user) .
                  T.pack $ printf "* Ping reply from %s: %.3f second(s)"
-                 (ourDecodeUtf8 nick) ((fromIntegral diff :: Double) /
-                                       1000000000.0)
+                 (stripText $ ourDecodeUtf8 nick)
+                 ((fromIntegral diff :: Double) / 1000000000.0)
              Nothing -> return ()
       Nothing -> return ()
   else return ()
@@ -2075,7 +2099,8 @@ handleNormalLine client clientTab text = do
       case state of
         InChannel -> do
           displayChannelMessage client channel . T.pack $
-            printf "<%s%s> %s" userPrefix (ourDecodeUtf8 ourNick) text
+            printf "<%s%s> %s" (stripText $ userPrefix)
+            (stripText $ ourDecodeUtf8 ourNick) text
           let message = IRCMessage { ircMessagePrefix = Nothing,
                                      ircMessageCommand = encodeUtf8 "PRIVMSG",
                                      ircMessageParams =
@@ -2091,7 +2116,7 @@ handleNormalLine client clientTab text = do
       nick <- atomically .  readTVar $ userNick user
       let displayText = filterMessageText nick text
       displayUserMessage client user . T.pack $
-        printf "<%s> %s" (ourDecodeUtf8 ourNick) displayText
+        printf "<%s> %s" (stripText $ ourDecodeUtf8 ourNick) displayText
       let message = IRCMessage { ircMessagePrefix = Nothing,
                                  ircMessageCommand = encodeUtf8 "PRIVMSG",
                                  ircMessageParams = S.singleton nick,
@@ -2307,7 +2332,7 @@ handleMsgCommand client clientTab text =
       handleCommandWithReadySession client clientTab $ \session -> do
         let displayText = filterMessageText (encodeUtf8 nickOrName) rest
         displayMessage client clientTab . T.pack $
-          printf ">%s< %s" nickOrName displayText
+          printf ">%s< %s" (stripText nickOrName) displayText
         let nickOrName' = encodeUtf8 nickOrName
             rest' = encodeUtf8 rest
             message = IRCMessage { ircMessagePrefix = Nothing,
@@ -2404,13 +2429,13 @@ handleMeCommand client clientTab text = do
                "* Command must be executed in channel or user tab"
   where handleChannel nick channel = do
           displayChannelMessage client channel . T.pack $
-            printf "* %s %s" (ourDecodeUtf8 nick) text
+            printf "* %s %s" (stripText $ ourDecodeUtf8 nick) text
           let message = formatCtcpRequest (channelName channel)
                         (encodeUtf8 "ACTION") (Just $ encodeUtf8 text)
           sendIRCMessageToChannel channel message
         handleUser nick user = do
           displayUserMessage client user . T.pack $
-            printf "* %s %s" (ourDecodeUtf8 nick) text
+            printf "* %s %s" (stripText $ ourDecodeUtf8 nick) text
           nick' <- atomically . readTVar $ userNick user
           let message = formatCtcpRequest nick' (encodeUtf8 "ACTION")
                         (Just $ encodeUtf8 text)
@@ -2732,8 +2757,8 @@ handleGetNumberOfTabsInWindow client clientWindow = do
 -- | Handle unrecognized command.
 handleUnrecognizedCommand :: Client -> ClientTab -> T.Text -> IO ()
 handleUnrecognizedCommand client clientTab command = do
-  displayMessage client clientTab . T.pack $
-    printf "* Unrecognized command: %s" command
+  displayMessage client clientTab . T.pack .
+    printf "* Unrecognized command: %s" $ stripText command
 
 -- | Parse a command field.
 parseCommandField :: T.Text -> Maybe (T.Text, T.Text)
@@ -3248,9 +3273,9 @@ openLog log session nickOrName = do
                     printf "%s:%d" origHostname (fromIntegral port :: Int)
           createDirectoryIfMissing True logDir
           let filePath = logDir </> (T.unpack $ ourDecodeUtf8 nickOrName)
-          (atomically . writeTVar (logText log) . S.singleton =<<
-            readFile filePath) `catch`
-            (\e -> return $ const () (e :: SomeException))
+          text <- readFile filePath `catch`
+                  (\e -> return $ const "" (e :: SomeException))
+          atomically . writeTVar (logText log) $ S.singleton text
           atomically . writeTVar (logHandle log) =<< Just <$>
             openFile filePath AppendMode
 
@@ -3304,7 +3329,7 @@ openHistory history session nickOrName = do
                   Nothing -> historyDir ++ ".session"
           oldLines <- S.filter (not . T.null) . S.fromList . T.splitOn "\n" <$>
             (readFile filePath `catch` (\e -> return $ const ""
-                                         (e :: SomeException)))
+                                              (e :: SomeException)))
           atomically $ do
             newLines <- readTVar $ historyLines history
             writeTVar (historyLines history) $ oldLines >< newLines
@@ -3352,3 +3377,85 @@ getTabNickOrName clientTab = do
     UserTab user -> Just <$> readTVar (userNick user)
     SessionTab _ -> return Nothing
     FreeTab -> return Nothing
+
+
+-- | Format text for markup.
+stripText :: T.Text -> T.Text
+stripText text =
+  let parts = T.splitOn "\n" text
+      parts' = fmap (\part -> stripText' part []) parts
+  in T.intercalate "\n" parts'
+  where stripText' text parts =
+          case T.uncons text of
+            Just (char, rest)
+              | char == '\x000002' -> stripText' rest parts
+              | char == '\x00001D' -> stripText' rest parts
+              | char == '\x00001F' -> stripText' rest parts
+              | char == '\x000016' -> stripText' rest parts
+              | char == '\x00000F' -> stripText' rest parts
+              | char == '\x000003' -> handleColor rest parts
+              | otherwise ->
+                let (text', rest) = T.span (not . isFormattingChar) text
+                in stripText' rest (parts |> text')
+            Nothing -> T.concat $ toList parts
+        handleColor text parts =
+          case parse0To15 text of
+            (Just foreground, rest) ->
+              case T.uncons rest of
+                Just (',', rest') ->
+                  case parse0To15 rest' of
+                    (Just background, rest'') -> stripText' rest'' parts
+                    (Nothing, _) -> stripText' rest parts
+                _ -> stripText' rest parts
+            (Nothing, rest) -> stripText' rest parts
+
+-- | Parse a number from 0 to 15 from text
+parse0To15 :: T.Text -> (Maybe Int, T.Text)
+parse0To15 text =
+  case T.uncons text of
+    Just (char, rest)
+      | char == '0' ->
+        case T.uncons rest of
+          Just (char, rest')
+            | char == '0' -> (Just 0, rest')
+            | char == '1' -> (Just 1, rest')
+            | char == '2' -> (Just 2, rest')
+            | char == '3' -> (Just 3, rest')
+            | char == '4' -> (Just 4, rest')
+            | char == '5' -> (Just 5, rest')
+            | char == '6' -> (Just 6, rest')
+            | char == '7' -> (Just 7, rest')
+            | char == '8' -> (Just 8, rest')
+            | char == '9' -> (Just 9, rest')
+          _ -> (Nothing, text)
+      | char == '1' ->
+        case T.uncons rest of
+          Just (char, rest')
+            | char == '0' -> (Just 10, rest')
+            | char == '1' -> (Just 11, rest')
+            | char == '2' -> (Just 12, rest')
+            | char == '3' -> (Just 13, rest')
+            | char == '4' -> (Just 14, rest')
+            | char == '5' -> (Just 15, rest')
+          _ -> (Nothing, text)
+    _ -> (Nothing, text)
+
+-- | Get whether char is formatting char.
+isFormattingChar :: Char -> Bool
+isFormattingChar '\x000002' = True
+isFormattingChar '\x00001D' = True
+isFormattingChar '\x00001F' = True
+isFormattingChar '\x000016' = True
+isFormattingChar '\x00000F' = True
+isFormattingChar '\x000003' = True
+isFormattingChar _ = False
+
+-- | Toggle style.
+toggleStyle :: StyleAndColor -> Style -> StyleAndColor
+toggleStyle styleAndColor style =
+  case S.elemIndexL style (currentStyle styleAndColor) of
+    Just _ ->
+      styleAndColor { currentStyle =
+                        S.filter (/= style) $ currentStyle styleAndColor }
+    Nothing ->
+      styleAndColor { currentStyle = currentStyle styleAndColor |> style }

@@ -73,7 +73,9 @@ module Network.IRC.Client.Amphibian.Types
    ClientTaggedEvent(..),
    Settings(..),
    Log(..),
-   History(..))
+   History(..),
+   Style(..),
+   StyleAndColor(..))
    
 where
 
@@ -487,3 +489,17 @@ data ClientTaggedEvent = TaggedSessionEvent Session IRCConnectionEvent
 
 -- | Settings type
 data Settings = Settings { settingsReconnectDelay :: Double }
+
+-- | Style
+data Style = Bold
+           | Italic
+           | Underline
+           | Reverse
+           deriving (Eq, Show)
+
+-- | Style and color
+data StyleAndColor =
+  StyleAndColor { currentStyle :: S.Seq Style,
+                  currentForeground :: Int,
+                  currentBackground :: Int }
+  deriving (Eq, Show)
