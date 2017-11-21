@@ -598,9 +598,9 @@ runWindow window = do
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             iter <- Gtk.textBufferGetStartIter $ tabTextBuffer tab
             Gtk.textIterForwardToEnd iter
-            let text' = fixUnicodeProblems $ formatText text
+            let text' = formatText text
             Gtk.textBufferInsertMarkup (tabTextBuffer tab) iter text'
-              (fromIntegral $ T.length text')
+              (fromIntegral . B.length $ encodeUtf8 text')
             atomically $ do
               putTMVar response $ Right ()
               putTMVar lock ()
@@ -877,9 +877,8 @@ updateTabTitle tab = do
     style <- readTVar $ tabTitleStyle tab
     return (text, style)
   Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
-    escapedText <- GLib.markupEscapeText text (fromIntegral $ T.length text)
     let titleMarkup = T.pack $ printf "<span %s>%s</span>" style
-                      escapedText
+                      (escapeText text)
     Gtk.labelSetMarkup (tabLabel tab) titleMarkup
     return False
   printf "*** DONE SETTING TAB TITLE\n"
@@ -1019,7 +1018,8 @@ createTab window titleText titleStyle = do
 -- | Escape text for markup.
 escapeText :: T.Text -> T.Text
 escapeText text =
-  unsafePerformIO $ GLib.markupEscapeText text (fromIntegral $ T.length text)
+  unsafePerformIO $ GLib.markupEscapeText text
+  (fromIntegral . B.length $ encodeUtf8 text)
 
 -- | Format text for markup.
 formatText :: T.Text -> T.Text
@@ -1224,9 +1224,3 @@ stripText text =
                     (Nothing, _) -> stripText' rest parts
                 _ -> stripText' rest parts
             (Nothing, rest) -> stripText' rest parts
-
--- | Fix unicode problems.
-fixUnicodeProblems :: T.Text -> T.Text
-fixUnicodeProblems text =
-  let greaterLength = (B.length (encodeUtf8 text) - T.length text)
-  in T.concat [text, T.replicate greaterLength "\n"]
