@@ -78,7 +78,7 @@ module Network.IRC.Client.Amphibian.UI
    subscribeTabUser,
    recvTabUser,
    tryRecvTabUser,
-   escapeText)
+   stripText)
 
 where
 
@@ -99,7 +99,8 @@ import Data.Foldable (toList)
 import Data.List (elemIndex)
 import Control.Monad (forM_,
                       join)
-import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Encoding (encodeUtf8,
+                           decodeUtf8)
 import Control.Concurrent (forkOS)
 import Control.Concurrent.Async (Async,
                                  async,
@@ -597,7 +598,7 @@ runWindow window = do
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             iter <- Gtk.textBufferGetStartIter $ tabTextBuffer tab
             Gtk.textIterForwardToEnd iter
-            let text' = formatText text
+            let text' = fixUnicodeProblems $ formatText text
             Gtk.textBufferInsertMarkup (tabTextBuffer tab) iter text'
               (fromIntegral $ T.length text')
             atomically $ do
@@ -1020,12 +1021,12 @@ escapeText :: T.Text -> T.Text
 escapeText text =
   unsafePerformIO $ GLib.markupEscapeText text (fromIntegral $ T.length text)
 
-
 -- | Format text for markup.
 formatText :: T.Text -> T.Text
 formatText text =
   let parts = T.splitOn "\n" text
-      parts' = fmap (\part -> formatText' part [] $ StyleAndColor [] 1 0) parts
+      parts' =
+        fmap (\part -> formatText' part [] $ StyleAndColor [] 99 99) parts
   in T.intercalate "\n" parts'
   where formatText' text parts styleAndColor =
           case T.uncons text of
@@ -1047,7 +1048,7 @@ formatText text =
                 in formatText' rest (parts |> escapeText text') styleAndColor
             Nothing -> T.concat . toList $ closeStyle parts styleAndColor
         closeStyle parts styleAndColor =
-          if styleAndColor /= StyleAndColor [] 1 0
+          if styleAndColor /= StyleAndColor [] 99 99
           then parts |> "</span>"
           else parts
         handleStyle text parts styleAndColor changedStyle =
@@ -1057,13 +1058,13 @@ formatText text =
           in formatText' text parts'' newStyleAndColor
         clearStyle text parts styleAndColor =
           formatText' text (closeStyle parts styleAndColor)
-          (StyleAndColor [] 1 0)
+          (StyleAndColor [] 99 99)
         handleColor text parts styleAndColor =
-          case parse0To15 text of
+          case parseColorNumber text of
             (Just foreground, rest) ->
               case T.uncons rest of
                 Just (',', rest') ->
-                  case parse0To15 rest' of
+                  case parseColorNumber rest' of
                     (Just background, rest'') ->
                       let newStyleAndColor =
                             styleAndColor { currentForeground = foreground,
@@ -1074,25 +1075,25 @@ formatText text =
                     (Nothing, _) ->
                       let newStyleAndColor =
                             styleAndColor { currentForeground = foreground,
-                                            currentBackground = 0 }
+                                            currentBackground = 99 }
                           parts' = closeStyle parts styleAndColor
                           parts'' = styleMarkup parts' newStyleAndColor
                       in formatText' rest parts'' newStyleAndColor
                 _ ->
-                  let newStyleAndColor = styleAndColor { currentForeground =
-                                                           foreground,
-                                                         currentBackground = 0 }
+                  let newStyleAndColor =
+                        styleAndColor { currentForeground = foreground,
+                                        currentBackground = 99 }
                       parts' = closeStyle parts styleAndColor
                       parts'' = styleMarkup parts' newStyleAndColor
                   in formatText' rest parts'' newStyleAndColor
             (Nothing, rest) ->
-              let newStyleAndColor = styleAndColor { currentForeground = 1,
-                                                     currentBackground = 0 }
+              let newStyleAndColor = styleAndColor { currentForeground = 99,
+                                                     currentBackground = 99 }
                   parts' = closeStyle parts styleAndColor
                   parts'' = styleMarkup parts' newStyleAndColor
               in formatText' rest parts'' newStyleAndColor
         styleMarkup parts styleAndColor =
-          if styleAndColor /= StyleAndColor [] 1 0
+          if styleAndColor /= StyleAndColor [] 99 99
           then
             let part0 =
                   case S.elemIndexL Bold $ currentStyle styleAndColor of
@@ -1110,18 +1111,18 @@ formatText text =
                   case S.elemIndexL Reverse $ currentStyle styleAndColor of
                     Just _ ->
                       T.pack $ printf " foreground=\"%s\" background=\"%s\""
-                      (getColor $ currentBackground styleAndColor)
-                      (getColor $ currentForeground styleAndColor)
+                      (getColor "#FFFFFF" $ currentBackground styleAndColor)
+                      (getColor "#000000" $ currentForeground styleAndColor)
                     Nothing ->
                       T.pack $ printf " foreground=\"%s\" background=\"%s\""
-                      (getColor $ currentForeground styleAndColor)
-                      (getColor $ currentBackground styleAndColor)
+                      (getColor "#000000" $ currentForeground styleAndColor)
+                      (getColor "#FFFFFF" $ currentBackground styleAndColor)
             in parts >< ["<span", part0, part1, part2, part3, ">"]
           else parts
 
--- | Parse a number from 0 to 15 from text
-parse0To15 :: T.Text -> (Maybe Int, T.Text)
-parse0To15 text =
+-- | Parse a color number.
+parseColorNumber :: T.Text -> (Maybe Int, T.Text)
+parseColorNumber text =
   case T.uncons text of
     Just (char, rest)
       | char == '0' ->
@@ -1148,6 +1149,10 @@ parse0To15 text =
             | char == '4' -> (Just 14, rest')
             | char == '5' -> (Just 15, rest')
           _ -> (Nothing, text)
+      | char == '9' ->
+        case T.uncons rest of
+          Just ('9', rest') -> (Just 99, rest')
+          _ -> (Nothing, text)
     _ -> (Nothing, text)
 
 -- | Get whether char is formatting char.
@@ -1160,25 +1165,25 @@ isFormattingChar '\x00000F' = True
 isFormattingChar '\x000003' = True
 isFormattingChar _ = False
 
--- | Colors.
-getColor :: Int -> T.Text
-getColor 0 = "#FFFFFF"
-getColor 1 = "#000000"
-getColor 2 = "#00007F"
-getColor 3 = "#009300"
-getColor 4 = "#FF0000"
-getColor 5 = "#7F0000"
-getColor 6 = "#9C009C"
-getColor 7 = "#FC7F00"
-getColor 8 = "#FFFF00"
-getColor 9 = "#00FC00"
-getColor 10 = "#009393"
-getColor 11 = "#00FFFF"
-getColor 12 = "#0000FC"
-getColor 13 = "#FF00FF"
-getColor 14 = "#7F7F7F"
-getColor 15 = "#D2D2D2"
-getColor _ = "#000000"
+-- | Colors with defaults.
+getColor :: T.Text -> Int -> T.Text
+getColor _ 0 = "#FFFFFF"
+getColor _ 1 = "#000000"
+getColor _ 2 = "#00007F"
+getColor _ 3 = "#009300"
+getColor _ 4 = "#FF0000"
+getColor _ 5 = "#7F0000"
+getColor _ 6 = "#9C009C"
+getColor _ 7 = "#FC7F00"
+getColor _ 8 = "#FFFF00"
+getColor _ 9 = "#00FC00"
+getColor _ 10 = "#009393"
+getColor _ 11 = "#00FFFF"
+getColor _ 12 = "#0000FC"
+getColor _ 13 = "#FF00FF"
+getColor _ 14 = "#7F7F7F"
+getColor _ 15 = "#D2D2D2"
+getColor color _ = color
 
 -- | Toggle style.
 toggleStyle :: StyleAndColor -> Style -> StyleAndColor
@@ -1189,3 +1194,39 @@ toggleStyle styleAndColor style =
                         S.filter (/= style) $ currentStyle styleAndColor }
     Nothing ->
       styleAndColor { currentStyle = currentStyle styleAndColor |> style }
+
+-- | Format text for markup.
+stripText :: T.Text -> T.Text
+stripText text =
+  let parts = T.splitOn "\n" text
+      parts' = fmap (\part -> stripText' part []) parts
+  in T.intercalate "\n" parts'
+  where stripText' text parts =
+          case T.uncons text of
+            Just (char, rest)
+              | char == '\x000002' -> stripText' rest parts
+              | char == '\x00001D' -> stripText' rest parts
+              | char == '\x00001F' -> stripText' rest parts
+              | char == '\x000016' -> stripText' rest parts
+              | char == '\x00000F' -> stripText' rest parts
+              | char == '\x000003' -> handleColor rest parts
+              | otherwise ->
+                let (text', rest) = T.span (not . isFormattingChar) text
+                in stripText' rest (parts |> text')
+            Nothing -> T.concat $ toList parts
+        handleColor text parts =
+          case parseColorNumber text of
+            (Just foreground, rest) ->
+              case T.uncons rest of
+                Just (',', rest') ->
+                  case parseColorNumber rest' of
+                    (Just background, rest'') -> stripText' rest'' parts
+                    (Nothing, _) -> stripText' rest parts
+                _ -> stripText' rest parts
+            (Nothing, rest) -> stripText' rest parts
+
+-- | Fix unicode problems.
+fixUnicodeProblems :: T.Text -> T.Text
+fixUnicodeProblems text =
+  let greaterLength = (B.length (encodeUtf8 text) - T.length text)
+  in T.concat [text, T.replicate greaterLength "\n"]

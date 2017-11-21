@@ -458,12 +458,6 @@ formatMessage message = do
   return . T.pack $ printf "[%02d:%02d:%02d] %s\n" (todHour timeOfDay)
     (todMin timeOfDay) ((floor $ todSec timeOfDay) :: Int) message
 
--- | Fix unicode problems.
-fixUnicodeProblems :: T.Text -> T.Text
-fixUnicodeProblems text =
-  let greaterLength = (B.length (encodeUtf8 text) - T.length text)
-  in T.concat [text, T.replicate greaterLength "\n"]
-
 -- | Log text for a tab if the tab has a log.
 writeToLog :: ClientTab -> T.Text -> IO ()
 writeToLog tab text = do
@@ -553,8 +547,7 @@ displaySessionMessage client session message = do
             Nothing -> return S.empty
     forM clientTabs $ \clientTab -> do
       writeToLog clientTab message
-      atomically . addTabText (clientTabTab clientTab) $
-        fixUnicodeProblems message
+      atomically $ addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display channel message.
@@ -565,8 +558,7 @@ displayChannelMessage client channel message = do
     clientTabs <- atomically $ findChannelTabsForChannel client channel
     forM clientTabs $ \clientTab -> do
       writeToLog clientTab message
-      atomically . addTabText (clientTabTab clientTab) $
-        fixUnicodeProblems message
+      atomically $ addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display user message.
@@ -585,8 +577,7 @@ displayUserMessage client user message = do
             Nothing -> return S.empty
     forM clientTabs $ \clientTab -> do
       writeToLog clientTab message
-      atomically . addTabText (clientTabTab clientTab) $
-        fixUnicodeProblems message
+      atomically $ addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display message on all tabs for user.
@@ -597,8 +588,7 @@ displayUserMessageAll client user message = do
     tabs <- atomically $ findAllTabsForUser client user
     forM tabs $ \clientTab -> do
       writeToLog clientTab message
-      atomically . addTabText (clientTabTab clientTab) $
-        fixUnicodeProblems message
+      atomically $ addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display messsage on all tabs for session.
@@ -609,8 +599,7 @@ displaySessionMessageAll client session message = do
     tabs <- atomically $ findAllTabsForSession client session
     forM tabs $ \clientTab -> do
       writeToLog clientTab message
-      atomically . addTabText (clientTabTab clientTab) $
-        fixUnicodeProblems message
+      atomically $ addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Display message on most recent tab for session.
@@ -622,8 +611,7 @@ displaySessionMessageOnMostRecentTab client session message = do
     case clientTab of
       Just clientTab -> do
         writeToLog clientTab message
-        Just <$> (atomically . addTabText (clientTabTab clientTab) $
-                  fixUnicodeProblems message)
+        Just <$> (atomically $ addTabText (clientTabTab clientTab) message)
       Nothing -> return Nothing
   case response of
     Just response -> asyncHandleResponse response
@@ -635,7 +623,7 @@ displayMessage client clientTab message = do
   message <- formatMessage message
   writeToLog clientTab message
   response <- atomically $
-    addTabText (clientTabTab clientTab) $ fixUnicodeProblems message
+    addTabText (clientTabTab clientTab) message
   asyncHandleResponse response
 
 -- | Display message on tabs.
@@ -645,7 +633,7 @@ displayMessageOnTabs client tabs message = do
   forM_ tabs $ \clientTab -> writeToLog clientTab message
   responses <- atomically $
     forM tabs $ \clientTab ->
-    addTabText (clientTabTab clientTab) $ fixUnicodeProblems message
+    addTabText (clientTabTab clientTab) message
   forM_ responses $ \response -> asyncHandleResponse response
 
 -- | Handle a session event.
@@ -3298,8 +3286,7 @@ populateTabFromLog session clientTab nickOrName log = do
     Just _ -> return ()
     Nothing -> openLog log session nickOrName
   logText' <- T.concat . toList <$> (atomically . readTVar $ logText log)
-  let logText'' = fixUnicodeProblems logText'
-  response <- atomically . addTabText (clientTabTab clientTab) $ logText''
+  response <- atomically . addTabText (clientTabTab clientTab) $ logText'
   asyncHandleResponse response
 
 -- | Create a history
@@ -3377,85 +3364,3 @@ getTabNickOrName clientTab = do
     UserTab user -> Just <$> readTVar (userNick user)
     SessionTab _ -> return Nothing
     FreeTab -> return Nothing
-
-
--- | Format text for markup.
-stripText :: T.Text -> T.Text
-stripText text =
-  let parts = T.splitOn "\n" text
-      parts' = fmap (\part -> stripText' part []) parts
-  in T.intercalate "\n" parts'
-  where stripText' text parts =
-          case T.uncons text of
-            Just (char, rest)
-              | char == '\x000002' -> stripText' rest parts
-              | char == '\x00001D' -> stripText' rest parts
-              | char == '\x00001F' -> stripText' rest parts
-              | char == '\x000016' -> stripText' rest parts
-              | char == '\x00000F' -> stripText' rest parts
-              | char == '\x000003' -> handleColor rest parts
-              | otherwise ->
-                let (text', rest) = T.span (not . isFormattingChar) text
-                in stripText' rest (parts |> text')
-            Nothing -> T.concat $ toList parts
-        handleColor text parts =
-          case parse0To15 text of
-            (Just foreground, rest) ->
-              case T.uncons rest of
-                Just (',', rest') ->
-                  case parse0To15 rest' of
-                    (Just background, rest'') -> stripText' rest'' parts
-                    (Nothing, _) -> stripText' rest parts
-                _ -> stripText' rest parts
-            (Nothing, rest) -> stripText' rest parts
-
--- | Parse a number from 0 to 15 from text
-parse0To15 :: T.Text -> (Maybe Int, T.Text)
-parse0To15 text =
-  case T.uncons text of
-    Just (char, rest)
-      | char == '0' ->
-        case T.uncons rest of
-          Just (char, rest')
-            | char == '0' -> (Just 0, rest')
-            | char == '1' -> (Just 1, rest')
-            | char == '2' -> (Just 2, rest')
-            | char == '3' -> (Just 3, rest')
-            | char == '4' -> (Just 4, rest')
-            | char == '5' -> (Just 5, rest')
-            | char == '6' -> (Just 6, rest')
-            | char == '7' -> (Just 7, rest')
-            | char == '8' -> (Just 8, rest')
-            | char == '9' -> (Just 9, rest')
-          _ -> (Nothing, text)
-      | char == '1' ->
-        case T.uncons rest of
-          Just (char, rest')
-            | char == '0' -> (Just 10, rest')
-            | char == '1' -> (Just 11, rest')
-            | char == '2' -> (Just 12, rest')
-            | char == '3' -> (Just 13, rest')
-            | char == '4' -> (Just 14, rest')
-            | char == '5' -> (Just 15, rest')
-          _ -> (Nothing, text)
-    _ -> (Nothing, text)
-
--- | Get whether char is formatting char.
-isFormattingChar :: Char -> Bool
-isFormattingChar '\x000002' = True
-isFormattingChar '\x00001D' = True
-isFormattingChar '\x00001F' = True
-isFormattingChar '\x000016' = True
-isFormattingChar '\x00000F' = True
-isFormattingChar '\x000003' = True
-isFormattingChar _ = False
-
--- | Toggle style.
-toggleStyle :: StyleAndColor -> Style -> StyleAndColor
-toggleStyle styleAndColor style =
-  case S.elemIndexL style (currentStyle styleAndColor) of
-    Just _ ->
-      styleAndColor { currentStyle =
-                        S.filter (/= style) $ currentStyle styleAndColor }
-    Nothing ->
-      styleAndColor { currentStyle = currentStyle styleAndColor |> style }
