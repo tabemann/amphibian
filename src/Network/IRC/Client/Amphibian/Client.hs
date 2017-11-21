@@ -119,7 +119,8 @@ runClient = do
     windows <- atomically $ newTVar S.empty
     tabs <- atomically $ newTVar S.empty
     settings <- atomically . newTVar $
-                Settings { settingsReconnectDelay = 10.0 }
+                Settings { settingsReconnectDelay = 10.0,
+                           settingsPongWaitDelay = 180.0 }
     let client =
           Client { clientRunning = running,
                    clientNextIndex = nextIndex,
@@ -752,6 +753,8 @@ handleSessionEvent client session event = do
         handleTopicReply client session message
       | ircMessageCommand message == encodeUtf8 "PING" ->
         handlePingMessage client session message
+      | ircMessageCommand message == encodeUtf8 "PONG" ->
+        handlePongMessage client session message
       | ircMessageCommand message == encodeUtf8 "TOPIC" ->
         handleTopicMessage client session message
       | ircMessageCommand message == encodeUtf8 "JOIN" ->
@@ -779,6 +782,7 @@ handleSessionEvent client session event = do
 handleWelcome :: Client -> Session -> IRCMessage -> IO ()
 handleWelcome client session message = do
   atomically $ writeTVar (sessionState session) SessionReady
+  startPinging client session
   channels <- atomically . readTVar $ sessionChannels session
   forM_ channels $ \channel -> do
     state <- atomically . readTVar $ channelState channel
@@ -896,6 +900,25 @@ handlePingMessage client session message = do
                      ircMessageParams = S.singleton coda,
                      ircMessageCoda = Nothing }
     Nothing -> return ()
+
+-- | Handle PONG message.
+handlePongMessage :: Client -> Session -> IRCMessage -> IO ()
+handlePongMessage client session message = do
+  let server =
+        case S.lookup 0 $ ircMessageParams message of
+          Just server -> Just server
+          Nothing ->
+            case ircMessageCoda message of
+              Just server -> Just server
+              Nothing -> Nothing
+  hostname <- atomically . readTVar $ sessionHostname session
+  case server of
+    Just server
+      | server == (encodeUtf8 $ T.pack hostname) ->
+        atomically $ do
+          count <- readTVar $ sessionPongCount session
+          writeTVar (sessionPongCount session) $ count + 1
+    _ -> return ()
 
 -- | Handle TOPIC message.
 handleTopicMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -1874,11 +1897,65 @@ tryReconnectSession client session = do
                         sessionReconnectOnFailure session
   if reconnectOnFailure
     then reconnectSession client session WithDelay
-    else atomically $ writeTVar (sessionState session) SessionInactive
+    else do
+      stopPinging session
+      atomically $ writeTVar (sessionState session) SessionInactive
+
+-- | Start pinging
+startPinging :: Client -> Session -> IO ()
+startPinging client session = do
+  pingingAsync <- atomically . readTVar $ sessionPinging session
+  case pingingAsync of
+    Nothing -> do
+      pingingAsync <- Just <$> async doPinging
+      atomically $ writeTVar (sessionPinging session) pingingAsync
+    Just _ -> return ()
+  where doPinging = do
+          state <- atomically . readTVar $ sessionState session
+          case state of
+            SessionReady -> do
+              hostname <- atomically . readTVar $ sessionHostname session
+              let message = IRCMessage { ircMessagePrefix = Nothing,
+                                         ircMessageCommand = encodeUtf8 "PING",
+                                         ircMessageParams =
+                                           S.singleton (encodeUtf8 $
+                                                        T.pack hostname),
+                                         ircMessageCoda = Nothing }
+              pongCount <- atomically . readTVar $ sessionPongCount session
+              sendIRCMessageToSession session message
+              delay <- settingsPongWaitDelay <$>
+                       (atomically . readTVar $ clientSettings client)
+              threadDelay . floor $ delay * 1000000.0
+              (state, newPongCount) <- atomically $ do
+                state <- readTVar $ sessionState session
+                newPongCount <- readTVar $ sessionPongCount session
+                return (state, newPongCount)
+              case state of
+                SessionReady ->
+                  if newPongCount <= pongCount
+                  then do
+                    displaySessionMessageOnMostRecentTab client session .
+                      T.pack $ printf "* Ping timeout: %f seconds" delay
+                    (async $ tryReconnectSession client session) >> return ()
+                  else doPinging
+                _ -> return ()
+            _ -> return ()
+
+-- | Stop pinging.
+stopPinging :: Session -> IO ()
+stopPinging session = do
+  pingingAsync <- atomically $ do
+    pingingAsync <- readTVar $ sessionPinging session
+    writeTVar (sessionPinging session) Nothing
+    return pingingAsync
+  case pingingAsync of
+    Just pingingAsync -> cancel pingingAsync
+    Nothing -> return ()
 
 -- | Reconnect a session.
 reconnectSession :: Client -> Session -> Delay -> IO ()
 reconnectSession client session withDelay = do
+  stopPinging session
   reconnectingAsync <- atomically . readTVar $ sessionReconnecting session
   case reconnectingAsync of
     Nothing -> do
@@ -1888,7 +1965,7 @@ reconnectSession client session withDelay = do
                               (atomically . readTVar $ clientSettings client)
                  WithoutDelay -> return 0
       reconnectingAsync <- async $ do
-        threadDelay $ floor (delay * 1000000.0)
+        threadDelay . floor $ delay * 1000000.0
         let connection = sessionIRCConnection session
         state <- atomically $ getIRCConnectionState connection
         if state /= IRCConnectionNotStarted
@@ -2262,7 +2339,11 @@ handleQuitCommand client clientTab text = do
     Nothing -> displayMessage client clientTab "* Tab has no associated session"
     Just session -> do
       atomically $ writeTVar (sessionReconnectOnFailure session) False
-      reconnecting <- atomically . readTVar $ sessionReconnecting session
+      stopPinging session
+      reconnecting <- atomically $ do
+        reconnecting <- readTVar $ sessionReconnecting session
+        writeTVar (sessionReconnecting session) Nothing
+        return reconnecting
       case reconnecting of
         Just reconnecting -> cancel reconnecting
         Nothing -> return ()
@@ -2700,6 +2781,8 @@ createSession client hostname port nick username realName = do
         channels <- newTVar []
         users <- newTVar []
         reconnecting <- newTVar Nothing
+        pinging <- newTVar Nothing
+        pongCount <- newTVar 0
         let session = Session { sessionIndex = index,
                                 sessionState = state,
                                 sessionReconnectOnFailure = reconnectOnFailure,
@@ -2714,7 +2797,9 @@ createSession client hostname port nick username realName = do
                                 sessionMode = mode,
                                 sessionChannels = channels,
                                 sessionUsers = users,
-                                sessionReconnecting = reconnecting }
+                                sessionReconnecting = reconnecting,
+                                sessionPinging = pinging,
+                                sessionPongCount = pongCount }
         ourUserIndex <- getNextClientIndex client
         ourUserNick <- newTVar nick
         ourUserType <- newTVar []

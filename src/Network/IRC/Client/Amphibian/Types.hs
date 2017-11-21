@@ -381,7 +381,9 @@ data Session = Session
     sessionMode :: TVar (S.Seq Mode),
     sessionChannels :: TVar (S.Seq Channel),
     sessionUsers :: TVar (S.Seq User),
-    sessionReconnecting :: TVar (Maybe (Async ())) }
+    sessionReconnecting :: TVar (Maybe (Async ())),
+    sessionPinging :: TVar (Maybe (Async ())),
+    sessionPongCount :: TVar Integer }
 
 -- | IRC session state
 data SessionState = SessionInactive
@@ -488,7 +490,8 @@ data ClientTaggedEvent = TaggedSessionEvent Session IRCConnectionEvent
                        | TaggedClientQuitEvent
 
 -- | Settings type
-data Settings = Settings { settingsReconnectDelay :: Double }
+data Settings = Settings { settingsReconnectDelay :: Double,
+                           settingsPongWaitDelay :: Double }
 
 -- | Style
 data Style = Bold
