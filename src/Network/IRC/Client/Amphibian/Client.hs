@@ -85,6 +85,10 @@ import Control.Concurrent.STM (STM,
                                newTVar,
                                writeTVar,
                                readTVar)
+import Control.Concurrent.STM.TMVar (TMVar,
+                                     newTMVar,
+                                     putTMVar,
+                                     takeTMVar)
 import Text.Read (readMaybe)
 import Data.Word (Word8)
 import Data.Time.Clock (UTCTime,
@@ -659,6 +663,7 @@ handleSessionEvent client session event = do
     IRCNoNameFound (Error errorText) -> do
       displaySessionMessage client session
         (T.pack $ printf "* No name found: %s" $ stripText errorText)
+      tryReconnectSession client session
     IRCReverseLookupCanceled -> do
       displaySessionMessage client session
         "* Reverse lookup canceled"
@@ -722,7 +727,7 @@ handleSessionEvent client session event = do
       asyncHandleResponse response3
     IRCConnectingCanceled -> do
       displaySessionMessageAll client session "* Connecting canceled"
-      tryReconnectSession client session
+      atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnected -> do
       displaySessionMessageAll client session "* Disconnected"
       tryReconnectSession client session
@@ -1956,7 +1961,10 @@ stopPinging session = do
 reconnectSession :: Client -> Session -> Delay -> IO ()
 reconnectSession client session withDelay = do
   stopPinging session
-  reconnectingAsync <- atomically . readTVar $ sessionReconnecting session
+  reconnectingAsync <- atomically $ do
+    takeTMVar (sessionReconnectingLock session) >> return ()
+    reconnectingAsync <- readTVar $ sessionReconnecting session
+    return reconnectingAsync
   case reconnectingAsync of
     Nothing -> do
       atomically $ writeTVar (sessionState session) SessionConnecting
@@ -1985,9 +1993,10 @@ reconnectSession client session withDelay = do
             asyncHandleResponse response
           else return ()
         atomically $ writeTVar (sessionReconnecting session) Nothing
-      atomically $ writeTVar (sessionReconnecting session)
-        (Just reconnectingAsync)
-    Just _ -> return ()
+      atomically $ do
+        writeTVar (sessionReconnecting session) (Just reconnectingAsync)
+        putTMVar (sessionReconnectingLock session) ()
+    Just _ -> atomically $ putTMVar (sessionReconnectingLock session) ()
 
 -- | Handle client window event.
 handleClientWindowEvent :: Client -> ClientWindow -> WindowEvent -> IO ()
@@ -2780,6 +2789,7 @@ createSession client hostname port nick username realName = do
         mode <- newTVar []
         channels <- newTVar []
         users <- newTVar []
+        reconnectingLock <- newTMVar ()
         reconnecting <- newTVar Nothing
         pinging <- newTVar Nothing
         pongCount <- newTVar 0
@@ -2797,6 +2807,7 @@ createSession client hostname port nick username realName = do
                                 sessionMode = mode,
                                 sessionChannels = channels,
                                 sessionUsers = users,
+                                sessionReconnectingLock = reconnectingLock,
                                 sessionReconnecting = reconnecting,
                                 sessionPinging = pinging,
                                 sessionPongCount = pongCount }

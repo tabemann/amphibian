@@ -381,6 +381,7 @@ data Session = Session
     sessionMode :: TVar (S.Seq Mode),
     sessionChannels :: TVar (S.Seq Channel),
     sessionUsers :: TVar (S.Seq User),
+    sessionReconnectingLock :: TMVar (),
     sessionReconnecting :: TVar (Maybe (Async ())),
     sessionPinging :: TVar (Maybe (Async ())),
     sessionPongCount :: TVar Integer }
