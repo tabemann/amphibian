@@ -1576,8 +1576,9 @@ handlePrivmsgMessage client session message = do
               tabs <- findOrCreateUserTabsForUser client user
               forM_ tabs $ \tab ->
                 updateTabTitleForMessage client tab $ ourDecodeUtf8 text
+              updateNickForAllSessionTabs client session
               displayMessageOnTabs client tabs . T.pack $
-                printf "<%s>; %s" (stripText $ ourDecodeUtf8 source)
+                printf "<%s> %s" (stripText $ ourDecodeUtf8 source)
                 (ourDecodeUtf8 text)
             Just (command, param) ->
               handleUserCtcp client user command param
@@ -3489,4 +3490,3 @@ updateNickForAllSessionTabs client session = do
           atomically $ setNick (clientTabTab tab) (Just (nick, userType'))
         asyncHandleResponse response
     Nothing -> return ()
-          
