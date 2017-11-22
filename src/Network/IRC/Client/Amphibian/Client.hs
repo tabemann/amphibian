@@ -506,7 +506,7 @@ updateTabTitleForNotice client clientTab text = do
       if T.isInfixOf (ourDecodeUtf8 nick) text
         then setNotification client clientTab Mentioned
         else setNotification client clientTab Noticed
-    Nothing -> return ()    
+    Nothing -> return ()
 
 -- | Set notification for tab
 setNotification :: Client -> ClientTab -> Notification -> IO ()
@@ -2198,6 +2198,7 @@ handleCommand client clientTab command = do
       | command == "join" -> handleJoinCommand client clientTab rest
       | command == "part" -> handlePartCommand client clientTab rest
       | command == "msg" -> handleMsgCommand client clientTab rest
+      | command == "notice" -> handleNoticeCommand client clientTab rest
       | command == "topic" -> handleTopicCommand client clientTab rest
       | command == "mode" -> handleModeCommand client clientTab rest
       | command == "kick" -> handleKickCommand client clientTab rest
@@ -2407,6 +2408,24 @@ handleMsgCommand client clientTab text =
                                    ircMessageCoda = Just rest' }
         sendIRCMessageToSession session message
     _ -> displayMessage client clientTab "* Syntax: /msg target message"
+
+-- | Handle the /notice command.
+handleNoticeCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleNoticeCommand client clientTab text =
+  case parseCommandField text of
+    Just (nickOrName, rest) -> do
+      handleCommandWithReadySession client clientTab $ \session -> do
+        let displayText = filterMessageText (encodeUtf8 nickOrName) rest
+        displayMessage client clientTab . T.pack $
+          printf "->%s<- %s" (stripText nickOrName) displayText
+        let nickOrName' = encodeUtf8 nickOrName
+            rest' = encodeUtf8 rest
+            message = IRCMessage { ircMessagePrefix = Nothing,
+                                   ircMessageCommand = encodeUtf8 "NOTICE",
+                                   ircMessageParams = S.singleton nickOrName',
+                                   ircMessageCoda = Just rest' }
+        sendIRCMessageToSession session message
+    _ -> displayMessage client clientTab "* Syntax: /notice target message"
 
 -- | Handle the /topic command.
 handleTopicCommand :: Client -> ClientTab -> T.Text -> IO ()
