@@ -124,7 +124,7 @@ runClient = do
     tabs <- atomically $ newTVar S.empty
     settings <- atomically . newTVar $
                 Settings { settingsReconnectDelay = 10.0,
-                           settingsPongWaitDelay = 180.0 }
+                           settingsPongWaitDelay = 120.0 }
     let client =
           Client { clientRunning = running,
                    clientNextIndex = nextIndex,
@@ -730,7 +730,7 @@ handleSessionEvent client session event = do
       atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnected -> do
       displaySessionMessageAll client session "* Disconnected"
-      tryReconnectSession client session
+      atomically $ writeTVar (sessionState session) SessionInactive
     IRCDisconnectError (Error errorText) -> do
       displaySessionMessageAll client session
         (T.pack $ printf "* Error disconnecting: %s" $ stripText errorText)
@@ -909,21 +909,9 @@ handlePingMessage client session message = do
 -- | Handle PONG message.
 handlePongMessage :: Client -> Session -> IRCMessage -> IO ()
 handlePongMessage client session message = do
-  let server =
-        case S.lookup 0 $ ircMessageParams message of
-          Just server -> Just server
-          Nothing ->
-            case ircMessageCoda message of
-              Just server -> Just server
-              Nothing -> Nothing
-  hostname <- atomically . readTVar $ sessionHostname session
-  case server of
-    Just server
-      | server == (encodeUtf8 $ T.pack hostname) ->
-        atomically $ do
-          count <- readTVar $ sessionPongCount session
-          writeTVar (sessionPongCount session) $ count + 1
-    _ -> return ()
+  atomically $ do
+    count <- readTVar $ sessionPongCount session
+    writeTVar (sessionPongCount session) $ count + 1
 
 -- | Handle TOPIC message.
 handleTopicMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -1911,10 +1899,10 @@ startPinging :: Client -> Session -> IO ()
 startPinging client session = do
   pingingAsync <- atomically . readTVar $ sessionPinging session
   case pingingAsync of
-    Nothing -> do
-      pingingAsync <- Just <$> async doPinging
-      atomically $ writeTVar (sessionPinging session) pingingAsync
-    Just _ -> return ()
+    Nothing -> return ()
+    Just pingingAsync -> cancel pingingAsync
+  pingingAsync <- Just <$> async doPinging
+  atomically $ writeTVar (sessionPinging session) pingingAsync
   where doPinging = do
           state <- atomically . readTVar $ sessionState session
           case state of
