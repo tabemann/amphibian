@@ -44,9 +44,7 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 import qualified Data.Sequence as S
 import qualified Network.Socket as NS
-import Data.Text.Encoding (encodeUtf8,
-                           decodeUtf8With)
-import Data.Text.Encoding.Error (lenientDecode)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Functor ((<$>),
                       fmap)
 import Data.Sequence ((|>),
@@ -822,6 +820,7 @@ handleNicknameInUse client session message = do
   case response of
     Just response -> asyncHandleResponse response
     Nothing -> return ()
+  updateNickForAllSessionTabs client session
 
 -- | Handle NAMREPLY message.
 handleNamreply :: Client -> Session -> IRCMessage -> IO ()
@@ -1013,6 +1012,7 @@ handleJoinMessage client session message = do
             writeTVar (channelUsers channel) $ users |> user
             return user
           updateChannelTabsForUser client channel user
+          updateNickForAllSessionTabs client session
 
 -- | Handle PART message.
 handlePartMessage :: Client -> Session -> IRCMessage -> IO ()
@@ -1182,6 +1182,7 @@ handleNickMessage client session message =
                     Just user -> do
                       updateTabTitleForAllUserTabs client user
                       updateAllChannelTabsForUser client user
+                      updateNickForAllSessionTabs client session
                       displayUserMessageAll client user . T.pack $
                         printf "* You are now known as %s"
                         (stripText $ ourDecodeUtf8 newNick)
@@ -1812,10 +1813,6 @@ removeUserType user channel aType = do
             S.update index (channel, S.filter (/= aType) channelTypes) types
         Nothing -> return ()
     Nothing -> return ()
-
--- | Our UTF-8 decoder.
-ourDecodeUtf8 :: B.ByteString -> T.Text
-ourDecodeUtf8 = decodeUtf8With lenientDecode
 
 -- | Extract nick from full nick, username, and host.
 extractNick :: B.ByteString -> B.ByteString
@@ -2769,6 +2766,7 @@ createSessionInTab client clientTab hostname port nick username realName = do
       (atomically . setTabTitleText (clientTabTab clientTab) $ T.pack hostname)
         >> return ()
       populateHistory session Nothing (clientTabHistory clientTab)
+      updateNickForAllSessionTabs client session
       return $ Right session
     Left failure -> return $ Left failure
 
@@ -3200,6 +3198,10 @@ updateChannelTabsForUser client channel user = do
         response <- atomically $ addTabUser (clientTabTab tab) nick userType'
         asyncHandleResponse response
       Left (Error errorText) -> displayError errorText
+  ourNick <- atomically . readTVar . sessionNick $ channelSession channel
+  if nick == ourNick
+    then updateNickForAllSessionTabs client (channelSession channel)
+    else return ()
 
 -- | Update all channel tabs for user.
 updateAllChannelTabsForUser :: Client -> User -> IO ()
@@ -3467,3 +3469,24 @@ getTabNickOrName clientTab = do
     UserTab user -> Just <$> readTVar (userNick user)
     SessionTab _ -> return Nothing
     FreeTab -> return Nothing
+
+-- | Update nick for all session tabs.
+updateNickForAllSessionTabs :: Client -> Session -> IO ()
+updateNickForAllSessionTabs client session = do
+  tabs <- atomically $ findAllTabsForSession client session
+  nick <- atomically . readTVar $ sessionNick session
+  user <- atomically $ findUserByNick session nick
+  case user of
+    Just user -> do
+      forM_ tabs $ \tab -> do
+        subtype <- atomically . readTVar $ clientTabSubtype tab
+        userType' <-
+          case subtype of
+            ChannelTab channel ->
+              Just <$> (atomically $ getSingleUserType user channel)
+            _ -> return Nothing
+        response <-
+          atomically $ setNick (clientTabTab tab) (Just (nick, userType'))
+        asyncHandleResponse response
+    Nothing -> return ()
+          

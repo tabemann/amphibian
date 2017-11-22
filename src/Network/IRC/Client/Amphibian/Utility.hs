@@ -37,14 +37,17 @@ module Network.IRC.Client.Amphibian.Utility
    tryGetResponse,
    byteOfChar,
    splitOnSpaces,
-   userTypePrefix)
+   userTypePrefix,
+   ourDecodeUtf8)
 
 where
 
 import Network.IRC.Client.Amphibian.Types
 import qualified Data.Text as T
 import qualified Data.ByteString as B
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (encodeUtf8,
+                           decodeUtf8With)
+import Data.Text.Encoding.Error (lenientDecode)
 import Data.Word (Word8)
 import Control.Concurrent.STM (STM,
                                atomically)
@@ -80,3 +83,7 @@ userTypePrefix OpUser = "@"
 userTypePrefix HalfOpUser = "%"
 userTypePrefix VoiceUser = "+"
 userTypePrefix NormalUser = ""
+
+-- | Our UTF-8 decoder.
+ourDecodeUtf8 :: B.ByteString -> T.Text
+ourDecodeUtf8 = decodeUtf8With lenientDecode

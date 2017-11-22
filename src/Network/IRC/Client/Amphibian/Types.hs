@@ -250,6 +250,8 @@ data WindowAction = OpenWindow T.Text (Response ())
                   | SetTabTitleStyle Tab T.Text (Response ())
                   | SetTabTitleTextAndStyle Tab T.Text T.Text (Response ())
                   | AddTabText Tab T.Text (Response ())
+                  | SetNick Tab (Maybe (B.ByteString, Maybe UserType))
+                    (Response ())
                   | SetEntry Tab T.Text (Response ())
                   | SetTopicVisible Tab Bool (Response ())
                   | SetTopic Tab T.Text (Response ())
@@ -283,6 +285,7 @@ data Tab = Tab
     tabUsers :: TVar (S.Seq TabUser),
     tabTitleText :: TVar T.Text,
     tabTitleStyle :: TVar T.Text,
+    tabNickLabel :: Gtk.Label,
     tabState :: TVar TabState,
     tabEventQueue :: TChan TabEvent }
 

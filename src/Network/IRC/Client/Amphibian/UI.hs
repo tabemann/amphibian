@@ -63,6 +63,7 @@ module Network.IRC.Client.Amphibian.UI
    setTabTitleStyle,
    setTabTitleTextAndStyle,
    addTabText,
+   setNick,
    setEntry,
    setTopicVisible,
    setTopic,
@@ -320,6 +321,17 @@ addTabText tab text = do
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue $ tabWindow tab)
          (AddTabText tab text $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Set the nick of a tab.
+setNick :: Tab -> Maybe (B.ByteString, Maybe UserType) -> STM (Response ())
+setNick tab nickAndUserType = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (SetNick tab nickAndUserType $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
@@ -607,6 +619,46 @@ runWindow window = do
             return False
           (atomically $ takeTMVar lock) >> return ()
           printf "*** DONE ADDING TAB TEXT\n"
+        TabIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
+    SetNick tab (Just (nick, userType)) (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> do
+          lock <- atomically $ newEmptyTMVar
+          printf "*** SETTING NICK\n"
+          Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
+            let prefix =
+                  case userType of
+                    Just userType -> userTypePrefix userType
+                    Nothing -> ""
+            Gtk.labelSetText (tabNickLabel tab) . T.pack $
+              printf "%s%s" prefix (ourDecodeUtf8 nick)
+            Gtk.widgetShow $ tabNickLabel tab
+            atomically $ do
+              putTMVar response $ Right ()
+              putTMVar lock ()
+            return False
+          (atomically $ takeTMVar lock) >> return ()
+          printf "*** DONE SETTING NICK\n"
+        TabIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
+    SetNick tab Nothing (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> do
+          lock <- atomically $ newEmptyTMVar
+          printf "*** SETTING NICK\n"
+          Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
+            Gtk.widgetHide $ tabNickLabel tab
+            atomically $ do
+              putTMVar response $ Right ()
+              putTMVar lock ()
+            return False
+          (atomically $ takeTMVar lock) >> return ()
+          printf "*** DONE SETTING NICK\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -899,6 +951,7 @@ createTab window titleText titleStyle = do
       sideBox <- Gtk.boxNew Gtk.OrientationVertical 0
       mainBox <- Gtk.boxNew Gtk.OrientationVertical 0
       bodyBox <- Gtk.boxNew Gtk.OrientationHorizontal 0
+      lowBox <- Gtk.boxNew Gtk.OrientationHorizontal 0
       topicEntry <- Gtk.entryNew
       scrolledWindow <- Gtk.scrolledWindowNew
         (Nothing :: Maybe Gtk.Adjustment) (Nothing :: Maybe Gtk.Adjustment)
@@ -921,16 +974,20 @@ createTab window titleText titleStyle = do
       Gtk.containerAdd scrolledWindow textView
       sideListBox <- Gtk.listBoxNew
       Gtk.containerAdd scrolledSideWindow sideListBox
+      nickLabel <- Gtk.labelNew Nothing
       entry <- Gtk.entryNew
+      Gtk.boxPackStart lowBox nickLabel False False 10
+      Gtk.boxPackStart lowBox entry True True 0
       Gtk.boxPackStart mainBox topicEntry False False 0
       Gtk.boxPackStart mainBox scrolledWindow True True 0
-      Gtk.boxPackStart mainBox entry False False 0
+      Gtk.boxPackStart mainBox lowBox False False 0
       Gtk.boxPackStart sideBox scrolledSideWindow True True 0
       Gtk.boxPackStart bodyBox mainBox True True 0
       Gtk.boxPackStart bodyBox sideBox False False 0
       Gtk.widgetShowAll bodyBox
       Gtk.widgetHide sideBox
       Gtk.widgetHide topicEntry
+      Gtk.widgetHide nickLabel
       tabBox <- Gtk.boxNew Gtk.OrientationHorizontal 10
       label <- Gtk.labelNew Nothing
       image <- Gtk.imageNewFromIconName (Just "window-close") 12
@@ -960,6 +1017,7 @@ createTab window titleText titleStyle = do
                       tabUsers = users,
                       tabTitleText = tabTitleText',
                       tabTitleStyle = tabTitleStyle',
+                      tabNickLabel = nickLabel,
                       tabState = state,
                       tabEventQueue = eventQueue }
       updateTabTitle tab
