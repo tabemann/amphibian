@@ -200,7 +200,11 @@ openClientWindow client windowTitle tabTitle = do
             writeTVar (clientWindows client) $ windows |> clientWindow
           clientTab <- openClientTab client clientWindow tabTitle
           case clientTab of
-            Right _ -> return $ Right clientWindow
+            Right clientTab -> do
+              atomically $ do
+                selectIndex <- getNextClientTabSelectIndex client
+                writeTVar (clientTabSelectIndex clientTab) selectIndex
+              return $ Right clientWindow
             Left failure -> do
               (atomically $ stopWindow window) >> return ()
               return $ Left failure
@@ -482,28 +486,28 @@ writeToLog tab text = do
         Nothing -> return ()
     Nothing -> return ()
 
--- | Update style of tab titles based on message text.
-updateTabTitleForMessage :: Client -> ClientTab -> T.Text -> IO ()
-updateTabTitleForMessage client clientTab text = do
+-- | Update style of tab titles based on channel message text.
+updateTabTitleForChannelMessage :: Client -> ClientTab -> T.Text -> IO ()
+updateTabTitleForChannelMessage client clientTab text = do
   session <- atomically $ getSessionForTab clientTab
   case session of
     Just session -> do
       nick <- atomically . readTVar $ sessionNick session
       if T.isInfixOf (ourDecodeUtf8 nick) text
         then setNotification client clientTab Mentioned
-        else setNotification client clientTab Messaged
+        else setNotification client clientTab ChannelMessaged
     Nothing -> return ()    
 
--- | Update style of tab titles based on notice text.
-updateTabTitleForNotice :: Client -> ClientTab -> T.Text -> IO ()
-updateTabTitleForNotice client clientTab text = do
+-- | Update style of tab titles based on user message text.
+updateTabTitleForUserMessage :: Client -> ClientTab -> T.Text -> IO ()
+updateTabTitleForUserMessage client clientTab text = do
   session <- atomically $ getSessionForTab clientTab
   case session of
     Just session -> do
       nick <- atomically . readTVar $ sessionNick session
       if T.isInfixOf (ourDecodeUtf8 nick) text
         then setNotification client clientTab Mentioned
-        else setNotification client clientTab Noticed
+        else setNotification client clientTab UserMessaged
     Nothing -> return ()
 
 -- | Set notification for tab
@@ -520,8 +524,8 @@ setNotification client clientTab notification = do
           case newNotification of
             NoNotification -> ""
             UserChanged -> "foreground=\"brown\""
-            Messaged -> "foreground=\"blue\""
-            Noticed -> "foreground=\"purple\""
+            ChannelMessaged -> "foreground=\"blue\""
+            UserMessaged -> "foreground=\"purple\""
             Mentioned -> "foreground=\"orange\""
       asyncHandleResponse response
     else return ()
@@ -1575,7 +1579,7 @@ handlePrivmsgMessage client session message = do
             Nothing -> do
               tabs <- findOrCreateUserTabsForUser client user
               forM_ tabs $ \tab ->
-                updateTabTitleForMessage client tab $ ourDecodeUtf8 text
+                updateTabTitleForUserMessage client tab $ ourDecodeUtf8 text
               updateNickForAllSessionTabs client session
               displayMessageOnTabs client tabs . T.pack $
                 printf "<%s> %s" (stripText $ ourDecodeUtf8 source)
@@ -1593,8 +1597,9 @@ handlePrivmsgMessage client session message = do
               case parseCtcp text of
                 Nothing -> do
                   tabs <- atomically $ findChannelTabsForChannel client channel
-                  forM_ tabs $ \tab ->
-                    updateTabTitleForMessage client tab $ ourDecodeUtf8 text
+                  forM_ tabs $ \tab -> do
+                    updateTabTitleForChannelMessage client tab $
+                      ourDecodeUtf8 text
                   displayChannelMessage client channel . T.pack $
                     printf "<%s%s> %s" (stripText $ userPrefix)
                     (stripText $ ourDecodeUtf8 source) (ourDecodeUtf8 text)
@@ -1622,7 +1627,7 @@ handleNoticeMessage client session message = do
                 atomically $ findMostRecentTabForSession client session
               case tab of
                 Just tab ->
-                  updateTabTitleForNotice client tab $ ourDecodeUtf8 text
+                  updateTabTitleForUserMessage client tab $ ourDecodeUtf8 text
               displaySessionMessageOnMostRecentTab client session . T.pack $
                 printf "-%s- %s" (stripText $ ourDecodeUtf8 source)
                 (ourDecodeUtf8 text)
@@ -1632,7 +1637,7 @@ handleNoticeMessage client session message = do
             Just channel -> do
               tabs <- atomically $ findChannelTabsForChannel client channel
               forM_ tabs $ \tab ->
-                updateTabTitleForNotice client tab $ ourDecodeUtf8 text
+                updateTabTitleForChannelMessage client tab $ ourDecodeUtf8 text
               displayChannelMessage client channel . T.pack $
                 printf "-%s- %s" (stripText $ ourDecodeUtf8 source)
                 (ourDecodeUtf8 text)

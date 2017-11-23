@@ -457,7 +457,7 @@ runWindow window = do
       if state == WindowNotShown
         then do        
           lock <- atomically $ newEmptyTMVar
-          printf "*** OPENING WINDOW\n"
+--          printf "*** OPENING WINDOW\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             actualWindow <- Gtk.windowNew Gtk.WindowTypeToplevel
             Gtk.windowSetDefaultSize actualWindow defaultWindowWidth
@@ -478,7 +478,7 @@ runWindow window = do
           atomically $ do
             takeTMVar lock
             putTMVar response $ Right ()
-          printf "*** DONE OPENING WINDOW\n"
+--          printf "*** DONE OPENING WINDOW\n"
         else atomically . putTMVar response . Left $ Error "window already open"
       runWindow window
     CloseWindow (Response response) -> do
@@ -501,7 +501,7 @@ runWindow window = do
       if state == WindowShown
         then do
           lock <- atomically $ newEmptyTMVar
-          printf "*** OPENING TAB\n"
+--          printf "*** OPENING TAB\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             tab <- createTab window titleText titleStyle
             case tab of
@@ -512,7 +512,7 @@ runWindow window = do
             atomically $ putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE OPENING TAB\n"
+--          printf "*** DONE OPENING TAB\n"
         else atomically . putTMVar response . Left $ Error "window not open"
       runWindow window
     CloseTab tab (Response response) -> do
@@ -525,7 +525,7 @@ runWindow window = do
           case (tabState', notebook) of
             (TabIsOpen, Just notebook) -> do
               lock <- atomically $ newEmptyTMVar
-              printf "*** CLOSING TAB\n"
+--              printf "*** CLOSING TAB\n"
               Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
                 pageNum <- Gtk.notebookPageNum notebook $ tabBodyBox tab
                 Gtk.notebookRemovePage notebook pageNum
@@ -542,7 +542,7 @@ runWindow window = do
                   putTMVar lock ()
                 return False
               (atomically $ takeTMVar lock) >> return ()
-              printf "*** DONE CLOSING TAB\n"
+--              printf "*** DONE CLOSING TAB\n"
             _ ->
               atomically . putTMVar response . Left $ Error "tab is closed"
         else atomically . putTMVar response . Left $ Error "window not open"
@@ -554,7 +554,7 @@ runWindow window = do
           case actualWindow of
             Just actualWindow -> do
               lock <- atomically $ newEmptyTMVar
-              printf "*** SETTING WINDOW TITLE\n"
+--              printf "*** SETTING WINDOW TITLE\n"
               Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
                 Gtk.setWindowTitle actualWindow title
                 atomically $ do
@@ -564,7 +564,7 @@ runWindow window = do
                   putTMVar lock ()
                 return False
               (atomically $ takeTMVar lock) >> return ()
-              printf "*** DONE SETTING WINDOW TITLE\n"
+--              printf "*** DONE SETTING WINDOW TITLE\n"
             Nothing -> atomically . putTMVar response . Left $
                        Error "could not find window"
         else atomically . putTMVar response . Left $ Error "window not open"
@@ -606,7 +606,7 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** ADDING TAB TEXT\n"
+--          printf "*** ADDING TAB TEXT\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             iter <- Gtk.textBufferGetStartIter $ tabTextBuffer tab
             Gtk.textIterForwardToEnd iter
@@ -618,7 +618,7 @@ runWindow window = do
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE ADDING TAB TEXT\n"
+--          printf "*** DONE ADDING TAB TEXT\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -627,7 +627,7 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING NICK\n"
+--          printf "*** SETTING NICK\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             let prefix =
                   case userType of
@@ -641,7 +641,7 @@ runWindow window = do
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING NICK\n"
+--          printf "*** DONE SETTING NICK\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -650,7 +650,7 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING NICK\n"
+--          printf "*** SETTING NICK\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             Gtk.widgetHide $ tabNickLabel tab
             atomically $ do
@@ -658,7 +658,7 @@ runWindow window = do
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING NICK\n"
+--          printf "*** DONE SETTING NICK\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -667,7 +667,7 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING ENTRY TEXT\n"
+--          printf "*** SETTING ENTRY TEXT\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             Gtk.entrySetText (tabEntry tab) text
             Gtk.editableSetPosition (tabEntry tab) . fromIntegral $
@@ -677,7 +677,7 @@ runWindow window = do
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING ENTRY TEXT\n"
+--          printf "*** DONE SETTING ENTRY TEXT\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -686,7 +686,7 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING TOPIC TEXT\n"
+--          printf "*** SETTING TOPIC TEXT\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             Gtk.entrySetText (tabTopicEntry tab) text
             atomically $ do
@@ -694,7 +694,7 @@ runWindow window = do
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING TOPIC TEXT\n"
+--          printf "*** DONE SETTING TOPIC TEXT\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -703,7 +703,7 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING TOPIC VISIBILITY\n"
+--          printf "*** SETTING TOPIC VISIBILITY\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             if visible
               then Gtk.widgetShow $ tabTopicEntry tab
@@ -713,7 +713,7 @@ runWindow window = do
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING TOPIC VISIBILITY\n"
+--          printf "*** DONE SETTING TOPIC VISIBILITY\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -722,17 +722,17 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** SETTING SIDE VISIBILITY\n"
+--          printf "*** SETTING SIDE VISIBILITY\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             if visible
-              then Gtk.widgetShow $ tabSideBox tab
+              then Gtk.widgetShowAll $ tabSideBox tab
               else Gtk.widgetHide $ tabSideBox tab
             atomically $ do
               putTMVar response $ Right ()
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE SETTING SIDE VISIBILITY\n"
+--          printf "*** DONE SETTING SIDE VISIBILITY\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -741,7 +741,7 @@ runWindow window = do
       case tabState' of
         TabIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** ADDING TAB USER\n"
+--          printf "*** ADDING TAB USER\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             users <- atomically . readTVar $ tabUsers tab
             case S.findIndexL (\user -> tabUserNick user == nick) users of
@@ -778,7 +778,7 @@ runWindow window = do
                    Error "nick already in tab"
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE ADDING TAB USER\n"
+--          printf "*** DONE ADDING TAB USER\n"
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
@@ -787,7 +787,7 @@ runWindow window = do
       case tabUserState' of
         TabUserIsOpen -> do
           lock <- atomically $ newEmptyTMVar
-          printf "*** REMOVING TAB USER\n"
+--          printf "*** REMOVING TAB USER\n"
           Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
             index <- atomically $ do
               users <- readTVar . tabUsers $ tabUserTab tabUser
@@ -810,7 +810,7 @@ runWindow window = do
               putTMVar lock ()
             return False
           (atomically $ takeTMVar lock) >> return ()
-          printf "*** DONE REMOVING TAB USER\n"
+--          printf "*** DONE REMOVING TAB USER\n"
         TabUserIsClosed -> atomically . putTMVar response . Left $
                        Error "tab user is closed"
       runWindow window
@@ -923,7 +923,7 @@ installEventHandlers window = do
 -- | Update tab title.
 updateTabTitle :: Tab -> IO ()
 updateTabTitle tab = do
-  printf "*** SETTING TAB TITLE\n"
+--  printf "*** SETTING TAB TITLE\n"
   (text, style) <- atomically $ do
     text <- readTVar $ tabTitleText tab
     style <- readTVar $ tabTitleStyle tab
@@ -933,7 +933,8 @@ updateTabTitle tab = do
                       (escapeText text)
     Gtk.labelSetMarkup (tabLabel tab) titleMarkup
     return False
-  printf "*** DONE SETTING TAB TITLE\n"
+  return ()
+--  printf "*** DONE SETTING TAB TITLE\n"
 
 -- | Attempt to create a tab for a window.
 createTab :: Window -> T.Text -> T.Text -> IO (Maybe Tab)
@@ -947,7 +948,7 @@ createTab window titleText titleStyle = do
     return (state, actualWindow, notebook, nextTabIndex)
   case (state, actualWindow, notebook) of
     (WindowShown, Just actualWindow, Just notebook) -> do
-      printf "*** STARTING CREATING TAB\n"
+--      printf "*** STARTING CREATING TAB\n"
       sideBox <- Gtk.boxNew Gtk.OrientationVertical 0
       mainBox <- Gtk.boxNew Gtk.OrientationVertical 0
       bodyBox <- Gtk.boxNew Gtk.OrientationHorizontal 0
@@ -984,10 +985,16 @@ createTab window titleText titleStyle = do
       Gtk.boxPackStart sideBox scrolledSideWindow True True 0
       Gtk.boxPackStart bodyBox mainBox True True 0
       Gtk.boxPackStart bodyBox sideBox False False 0
+      Gtk.widgetSetNoShowAll sideBox True
+      Gtk.widgetSetNoShowAll topicEntry True
+      Gtk.widgetSetNoShowAll nickLabel True
       Gtk.widgetShowAll bodyBox
       Gtk.widgetHide sideBox
       Gtk.widgetHide topicEntry
       Gtk.widgetHide nickLabel
+      Gtk.widgetSetNoShowAll sideBox False
+      Gtk.widgetSetNoShowAll topicEntry False
+      Gtk.widgetSetNoShowAll nickLabel False
       tabBox <- Gtk.boxNew Gtk.OrientationHorizontal 10
       label <- Gtk.labelNew Nothing
       image <- Gtk.imageNewFromIconName (Just "window-close") 12
@@ -1028,7 +1035,7 @@ createTab window titleText titleStyle = do
         state <- atomically $ readTVar state
         case state of
           TabIsOpen -> do
-            printf "*** STARTING CLOSING TAB\n"
+--            printf "*** STARTING CLOSING TAB\n"
             pageNum <- Gtk.notebookPageNum notebook bodyBox
             Gtk.notebookRemovePage notebook pageNum
             Gtk.widgetHide tabBox
@@ -1042,7 +1049,7 @@ createTab window titleText titleStyle = do
               writeTChan (tabEventQueue tab) TabClosed
               tabs <- readTVar $ windowTabs window
               writeTVar (windowTabs window) $ S.filter (/= tab) tabs
-            printf "*** DONE CLOSING TAB\n"
+--            printf "*** DONE CLOSING TAB\n"
           TabIsClosed -> return ()
       Gtk.onEntryActivate entry $ do
         state <- atomically $ readTVar state
@@ -1069,7 +1076,7 @@ createTab window titleText titleStyle = do
             return True
           _ -> return False
       Gtk.notebookAppendPageMenu notebook bodyBox (Just tabBox) (Just menuLabel)
-      printf "*** DONE CREATING TAB\n"
+--      printf "*** DONE CREATING TAB\n"
       return $ Just tab
     _ -> return Nothing
 

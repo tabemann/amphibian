@@ -458,8 +458,8 @@ data ClientWindow = ClientWindow
 -- | Notification level
 data Notification = NoNotification
                   | UserChanged
-                  | Messaged
-                  | Noticed
+                  | ChannelMessaged
+                  | UserMessaged
                   | Mentioned
                   deriving (Eq, Show, Ord)
 
