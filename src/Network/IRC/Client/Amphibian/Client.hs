@@ -215,9 +215,9 @@ openClientWindow client windowTitle tabTitle = do
 
 -- | Open a client tab.
 openClientTab :: Client -> ClientWindow -> T.Text -> IO (Either Error ClientTab)
-openClientTab client clientWindow tabTitle = do
-  response <- atomically $ openTab (clientWindowWindow clientWindow) tabTitle
-    ""
+openClientTab client clientWindow title = do
+  response <- atomically $ openTab (clientWindowWindow clientWindow) title
+    NoNotification
   result <- atomically $ getResponse response
   case result of
     Right tab -> do
@@ -520,13 +520,7 @@ setNotification client clientTab notification = do
         oldNotification <- readTVar $ clientTabNotification clientTab
         let newNotification = max oldNotification notification
         writeTVar (clientTabNotification clientTab) newNotification
-        setTabTitleStyle (clientTabTab clientTab) $
-          case newNotification of
-            NoNotification -> ""
-            UserChanged -> "foreground=\"brown\""
-            ChannelMessaged -> "foreground=\"blue\""
-            UserMessaged -> "foreground=\"purple\""
-            Mentioned -> "foreground=\"orange\""
+        setTabNotification (clientTabTab clientTab) newNotification
       asyncHandleResponse response
     else return ()
 
@@ -535,7 +529,7 @@ resetNotification :: ClientTab -> IO ()
 resetNotification clientTab = do
   response <- atomically $ do
     writeTVar (clientTabNotification clientTab) NoNotification
-    setTabTitleStyle (clientTabTab clientTab) ""
+    setTabNotification (clientTabTab clientTab) NoNotification
   asyncHandleResponse response
 
 -- | Display session message.
@@ -2769,7 +2763,7 @@ createSessionInTab client clientTab hostname port nick username realName = do
     Right session -> do
       atomically . writeTVar (clientTabSubtype clientTab) $
         SessionTab session
-      (atomically . setTabTitleText (clientTabTab clientTab) $ T.pack hostname)
+      (atomically . setTabTitle (clientTabTab clientTab) $ T.pack hostname)
         >> return ()
       populateHistory session Nothing (clientTabHistory clientTab)
       updateNickForAllSessionTabs client session
@@ -3266,7 +3260,7 @@ updateTabTitleForAllUserTabs client user = do
   nick <- ourDecodeUtf8 <$> (atomically . readTVar $ userNick user)
   tabs <- atomically $ findUserTabsForUser client user
   forM_ tabs $ \tab -> do
-    response <- atomically $ setTabTitleText (clientTabTab tab) nick
+    response <- atomically $ setTabTitle (clientTabTab tab) nick
     asyncHandleResponse response
 
 -- | Find all channels user is in.

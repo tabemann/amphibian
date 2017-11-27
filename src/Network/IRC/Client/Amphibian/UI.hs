@@ -59,9 +59,9 @@ module Network.IRC.Client.Amphibian.UI
    tryRecvWindow,
    openTab,
    closeTab,
-   setTabTitleText,
-   setTabTitleStyle,
-   setTabTitleTextAndStyle,
+   setTabTitle,
+   setTabNotification,
+   setTabTitleAndNotification,
    addTabText,
    setNick,
    setEntry,
@@ -102,7 +102,8 @@ import Control.Monad (forM_,
                       join)
 import Data.Text.Encoding (encodeUtf8,
                            decodeUtf8)
-import Control.Concurrent (forkOS)
+import Control.Concurrent (forkOS,
+                           threadDelay)
 import Control.Concurrent.Async (Async,
                                  async,
                                  cancel)
@@ -259,13 +260,13 @@ tryRecvWindow :: WindowEventSub -> STM (Maybe WindowEvent)
 tryRecvWindow (WindowEventSub sub) = tryReadTChan sub
 
 -- | Open a tab on a window.
-openTab :: Window -> T.Text -> T.Text -> STM (Response Tab)
-openTab window titleText titleStyle = do
+openTab :: Window -> T.Text -> Notification -> STM (Response Tab)
+openTab window title notification = do
   state <- readTVar $ windowState window
   response <- newEmptyTMVar
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue window)
-         (OpenTab titleText titleStyle $ Response response)
+         (OpenTab title notification $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
@@ -280,36 +281,36 @@ closeTab tab = do
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
--- | Set the title text of a tab.
-setTabTitleText :: Tab -> T.Text -> STM (Response ())
-setTabTitleText tab titleText = do
+-- | Set the title of a tab.
+setTabTitle :: Tab -> T.Text -> STM (Response ())
+setTabTitle tab title = do
   state <- readTVar . windowState $ tabWindow tab
   response <- newEmptyTMVar
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue $ tabWindow tab)
-         (SetTabTitleText tab titleText $ Response response)
+         (SetTabTitle tab title $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
--- | Set the title style of a tab.
-setTabTitleStyle :: Tab -> T.Text -> STM (Response ())
-setTabTitleStyle tab titleStyle = do
+-- | Set the notification of a tab.
+setTabNotification :: Tab -> Notification -> STM (Response ())
+setTabNotification tab notification = do
   state <- readTVar . windowState $ tabWindow tab
   response <- newEmptyTMVar
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue $ tabWindow tab)
-         (SetTabTitleStyle tab titleStyle $ Response response)
+         (SetTabNotification tab notification $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
--- | Set the title text and style of a tab.
-setTabTitleTextAndStyle :: Tab -> T.Text -> T.Text -> STM (Response ())
-setTabTitleTextAndStyle tab titleText titleStyle = do
+-- | Set the title and notification of a tab.
+setTabTitleAndNotification :: Tab -> T.Text -> Notification -> STM (Response ())
+setTabTitleAndNotification tab title notification = do
   state <- readTVar . windowState $ tabWindow tab
   response <- newEmptyTMVar
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue $ tabWindow tab)
-         (SetTabTitleTextAndStyle tab titleText titleStyle $ Response response)
+         (SetTabTitleAndNotification tab title notification $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
@@ -569,33 +570,33 @@ runWindow window = do
                        Error "could not find window"
         else atomically . putTMVar response . Left $ Error "window not open"
       runWindow window
-    SetTabTitleText tab titleText (Response response) -> do
+    SetTabTitle tab title (Response response) -> do
       tabState' <- atomically . readTVar $ tabState tab
       case tabState' of
         TabIsOpen -> do
-          atomically $ writeTVar (tabTitleText tab) titleText
+          atomically $ writeTVar (tabTitle tab) title
           updateTabTitle tab
           atomically . putTMVar response $ Right ()
         TabIsClosed -> atomically .  putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
-    SetTabTitleStyle tab titleStyle (Response response) -> do
+    SetTabNotification tab notification (Response response) -> do
       tabState' <- atomically . readTVar $ tabState tab
       case tabState' of
         TabIsOpen -> do
-          atomically $ writeTVar (tabTitleStyle tab) titleStyle
+          atomically $ writeTVar (tabNotification tab) notification
           updateTabTitle tab
           atomically . putTMVar response $ Right ()
         TabIsClosed -> atomically .  putTMVar response . Left $
                        Error "tab is closed"
       runWindow window
-    SetTabTitleTextAndStyle tab titleText titleStyle (Response response) -> do
+    SetTabTitleAndNotification tab title notification (Response response) -> do
       tabState' <- atomically . readTVar $ tabState tab
       case tabState' of
         TabIsOpen -> do
           atomically $ do
-            writeTVar (tabTitleText tab) titleText
-            writeTVar (tabTitleStyle tab) titleStyle
+            writeTVar (tabTitle tab) title
+            writeTVar (tabNotification tab) notification
           updateTabTitle tab
           atomically . putTMVar response $ Right ()
         TabIsClosed -> atomically .  putTMVar response . Left $
@@ -613,6 +614,8 @@ runWindow window = do
             let text' = formatText text
             Gtk.textBufferInsertMarkup (tabTextBuffer tab) iter text'
               (fromIntegral . B.length $ encodeUtf8 text')
+            Gtk.textViewScrollToMark (tabTextView tab) (tabTextMark tab)
+              0.0 True 0.5 0.05
             atomically $ do
               putTMVar response $ Right ()
               putTMVar lock ()
@@ -925,11 +928,11 @@ updateTabTitle :: Tab -> IO ()
 updateTabTitle tab = do
 --  printf "*** SETTING TAB TITLE\n"
   (text, style) <- atomically $ do
-    text <- readTVar $ tabTitleText tab
-    style <- readTVar $ tabTitleStyle tab
+    text <- readTVar $ tabTitle tab
+    style <- styleOfNotification <$> (readTVar $ tabNotification tab)
     return (text, style)
   Gdk.threadsAddIdle GLib.PRIORITY_DEFAULT $ do
-    let titleMarkup = T.pack $ printf "<span %s>%s</span>" style
+    let titleMarkup = T.pack $ printf "<span%s>%s</span>" style
                       (escapeText text)
     Gtk.labelSetMarkup (tabLabel tab) titleMarkup
     return False
@@ -937,8 +940,8 @@ updateTabTitle tab = do
 --  printf "*** DONE SETTING TAB TITLE\n"
 
 -- | Attempt to create a tab for a window.
-createTab :: Window -> T.Text -> T.Text -> IO (Maybe Tab)
-createTab window titleText titleStyle = do
+createTab :: Window -> T.Text -> Notification -> IO (Maybe Tab)
+createTab window title notification = do
   (state, actualWindow, notebook, nextTabIndex) <- atomically $ do
     state <- readTVar $ windowState window
     actualWindow <- tryReadTMVar $ windowWindow window
@@ -964,11 +967,12 @@ createTab window titleText titleStyle = do
         Gtk.PolicyTypeAutomatic
       textBuffer <- Gtk.textBufferNew (Nothing :: Maybe Gtk.TextTagTable)
       textView <- Gtk.textViewNewWithBuffer textBuffer
+      textMark <- Gtk.textMarkNew Nothing False
+      iter <- Gtk.textBufferGetStartIter textBuffer
+      Gtk.textIterForwardToEnd iter
+      Gtk.textBufferAddMark textBuffer textMark iter
       Gtk.onWidgetSizeAllocate textView $ \rect -> do
-        adjustment <- Gtk.scrolledWindowGetVadjustment scrolledWindow
-        upper <- Gtk.adjustmentGetUpper adjustment
-        pageSize <- Gtk.adjustmentGetPageSize adjustment
-        Gtk.adjustmentSetValue adjustment $ upper - pageSize
+        Gtk.textViewScrollToMark textView textMark 0.0 True 0.5 0.5
       Gtk.textViewSetMonospace textView True
       Gtk.textViewSetWrapMode textView Gtk.WrapModeChar
       Gtk.textViewSetEditable textView False
@@ -1005,8 +1009,8 @@ createTab window titleText titleStyle = do
       menuLabel <- Gtk.labelNew (Nothing :: Maybe T.Text)
       nextUserIndex <- atomically $ newTVar 0
       users <- atomically $ newTVar S.empty
-      tabTitleText' <- atomically $ newTVar titleText
-      tabTitleStyle' <- atomically $ newTVar titleStyle
+      tabTitle' <- atomically $ newTVar title
+      tabNotification' <- atomically $ newTVar notification
       state <- atomically $ newTVar TabIsOpen
       eventQueue <- atomically $ newBroadcastTChan
       let tab = Tab { tabIndex = nextTabIndex,
@@ -1016,15 +1020,17 @@ createTab window titleText titleStyle = do
                       tabEntry = entry,
                       tabTopicEntry = topicEntry,
                       tabSideListBox = sideListBox,
+                      tabScrolledWindow = scrolledWindow,
                       tabSideBox = sideBox,
                       tabBodyBox = bodyBox,
                       tabLabel = label,
                       tabTabBox = tabBox,
                       tabNextUserIndex = nextUserIndex,
                       tabUsers = users,
-                      tabTitleText = tabTitleText',
-                      tabTitleStyle = tabTitleStyle',
+                      tabTitle = tabTitle',
+                      tabNotification = tabNotification',
                       tabNickLabel = nickLabel,
+                      tabTextMark = textMark,
                       tabState = state,
                       tabEventQueue = eventQueue }
       updateTabTitle tab
@@ -1289,3 +1295,11 @@ stripText text =
                     (Nothing, _) -> stripText' rest parts
                 _ -> stripText' rest parts
             (Nothing, rest) -> stripText' rest parts
+
+-- | Get a style for a notification.
+styleOfNotification :: Notification -> T.Text
+styleOfNotification NoNotification = ""
+styleOfNotification UserChanged = " foreground=\"brown\""
+styleOfNotification ChannelMessaged = " foreground=\"blue\""
+styleOfNotification UserMessaged = " foreground=\"purple\""
+styleOfNotification Mentioned = " foreground=\"orange\""

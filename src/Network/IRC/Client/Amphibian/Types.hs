@@ -242,13 +242,14 @@ data WindowState = WindowNotStarted
 -- | IRC window action type
 data WindowAction = OpenWindow T.Text (Response ())
                   | CloseWindow (Response ())
-                  | OpenTab T.Text T.Text (Response Tab)
+                  | OpenTab T.Text Notification (Response Tab)
                   | CloseTab Tab (Response ())
                   | SetWindowTitle T.Text (Response ())
                   | StopWindow (Response ())
-                  | SetTabTitleText Tab T.Text (Response ())
-                  | SetTabTitleStyle Tab T.Text (Response ())
-                  | SetTabTitleTextAndStyle Tab T.Text T.Text (Response ())
+                  | SetTabTitle Tab T.Text (Response ())
+                  | SetTabNotification Tab Notification (Response ())
+                  | SetTabTitleAndNotification Tab T.Text Notification
+                    (Response ())
                   | AddTabText Tab T.Text (Response ())
                   | SetNick Tab (Maybe (B.ByteString, Maybe UserType))
                     (Response ())
@@ -277,15 +278,17 @@ data Tab = Tab
     tabEntry :: Gtk.Entry,
     tabTopicEntry :: Gtk.Entry,
     tabSideListBox :: Gtk.ListBox,
+    tabScrolledWindow :: Gtk.ScrolledWindow,
     tabSideBox :: Gtk.Box,
     tabBodyBox :: Gtk.Box,
     tabLabel :: Gtk.Label,
     tabTabBox :: Gtk.Box,
     tabNextUserIndex :: TVar Integer,
     tabUsers :: TVar (S.Seq TabUser),
-    tabTitleText :: TVar T.Text,
-    tabTitleStyle :: TVar T.Text,
+    tabTitle :: TVar T.Text,
+    tabNotification :: TVar Notification,
     tabNickLabel :: Gtk.Label,
+    tabTextMark :: Gtk.TextMark,
     tabState :: TVar TabState,
     tabEventQueue :: TChan TabEvent }
 
