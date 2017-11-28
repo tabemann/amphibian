@@ -1209,7 +1209,7 @@ parseColorNumber text =
             | char == '7' -> (Just 7, rest')
             | char == '8' -> (Just 8, rest')
             | char == '9' -> (Just 9, rest')
-          _ -> (Nothing, text)
+          _ -> (Just 0, rest)
       | char == '1' ->
         case T.uncons rest of
           Just (char, rest')
@@ -1219,11 +1219,18 @@ parseColorNumber text =
             | char == '3' -> (Just 13, rest')
             | char == '4' -> (Just 14, rest')
             | char == '5' -> (Just 15, rest')
-          _ -> (Nothing, text)
+          _ -> (Just 1, rest)
+      | char == '2' -> (Just 2, rest)
+      | char == '3' -> (Just 3, rest)
+      | char == '4' -> (Just 4, rest)
+      | char == '5' -> (Just 5, rest)
+      | char == '6' -> (Just 6, rest)
+      | char == '7' -> (Just 7, rest)
+      | char == '8' -> (Just 8, rest)
       | char == '9' ->
         case T.uncons rest of
           Just ('9', rest') -> (Just 99, rest')
-          _ -> (Nothing, text)
+          _ -> (Just 9, rest)
     _ -> (Nothing, text)
 
 -- | Get whether char is formatting char.
