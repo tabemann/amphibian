@@ -38,7 +38,10 @@ module Network.IRC.Client.Amphibian.Utility
    byteOfChar,
    splitOnSpaces,
    userTypePrefix,
-   ourDecodeUtf8)
+   ourDecodeUtf8,
+   asyncHandleResponse,
+   syncHandleResponse,
+   displayError)
 
 where
 
@@ -49,10 +52,15 @@ import Data.Text.Encoding (encodeUtf8,
                            decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Word (Word8)
+import Text.Printf (printf)
+import Control.Concurrent.Async (Async,
+                                 async)
 import Control.Concurrent.STM (STM,
                                atomically)
 import Control.Concurrent.STM.TMVar (readTMVar,
                                      tryReadTMVar)
+import System.IO (stderr)
+import Data.Text.IO (hPutStr)
 
 -- | Get a response.
 getResponse :: Response a -> STM (Either Error a)
@@ -87,3 +95,25 @@ userTypePrefix NormalUser = ""
 -- | Our UTF-8 decoder.
 ourDecodeUtf8 :: B.ByteString -> T.Text
 ourDecodeUtf8 = decodeUtf8With lenientDecode
+
+-- | Asynchronously handle response.
+asyncHandleResponse :: Response a -> IO ()
+asyncHandleResponse response = do
+  async $ do
+    result <- atomically $ getResponse response
+    case result of
+      Right _ -> return ()
+      Left (Error errorText) -> displayError errorText
+  return ()
+
+-- | Synchronously handle response.
+syncHandleResponse :: Response a -> IO ()
+syncHandleResponse response = do
+  result <- atomically $ getResponse response
+  case result of
+    Right _ -> return ()
+    Left (Error errorText) -> displayError errorText
+
+-- | Display an error.
+displayError :: T.Text -> IO ()
+displayError = hPutStr stderr . T.pack . printf "%s\n"

@@ -39,6 +39,7 @@ import Network.IRC.Client.Amphibian.Types
 import Network.IRC.Client.Amphibian.Utility
 import Network.IRC.Client.Amphibian.IRCConnection
 import Network.IRC.Client.Amphibian.UI
+import Network.IRC.Client.Amphibian.Log
 import Network.IRC.Client.Amphibian.ServerReplies
 import qualified Data.Text as T
 import qualified Data.ByteString as B
@@ -53,8 +54,7 @@ import Data.Sequence ((|>),
                       ViewL(..))
 import Data.Foldable (foldl',
                       toList)
-import System.IO (stderr,
-                  openFile,
+import System.IO (openFile,
                   hClose,
                   hFlush,
                   IOMode(..),
@@ -139,9 +139,13 @@ runClient = do
       Right _ -> do
         handleClientEvents client
         channels <- atomically . readTVar $ clientChannels client
-        forM_ channels $ \channel -> closeLog $ channelLog channel
+        forM_ channels $ \channel -> do
+          response <- atomically . stopLog $ channelLog channel
+          syncHandleResponse response
         users <- atomically . readTVar $ clientUsers client
-        forM_ users $ \user -> closeLog $ userLog user
+        forM_ users $ \user -> do
+          response <- atomically . stopLog $ userLog user
+          syncHandleResponse response
         windows <- atomically . readTVar $ clientWindows client
         forM_ windows $ \window -> do
           response <- atomically . stopWindow $ clientWindowWindow window
@@ -150,10 +154,6 @@ runClient = do
             Right () -> return ()
             Left (Error errorText) -> displayError errorText
       Left (Error errorText) -> displayError errorText
-
--- | Display an error.
-displayError :: T.Text -> IO ()
-displayError = hPutStr stderr . T.pack . printf "%s\n"
 
 -- | Get next client index.
 getNextClientIndex :: Client -> STM Integer
@@ -475,15 +475,8 @@ writeToLog tab text = do
               _ -> Nothing
   case log of
     Just log -> do
-      handle <- atomically $ do
-        logText' <- readTVar $ logText log
-        writeTVar (logText log) $ logText' |> text
-        readTVar $ logHandle log
-      case handle of
-        Just handle -> do
-          hPutStr handle text
-          hFlush handle
-        Nothing -> return ()
+      response <- atomically $ writeLog log text
+      asyncHandleResponse response
     Nothing -> return ()
 
 -- | Update style of tab titles based on channel message text.
@@ -2819,7 +2812,7 @@ createSession client hostname port nick username realName = do
         ourUserIndex <- getNextClientIndex client
         ourUserNick <- newTVar nick
         ourUserType <- newTVar []
-        ourUserLog <- createLog
+        ourUserLog <- newLog "" 0 B.empty
         let user = User { userIndex = ourUserIndex,
                           userSession = session,
                           userNick = ourUserNick,
@@ -2989,7 +2982,8 @@ cleanupChannelIfNoTabs client channel = do
       case response of
         Just response -> asyncHandleResponse response
         Nothing -> return ()
-      closeLog $ channelLog channel
+      response <- atomically . stopLog $ channelLog channel
+      syncHandleResponse response
       cleanupSessionIfNoTabs client $ channelSession channel
     else return ()
     
@@ -3022,7 +3016,8 @@ cleanupUserIfNoTabsOrChannels client user = do
         users <- readTVar $ sessionUsers session
         writeTVar (sessionUsers session) $
           S.filter (\user' -> index /= userIndex user') users
-      closeLog $ userLog user
+      response <- atomically . stopLog $ userLog user
+      syncHandleResponse response
       cleanupSessionIfNoTabs client $ userSession user
     else return ()
 
@@ -3101,7 +3096,9 @@ findOrCreateUserByNick client session nick = do
       index <- getNextClientIndex client
       nick' <- newTVar nick
       type' <- newTVar S.empty
-      log <- createLog
+      hostname <- readTVar $ sessionOrigHostname session
+      port <- readTVar $ sessionPort session
+      log <- newLog hostname port nick
       let user = User { userIndex = index,
                         userSession = session,
                         userNick = nick',
@@ -3125,7 +3122,9 @@ findOrCreateChannelByName client session name = do
       users <- newTVar S.empty
       topic <- newTVar Nothing
       mode <- newTVar S.empty
-      log <- createLog
+      hostname <- readTVar $ sessionOrigHostname session
+      port <- readTVar $ sessionPort session
+      log <- newLog hostname port name
       let channel = Channel { channelIndex = index,
                               channelSession = session,
                               channelState = state,
@@ -3155,16 +3154,6 @@ sendIRCMessageToChannel channel message =
 sendIRCMessageToUser :: User -> IRCMessage -> IO ()
 sendIRCMessageToUser user message =
   sendIRCMessageToSession (userSession user) message
-
--- | Asynchronously handle response.
-asyncHandleResponse :: Response a -> IO ()
-asyncHandleResponse response = do
-  async $ do
-    result <- atomically $ getResponse response
-    case result of
-      Right _ -> return ()
-      Left (Error errorText) -> displayError errorText
-  return ()
 
 -- | Set user type for channel.
 setUserTypeForChannel :: User -> Channel -> S.Seq UserType -> STM ()
@@ -3348,51 +3337,24 @@ filterMessageText nickOrName text =
             else text
   else text
 
--- | Create a log
-createLog :: STM Log
-createLog = do
-  logHandle' <- newTVar Nothing
-  logText' <- newTVar S.empty
-  return $ Log { logHandle = logHandle', logText = logText' }
-
--- | Open log.
-openLog :: Log -> Session -> B.ByteString -> IO ()
-openLog log session nickOrName = do
-  openLog' `catch` (\e -> displayError . T.pack $ show (e :: SomeException))
-  where openLog' = do
-          origHostname <- atomically . readTVar $ sessionOrigHostname session
-          port <- atomically . readTVar $ sessionPort session
-          logDir <- getUserDataDir $ "amphibian" </> "log" </>
-                    printf "%s:%d" origHostname (fromIntegral port :: Int)
-          createDirectoryIfMissing True logDir
-          let filePath = logDir </> (T.unpack $ ourDecodeUtf8 nickOrName)
-          text <- readFile filePath `catch`
-                  (\e -> return $ const "" (e :: SomeException))
-          atomically . writeTVar (logText log) $ S.singleton text
-          atomically . writeTVar (logHandle log) =<< Just <$>
-            openFile filePath AppendMode
-
--- | Close log.
-closeLog :: Log -> IO ()
-closeLog log = do
-  logHandle' <- atomically $ do
-    logHandle' <- readTVar $ logHandle log
-    writeTVar (logHandle log) Nothing
-    return logHandle'
-  case logHandle' of
-    Just logHandle' -> hClose logHandle'
-    Nothing -> return ()
-
 -- | Populate a client tab from a log.
 populateTabFromLog :: Session -> ClientTab -> B.ByteString -> Log -> IO ()
 populateTabFromLog session clientTab nickOrName log = do
-  logHandle' <- atomically . readTVar $ logHandle log
-  case logHandle' of
-    Just _ -> return ()
-    Nothing -> openLog log session nickOrName
-  logText' <- T.concat . toList <$> (atomically . readTVar $ logText log)
-  response <- atomically . addTabText (clientTabTab clientTab) $ logText'
-  asyncHandleResponse response
+  state <- atomically $ getLogState log
+  result <-
+    case state of
+      LogNotStarted -> startLog log
+      LogStarted -> return $ Right ()
+  case result of
+    Right () -> do
+      response <- atomically $ readLog log
+      result <- atomically $ getResponse response
+      case result of
+        Right text -> do
+          response <- atomically $ addTabText (clientTabTab clientTab) text
+          asyncHandleResponse response
+        Left (Error errorText) -> displayError errorText
+    Left (Error errorText) -> displayError errorText
 
 -- | Create a history
 createHistory :: STM History
