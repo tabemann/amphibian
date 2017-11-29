@@ -41,7 +41,8 @@ module Network.IRC.Client.Amphibian.Utility
    ourDecodeUtf8,
    asyncHandleResponse,
    syncHandleResponse,
-   displayError)
+   displayError,
+   filterMessageText)
 
 where
 
@@ -61,6 +62,7 @@ import Control.Concurrent.STM.TMVar (readTMVar,
                                      tryReadTMVar)
 import System.IO (stderr)
 import Data.Text.IO (hPutStr)
+import Data.Char (isSpace)
 
 -- | Get a response.
 getResponse :: Response a -> STM (Either Error a)
@@ -117,3 +119,20 @@ syncHandleResponse response = do
 -- | Display an error.
 displayError :: T.Text -> IO ()
 displayError = hPutStr stderr . T.pack . printf "%s\n"
+
+-- | Filter message text to eliminate passwords and like.
+filterMessageText :: B.ByteString -> T.Text -> T.Text
+filterMessageText nickOrName text =
+  if nickOrName == encodeUtf8 "NickServ"
+  then
+    let (part0, part1) = T.span isSpace text
+        (part1', part2) = T.span (not . isSpace) part1
+        (part2', part3) = T.span isSpace part2
+        (part3', part4) = T.span (not . isSpace) part3
+        (part4', part5) = T.span isSpace part4
+    in if part1' == "identify"
+       then T.concat [part0, part1', part2', "****"]
+       else if part1' == "release"
+            then T.concat [part0, part1', part2', part3', part4', "****"]
+            else text
+  else text

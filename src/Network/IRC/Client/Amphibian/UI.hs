@@ -999,7 +999,7 @@ createTab window title notification = do
       Gtk.widgetSetNoShowAll sideBox False
       Gtk.widgetSetNoShowAll topicEntry False
       Gtk.widgetSetNoShowAll nickLabel False
-      tabBox <- Gtk.boxNew Gtk.OrientationHorizontal 10
+      tabBox <- Gtk.boxNew Gtk.OrientationHorizontal 5
       label <- Gtk.labelNew Nothing
       image <- Gtk.imageNewFromIconName (Just "window-close") 12
       closeButton <- Gtk.toolButtonNew (Just image) (Nothing :: Maybe T.Text)

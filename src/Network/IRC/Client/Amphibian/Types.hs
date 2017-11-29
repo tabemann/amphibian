@@ -76,6 +76,8 @@ module Network.IRC.Client.Amphibian.Types
    LogState(..),
    LogAction(..),
    History(..),
+   HistoryState(..),
+   HistoryAction(..),
    Style(..),
    StyleAndColor(..))
    
@@ -426,7 +428,24 @@ data LogAction = WriteLog T.Text (Response ())
 data History = History
   { historyHandle :: TVar (Maybe Handle),
     historyLines :: TVar (S.Seq T.Text),
-    historyPosition :: TVar (Maybe Int) }
+    historyPosition :: TVar (Maybe Int),
+    historyNickOrName :: TVar (Maybe B.ByteString),
+    historyState :: TVar HistoryState,
+    historyActions :: TQueue HistoryAction }
+
+-- | History state.
+data HistoryState = HistoryNotStarted
+                  | HistoryStarted
+                  | HistoryLoaded
+                  deriving (Eq, Show)
+
+-- | History action.
+data HistoryAction = LoadHistory NS.HostName NS.PortNumber (Maybe B.ByteString)
+                     (Response ())
+                   | AddHistory T.Text (Response ())
+                   | GetPrevHistory (Response (Maybe T.Text))
+                   | GetNextHistory (Response (Maybe T.Text))
+                   | StopHistory (Response ())
 
 -- | IRC channel type
 data Channel = Channel

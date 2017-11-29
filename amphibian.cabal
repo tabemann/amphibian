@@ -77,4 +77,5 @@ executable amphibian
                 Network.IRC.Client.Amphibian.Types
                 Network.IRC.Client.Amphibian.IRCConnection
                 Network.IRC.Client.Amphibian.Log
+                Network.IRC.Client.Amphibian.History
   ghc-options: -threaded -O2

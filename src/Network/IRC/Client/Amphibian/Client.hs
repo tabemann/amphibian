@@ -40,6 +40,7 @@ import Network.IRC.Client.Amphibian.Utility
 import Network.IRC.Client.Amphibian.IRCConnection
 import Network.IRC.Client.Amphibian.UI
 import Network.IRC.Client.Amphibian.Log
+import Network.IRC.Client.Amphibian.History
 import Network.IRC.Client.Amphibian.ServerReplies
 import qualified Data.Text as T
 import qualified Data.ByteString as B
@@ -226,7 +227,7 @@ openClientTab client clientWindow title = do
       tabEventSub <- atomically $ subscribeTab tab
       subtype <- atomically $ newTVar FreeTab
       notification <- atomically $ newTVar NoNotification
-      history <- atomically $ createHistory
+      history <- atomically $ newHistory
       let clientTab =
             ClientTab { clientTabIndex = index,
                         clientTabSelectIndex = selectIndex,
@@ -236,6 +237,7 @@ openClientTab client clientWindow title = do
                         clientTabWindow = clientWindow,
                         clientTabNotification = notification,
                         clientTabHistory = history }
+      startHistory history
       atomically $ do
         tabs <- readTVar $ clientTabs client
         writeTVar (clientTabs client) $ tabs |> clientTab
@@ -2032,48 +2034,33 @@ handleTabClosed = cleanupClosedTab
 
 -- | Handle an up pressed event.
 handleUpPressed :: Client -> ClientTab -> IO ()
-handleUpPressed client clientTab = handleHistoryMove moveUp clientTab
-  where moveUp Nothing historyLength
-          | historyLength > 0 = Just 0
-          | otherwise = Nothing
-        moveUp (Just position) historyLength
-          | position < historyLength - 1 = Just $ position + 1
-          | otherwise = Just position
+handleUpPressed client clientTab = do
+  response <- atomically . getPrevHistory $ clientTabHistory clientTab
+  result <- atomically $ getResponse response
+  case result of
+    Right (Just text) -> do
+      response <- atomically $ setEntry (clientTabTab clientTab) text
+      asyncHandleResponse response
+    Right Nothing -> return ()
+    Left (Error errorText) -> displayError errorText
 
 -- | Handle a down pressed event
 handleDownPressed :: Client -> ClientTab -> IO ()
-handleDownPressed client clientTab = handleHistoryMove moveDown clientTab
-  where moveDown Nothing historyLength = Nothing
-        moveDown (Just position) historyLength
-          | position > 0 = Just $ position - 1
-          | otherwise = Nothing
-
--- | Handle history movement
-handleHistoryMove :: (Maybe Int -> Int -> Maybe Int) -> ClientTab -> IO ()
-handleHistoryMove func clientTab = do
-  let history = clientTabHistory clientTab
-  response <- atomically $ do
-    position <- readTVar $ historyPosition history
-    lines <- readTVar $ historyLines history
-    let historyLength = S.length lines
-        newPosition = func position historyLength
-    writeTVar (historyPosition history) newPosition
-    if newPosition /= position
-      then case newPosition of
-             Nothing -> Just <$> setEntry (clientTabTab clientTab) ""
-             Just newPosition ->
-               case S.lookup ((historyLength - 1) - newPosition) lines of
-                 Just line -> Just <$> setEntry (clientTabTab clientTab) line
-                 Nothing -> error "impossible"
-      else return $ Nothing
-  case response of
-    Just response -> asyncHandleResponse response
-    Nothing -> return ()
+handleDownPressed client clientTab = do
+  response <- atomically . getNextHistory $ clientTabHistory clientTab
+  result <- atomically $ getResponse response
+  case result of
+    Right (Just text) -> do
+      response <- atomically $ setEntry (clientTabTab clientTab) text
+      asyncHandleResponse response
+    Right Nothing -> return ()
+    Left (Error errorText) -> displayError errorText
 
 -- | Actually handle a closed tab.
 cleanupClosedTab :: Client -> ClientTab -> IO ()
 cleanupClosedTab client clientTab = do
-  closeHistory $ clientTabHistory clientTab
+  response <- atomically . stopHistory $ clientTabHistory clientTab
+  syncHandleResponse response
   subtype <- atomically $ do
     tabs <- readTVar $ clientTabs client
     let index = clientTabIndex clientTab
@@ -2090,18 +2077,8 @@ cleanupClosedTab client clientTab = do
 handleLineEntered :: Client -> ClientTab -> T.Text -> IO ()
 handleLineEntered client clientTab text = do
   let history = clientTabHistory clientTab
-  handle <- atomically . readTVar $ historyHandle history
-  case handle of
-    Just handle -> do
-      nickOrName <- atomically $ getTabNickOrName clientTab
-      let text' = filterLineForHistoryFile nickOrName text
-      hPutStr handle . T.pack $ printf "%s\n" text'
-      hFlush handle
-    Nothing -> return ()
-  atomically $ do
-    lines <- readTVar $ historyLines history
-    writeTVar (historyLines history) $ lines |> text
-    writeTVar (historyPosition history) Nothing
+  response <- atomically $ addHistory history text
+  asyncHandleResponse response
   case T.uncons text of
     Just ('/', rest) ->
       case T.uncons rest of
@@ -2110,24 +2087,6 @@ handleLineEntered client clientTab text = do
         Nothing -> return ()
     Just _ -> handleNormalLine client clientTab text
     Nothing -> return ()
-
--- | Filter a line before it goes in the history file.
-filterLineForHistoryFile :: Maybe B.ByteString -> T.Text -> T.Text
-filterLineForHistoryFile nickOrName text =
-  let text' =
-        case nickOrName of
-          Just nickOrName -> filterMessageText nickOrName text
-          Nothing -> text
-      (part0, part1) = T.span isSpace text'
-      (part1', part2) = T.span (not . isSpace) part1
-      (part2', part3) = T.span isSpace part2
-      (part3', part4) = T.span (not . isSpace) part3
-      (part4', part5) = T.span isSpace part4
-  in if part1' == "/msg"
-     then
-       T.concat [part0, part1', part2', part3', part4',
-                 filterMessageText (encodeUtf8 part3') part5]
-     else text'
 
 -- | Handle a normal line that has been entered.
 handleNormalLine :: Client -> ClientTab -> T.Text -> IO ()
@@ -3320,23 +3279,6 @@ formatCtcpReply target command Nothing =
                                                  command,
                                                  B.singleton 1] }
 
--- | Filter message text to eliminate passwords and like.
-filterMessageText :: B.ByteString -> T.Text -> T.Text
-filterMessageText nickOrName text =
-  if nickOrName == encodeUtf8 "NickServ"
-  then
-    let (part0, part1) = T.span isSpace text
-        (part1', part2) = T.span (not . isSpace) part1
-        (part2', part3) = T.span isSpace part2
-        (part3', part4) = T.span (not . isSpace) part3
-        (part4', part5) = T.span isSpace part4
-    in if part1' == "identify"
-       then T.concat [part0, part1', part2', "****"]
-       else if part1' == "release"
-            then T.concat [part0, part1', part2', part3', part4', "****"]
-            else text
-  else text
-
 -- | Populate a client tab from a log.
 populateTabFromLog :: Session -> ClientTab -> B.ByteString -> Log -> IO ()
 populateTabFromLog session clientTab nickOrName log = do
@@ -3356,58 +3298,13 @@ populateTabFromLog session clientTab nickOrName log = do
         Left (Error errorText) -> displayError errorText
     Left (Error errorText) -> displayError errorText
 
--- | Create a history
-createHistory :: STM History
-createHistory = do
-  historyHandle' <- newTVar Nothing
-  historyLines' <- newTVar S.empty
-  historyPosition' <- newTVar Nothing
-  return $ History { historyHandle = historyHandle',
-                     historyLines = historyLines',
-                     historyPosition = historyPosition' }
-
--- | Open history.
-openHistory :: History -> Session -> Maybe B.ByteString -> IO ()
-openHistory history session nickOrName = do
-  openHistory' `catch` (\e -> displayError . T.pack $ show (e :: SomeException))
-  where openHistory' = do
-          origHostname <- atomically . readTVar $ sessionOrigHostname session
-          port <- atomically . readTVar $ sessionPort session
-          historyDir <- getUserDataDir $ "amphibian" </> "history" </>
-                        printf "%s:%d" origHostname (fromIntegral port :: Int)
-          createDirectoryIfMissing True historyDir
-          let filePath =
-                case nickOrName of
-                  Just nickOrName ->
-                    historyDir </> (T.unpack $ ourDecodeUtf8 nickOrName)
-                  Nothing -> historyDir ++ ".session"
-          oldLines <- S.filter (not . T.null) . S.fromList . T.splitOn "\n" <$>
-            (readFile filePath `catch` (\e -> return $ const ""
-                                              (e :: SomeException)))
-          atomically $ do
-            newLines <- readTVar $ historyLines history
-            writeTVar (historyLines history) $ oldLines >< newLines
-          atomically . writeTVar (historyHandle history) =<< Just <$>
-            openFile filePath AppendMode
-
--- | Close history.
-closeHistory :: History -> IO ()
-closeHistory history = do
-  historyHandle' <- atomically $ do
-    historyHandle' <- readTVar $ historyHandle history
-    writeTVar (historyHandle history) Nothing
-    return historyHandle'
-  case historyHandle' of
-    Just historyHandle' -> hClose historyHandle'
-    Nothing -> return ()
-
 -- | Populate history.
 populateHistory :: Session -> Maybe B.ByteString -> History -> IO ()
 populateHistory session nickOrName history = do
-  historyHandle' <- atomically . readTVar $ historyHandle history
-  case historyHandle' of
-    Just _ -> return ()
-    Nothing -> openHistory history session nickOrName
+  origHostname <- atomically . readTVar $ sessionOrigHostname session
+  port <- atomically . readTVar $ sessionPort session
+  response <- atomically $ loadHistory history origHostname port nickOrName
+  asyncHandleResponse response
 
 -- | Mark channels as awaiting reconnect.
 markChannelsAsAwaitingReconnect :: Client -> Session -> IO ()
