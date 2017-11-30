@@ -96,7 +96,8 @@ import Data.Functor ((<$>))
 import Data.Sequence ((|>),
                       (><),
                       ViewL((:<)))
-import Data.Foldable (toList)
+import Data.Foldable (toList,
+                      foldl')
 import Data.List (elemIndex)
 import Control.Monad (forM_,
                       join)
@@ -586,6 +587,7 @@ runWindow window = do
         TabIsOpen -> do
           atomically $ writeTVar (tabNotification tab) notification
           updateTabTitle tab
+          updateWindowNotification window notification
           atomically . putTMVar response $ Right ()
         TabIsClosed -> atomically .  putTMVar response . Left $
                        Error "tab is closed"
@@ -598,6 +600,7 @@ runWindow window = do
             writeTVar (tabTitle tab) title
             writeTVar (tabNotification tab) notification
           updateTabTitle tab
+          updateWindowNotification window notification
           atomically . putTMVar response $ Right ()
         TabIsClosed -> atomically .  putTMVar response . Left $
                        Error "tab is closed"
@@ -906,6 +909,7 @@ installEventHandlers window = do
                   Nothing -> return ()
               else return ()
           else return ()
+        Gtk.windowSetUrgencyHint actualWindow False
         return False
       Gtk.onNotebookSwitchPage notebook $ \widget index -> do
         join . atomically $ do
@@ -938,6 +942,17 @@ updateTabTitle tab = do
     return False
   return ()
 --  printf "*** DONE SETTING TAB TITLE\n"
+
+-- | Update window notification.
+updateWindowNotification :: Window -> Notification -> IO ()
+updateWindowNotification window notification = do
+  window' <- atomically . readTMVar $ windowWindow window
+  hasToplevelFocus <- Gtk.getWindowHasToplevelFocus window'
+  if not hasToplevelFocus
+    then if notification == Mentioned || notification == UserMessaged
+         then Gtk.windowSetUrgencyHint window' True
+         else return ()
+    else return ()
 
 -- | Attempt to create a tab for a window.
 createTab :: Window -> T.Text -> Notification -> IO (Maybe Tab)
@@ -1034,6 +1049,7 @@ createTab window title notification = do
                       tabState = state,
                       tabEventQueue = eventQueue }
       updateTabTitle tab
+      updateWindowNotification window NoNotification
       atomically $ do
         tabs <- readTVar $ windowTabs window
         writeTVar (windowTabs window) $ tabs |> tab
