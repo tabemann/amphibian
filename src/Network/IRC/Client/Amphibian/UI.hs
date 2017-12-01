@@ -1174,7 +1174,9 @@ completeText text index completions =
           case S.viewl completions of
             completion :< rest
               | T.take (T.length substring) completion == substring ->
-                T.drop (T.length substring) completion
+                if index == T.length text
+                then T.drop (T.length substring) completion
+                else T.drop (T.length substring - 1) completion
               | otherwise -> completeText' rest
             S.EmptyL -> ""
         substring =
