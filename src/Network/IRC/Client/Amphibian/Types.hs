@@ -264,6 +264,8 @@ data WindowAction = OpenWindow T.Text (Response ())
                   | AddTabUser Tab B.ByteString UserType (Response TabUser)
                   | RemoveTabUser TabUser (Response ())
                   | FindTabUser Tab B.ByteString (Response (Maybe TabUser))
+                  | AddCompletion Tab T.Text (Response ())
+                  | RemoveCompletion Tab T.Text (Response ())
 
 -- | IRC window event type
 data WindowEvent = WindowClosed
@@ -291,6 +293,7 @@ data Tab = Tab
     tabUsers :: TVar (S.Seq TabUser),
     tabTitle :: TVar T.Text,
     tabNotification :: TVar Notification,
+    tabCompletions :: TVar (S.Seq T.Text),
     tabNickLabel :: Gtk.Label,
     tabTextMark :: Gtk.TextMark,
     tabState :: TVar TabState,

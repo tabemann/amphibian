@@ -75,6 +75,8 @@ module Network.IRC.Client.Amphibian.UI
    addTabUser,
    removeTabUser,
    findTabUser,
+   addCompletion,
+   removeCompletion,
    getTabUserState,
    subscribeTabUser,
    recvTabUser,
@@ -135,6 +137,7 @@ import Control.Concurrent.STM.TMVar (TMVar,
                                      takeTMVar,
                                      readTMVar)
 import Text.Printf (printf)
+import Data.Char (isSpace)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | Default window width.
@@ -411,6 +414,28 @@ findTabUser tab nick = do
   if state /= WindowNotStarted
     then writeTQueue (windowActionQueue $ tabWindow tab)
          (FindTabUser tab nick $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Add a completion.
+addCompletion :: Tab -> T.Text -> STM (Response ())
+addCompletion tab completion = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (AddCompletion tab completion $ Response response)
+    else putTMVar response . Left $ Error "window not started"
+  return $ Response response
+
+-- | Remove a completion.
+removeCompletion :: Tab -> T.Text -> STM (Response ())
+removeCompletion tab completion = do
+  state <- readTVar . windowState $ tabWindow tab
+  response <- newEmptyTMVar
+  if state /= WindowNotStarted
+    then writeTQueue (windowActionQueue $ tabWindow tab)
+         (RemoveCompletion tab completion $ Response response)
     else putTMVar response . Left $ Error "window not started"
   return $ Response response
 
@@ -833,7 +858,29 @@ runWindow window = do
             Nothing -> putTMVar response $ Right Nothing
         TabIsClosed -> atomically . putTMVar response . Left $
                        Error "tab is closed"
-      runWindow window       
+      runWindow window
+    AddCompletion tab completion (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> atomically $ do
+          completions <- readTVar $ tabCompletions tab
+          writeTVar (tabCompletions tab) .
+            S.sortBy (\x y -> compare (T.length x) (T.length y)) .
+            S.sort $ completions |> completion
+          putTMVar response $ Right ()
+        TabIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
+    RemoveCompletion tab completion (Response response) -> do
+      tabState' <- atomically . readTVar $ tabState tab
+      case tabState' of
+        TabIsOpen -> atomically $ do
+          completions <- readTVar $ tabCompletions tab
+          writeTVar (tabCompletions tab) $ S.filter (/= completion) completions
+          putTMVar response $ Right ()
+        TabIsClosed -> atomically . putTMVar response . Left $
+                       Error "tab is closed"
+      runWindow window
 
 -- | Find index of first item larger than item.
 findFirstLarger :: Ord a => a -> S.Seq a -> Int
@@ -1026,6 +1073,7 @@ createTab window title notification = do
       users <- atomically $ newTVar S.empty
       tabTitle' <- atomically $ newTVar title
       tabNotification' <- atomically $ newTVar notification
+      completions <- atomically $ newTVar S.empty
       state <- atomically $ newTVar TabIsOpen
       eventQueue <- atomically $ newBroadcastTChan
       let tab = Tab { tabIndex = nextTabIndex,
@@ -1044,6 +1092,7 @@ createTab window title notification = do
                       tabUsers = users,
                       tabTitle = tabTitle',
                       tabNotification = tabNotification',
+                      tabCompletions = completions,
                       tabNickLabel = nickLabel,
                       tabTextMark = textMark,
                       tabState = state,
@@ -1096,12 +1145,50 @@ createTab window title notification = do
           Just "Down" -> do
             atomically $ writeTChan (tabEventQueue tab) DownPressed
             return True
+          Just "Tab" -> do
+            text <- Gtk.entryGetText entry
+            index <- fromIntegral <$> Gtk.editableGetPosition entry
+            buffer <- Gtk.entryGetBuffer entry
+            completions <- atomically . readTVar $ tabCompletions tab
+            let insertedText = completeText text index completions
+            if not $ T.null insertedText
+              then do Gtk.entryBufferInsertText buffer (fromIntegral index)
+                        insertedText (fromIntegral $ T.length insertedText)
+                      Gtk.editableSetPosition entry
+                        (fromIntegral $ index + T.length insertedText)
+              else return ()
+            return True
           _ -> return False
       Gtk.notebookAppendPageMenu notebook bodyBox (Just tabBox) (Just menuLabel)
 --      printf "*** DONE CREATING TAB\n"
       return $ Just tab
     _ -> return Nothing
 
+-- | Complete text.
+completeText :: T.Text -> Int -> S.Seq T.Text -> T.Text
+completeText text index completions =
+  if T.length substring > 0
+  then completeText' completions
+  else ""
+  where completeText' completions =
+          case S.viewl completions of
+            completion :< rest
+              | T.take (T.length substring) completion == substring ->
+                T.drop (T.length substring) completion
+              | otherwise -> completeText' rest
+            S.EmptyL -> ""
+        substring =
+          if index > 0
+          then prevString $ index - 1
+          else ""
+        prevString currentIndex =
+          if not . isSpace $ T.index text currentIndex
+          then
+            if currentIndex > 0
+            then prevString $ currentIndex - 1
+            else T.take index text
+          else T.take (index - currentIndex) $ T.drop (currentIndex + 1) text
+            
 -- | Escape text for markup.
 escapeText :: T.Text -> T.Text
 escapeText text =

@@ -356,6 +356,19 @@ findUserTabsForUser client user = do
           userIndex user == userIndex currentUser
         matchTab _ _ = False
 
+-- | Find user tabs for session.
+findUserTabsForSession :: Client -> Session -> STM (S.Seq ClientTab)
+findUserTabsForSession client session = do
+  clientTabs <- mapM getSubtype =<< (readTVar $ clientTabs client)
+  return . fmap (\(clientTab, _) -> clientTab) $
+    S.filter matchTab clientTabs
+  where getSubtype tab = do
+          subtype <- readTVar $ clientTabSubtype tab
+          return (tab, subtype)
+        matchTab (tab, UserTab currentUser) =
+          sessionIndex session == sessionIndex (userSession currentUser)
+        matchTab _ = False
+
 -- | Find all client tabs for user.
 findAllTabsForUser :: Client -> User -> STM (S.Seq ClientTab)
 findAllTabsForUser client user = do
@@ -981,6 +994,9 @@ handleJoinMessage client session message = do
           removeAllUsersFromChannel client channel
           tabs <- findOrCreateChannelTabsForChannel client channel
           forM_ tabs $ \tab -> do
+            response <- atomically . addCompletion (clientTabTab tab) $
+                        ourDecodeUtf8 name
+            asyncHandleResponse response
             response <- atomically $ setTopicVisible (clientTabTab tab) True
             result <- atomically $ getResponse response
             case result of
@@ -1176,6 +1192,16 @@ handleNickMessage client session message =
                       updateTabTitleForAllUserTabs client user
                       updateAllChannelTabsForUser client user
                       updateNickForAllSessionTabs client session
+                      tabs <- atomically $ findUserTabsForSession client session
+                      forM_ tabs $ \tab -> do
+                        response <- atomically $
+                                    removeCompletion (clientTabTab tab)
+                                    (ourDecodeUtf8 nick)
+                        asyncHandleResponse response
+                        response <- atomically $
+                                    addCompletion (clientTabTab tab)
+                                    (ourDecodeUtf8 newNick)
+                        asyncHandleResponse response
                       displayUserMessageAll client user . T.pack $
                         printf "* You are now known as %s"
                         (stripText $ ourDecodeUtf8 newNick)
@@ -1186,6 +1212,16 @@ handleNickMessage client session message =
                     Just user -> do
                       updateTabTitleForAllUserTabs client user
                       updateAllChannelTabsForUser client user
+                      tabs <- atomically $ findUserTabsForUser client user
+                      forM_ tabs $ \tab -> do
+                        response <- atomically $
+                                    removeCompletion (clientTabTab tab)
+                                    (ourDecodeUtf8 nick)
+                        asyncHandleResponse response
+                        response <- atomically $
+                                    addCompletion (clientTabTab tab)
+                                    (ourDecodeUtf8 newNick)
+                        asyncHandleResponse response
                       displayUserMessageAll client user . T.pack $
                         printf "* %s is now known as %s"
                         (stripText $ ourDecodeUtf8 nick)
@@ -1567,8 +1603,14 @@ handlePrivmsgMessage client session message = do
           case parseCtcp text of
             Nothing -> do
               tabs <- findOrCreateUserTabsForUser client user
-              forM_ tabs $ \tab ->
+              forM_ tabs $ \tab -> do
                 updateTabTitleForUserMessage client tab $ ourDecodeUtf8 text
+                response <- atomically . addCompletion (clientTabTab tab) $
+                            ourDecodeUtf8 ourNick
+                asyncHandleResponse response
+                response <- atomically . addCompletion (clientTabTab tab) $
+                            ourDecodeUtf8 source
+                asyncHandleResponse response
               updateNickForAllSessionTabs client session
               displayMessageOnTabs client tabs . T.pack $
                 printf "<%s> %s" (stripText $ ourDecodeUtf8 source)
@@ -3132,6 +3174,9 @@ updateChannelTabsForUser client channel user = do
   tabs <- atomically $ findChannelTabsForChannel client channel
   nick <- atomically . readTVar $ userNick user
   forM_ tabs $ \tab -> do
+    response <- atomically . addCompletion (clientTabTab tab) $
+                ourDecodeUtf8 nick
+    asyncHandleResponse response
     response <- atomically $ findTabUser (clientTabTab tab) nick
     result <- atomically $ getResponse response
     case result of
@@ -3181,6 +3226,9 @@ removeUserFromChannelTabs client channel user = do
   tabs <- atomically $ findChannelTabsForChannel client channel
   nick <- atomically . readTVar $ userNick user
   forM_ tabs $ \tab -> do
+    response <- atomically . removeCompletion (clientTabTab tab) $
+                ourDecodeUtf8 nick
+    asyncHandleResponse response
     response <- atomically $ findTabUser (clientTabTab tab) nick
     result <- atomically $ getResponse response
     case result of
