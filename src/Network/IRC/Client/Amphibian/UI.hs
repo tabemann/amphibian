@@ -100,7 +100,9 @@ import Data.Sequence ((|>),
                       ViewL((:<)))
 import Data.Foldable (toList,
                       foldl')
-import Data.List (elemIndex)
+import Data.List (elemIndex,
+                  elem,
+                  notElem)
 import Control.Monad (forM_,
                       join)
 import Data.Text.Encoding (encodeUtf8,
@@ -942,7 +944,7 @@ installEventHandlers window = do
           writeTVar (windowTabs window) S.empty
       Gtk.onWidgetWindowStateEvent actualWindow $ \e -> do
         state <- Gdk.getEventWindowStateNewWindowState e
-        if elemIndex Gdk.WindowStateFocused state /= Nothing
+        if elem Gdk.WindowStateFocused state
           then do
             page <- fromIntegral <$> Gtk.notebookGetCurrentPage notebook
             tabs <- atomically . readTVar $ windowTabs window
@@ -1137,32 +1139,84 @@ createTab window title notification = do
             text <- Gtk.entryGetText topicEntry
             atomically . writeTChan (tabEventQueue tab) $ TopicEntered text
           TabIsClosed -> return ()
-      Gtk.onWidgetKeyPressEvent entry $ \e ->
+      Gtk.onWidgetKeyPressEvent entry $ \e -> do
+        modifiers <- Gdk.getEventKeyState e
         Gdk.getEventKeyKeyval e >>= Gdk.keyvalName >>= \case
-          Just "Up" -> do
-            atomically $ writeTChan (tabEventQueue tab) UpPressed
-            return True
-          Just "Down" -> do
-            atomically $ writeTChan (tabEventQueue tab) DownPressed
-            return True
-          Just "Tab" -> do
-            text <- Gtk.entryGetText entry
-            index <- fromIntegral <$> Gtk.editableGetPosition entry
-            buffer <- Gtk.entryGetBuffer entry
-            completions <- atomically . readTVar $ tabCompletions tab
-            let insertedText = completeText text index completions
-            if not $ T.null insertedText
-              then do Gtk.entryBufferInsertText buffer (fromIntegral index)
-                        insertedText (fromIntegral $ T.length insertedText)
-                      Gtk.editableSetPosition entry
-                        (fromIntegral $ index + T.length insertedText)
-              else return ()
-            return True
+          Just "Up"
+            | hasNoNormalModifiers modifiers -> do
+                atomically $ writeTChan (tabEventQueue tab) UpPressed
+                return True
+          Just "Down"
+            | hasNoNormalModifiers modifiers -> do
+                atomically $ writeTChan (tabEventQueue tab) DownPressed
+                return True
+          Just "Tab"
+            | hasNoNormalModifiers modifiers -> do
+                text <- Gtk.entryGetText entry
+                index <- fromIntegral <$> Gtk.editableGetPosition entry
+                buffer <- Gtk.entryGetBuffer entry
+                completions <- atomically . readTVar $ tabCompletions tab
+                let insertedText = completeText text index completions
+                insertEntry tab insertedText
+                return True
+          Just "k"
+            | hasControlModifier modifiers -> do
+                insertEntry tab "\x000003"
+                return True
+          Just "b"
+            | hasControlModifier modifiers -> do
+                insertEntry tab "\x000002"
+                return True
+          Just "i"
+            | hasControlModifier modifiers -> do
+                insertEntry tab "\x00001D"
+                return True
+          Just "u"
+            | hasControlModifier modifiers -> do
+                insertEntry tab "\x00001F"
+                return True
+          Just "r"
+            | hasControlModifier modifiers -> do
+                insertEntry tab "\x000016"
+                return True
+          Just "o"
+            | hasControlModifier modifiers -> do
+                insertEntry tab "\x00000F"
+                return True
           _ -> return False
       Gtk.notebookAppendPageMenu notebook bodyBox (Just tabBox) (Just menuLabel)
 --      printf "*** DONE CREATING TAB\n"
       return $ Just tab
     _ -> return Nothing
+
+-- | Insert text into the entry for a tab.
+insertEntry :: Tab -> T.Text -> IO ()
+insertEntry tab text = do
+  let entry = tabEntry tab
+  buffer <- Gtk.entryGetBuffer entry
+  index <- Gtk.editableGetPosition entry
+  Gtk.entryBufferInsertText buffer (fromIntegral index) text
+    (fromIntegral $ T.length text)
+  Gtk.editableSetPosition entry $ index + (fromIntegral $ T.length text)
+
+-- | Check whether a key has no normal (shift, control, meta, hyper, super)
+-- modifiers.
+hasNoNormalModifiers :: [Gdk.ModifierType] -> Bool
+hasNoNormalModifiers modifiers =
+  notElem Gdk.ModifierTypeShiftMask modifiers &&
+  notElem Gdk.ModifierTypeControlMask modifiers &&
+  notElem Gdk.ModifierTypeMetaMask modifiers &&
+  notElem Gdk.ModifierTypeHyperMask modifiers &&
+  notElem Gdk.ModifierTypeSuperMask modifiers
+
+-- | Check whether a key has just the control modifier.
+hasControlModifier :: [Gdk.ModifierType] -> Bool
+hasControlModifier modifiers =
+  notElem Gdk.ModifierTypeShiftMask modifiers &&
+  elem Gdk.ModifierTypeControlMask modifiers &&
+  notElem Gdk.ModifierTypeMetaMask modifiers &&
+  notElem Gdk.ModifierTypeHyperMask modifiers &&
+  notElem Gdk.ModifierTypeSuperMask modifiers
 
 -- | Complete text.
 completeText :: T.Text -> Int -> S.Seq T.Text -> T.Text
@@ -1272,27 +1326,27 @@ formatText text =
           if styleAndColor /= StyleAndColor [] 99 99
           then
             let part0 =
-                  case S.elemIndexL Bold $ currentStyle styleAndColor of
-                    Just _ -> " weight=\"bold\""
-                    Nothing -> ""
+                  if elem Bold $ currentStyle styleAndColor
+                  then " weight=\"bold\""
+                  else ""
                 part1 =
-                  case S.elemIndexL Italic $ currentStyle styleAndColor of
-                    Just _ -> " style=\"italic\""
-                    Nothing -> ""
+                  if elem Italic $ currentStyle styleAndColor
+                  then " style=\"italic\""
+                  else ""
                 part2 =
-                  case S.elemIndexL Underline $ currentStyle styleAndColor of
-                    Just _ -> " underline=\"single\""
-                    Nothing -> ""
+                  if elem Underline $ currentStyle styleAndColor
+                  then " underline=\"single\""
+                  else ""
                 part3 =
-                  case S.elemIndexL Reverse $ currentStyle styleAndColor of
-                    Just _ ->
-                      T.pack $ printf " foreground=\"%s\" background=\"%s\""
-                      (getColor "#FFFFFF" $ currentBackground styleAndColor)
-                      (getColor "#000000" $ currentForeground styleAndColor)
-                    Nothing ->
-                      T.pack $ printf " foreground=\"%s\" background=\"%s\""
-                      (getColor "#000000" $ currentForeground styleAndColor)
-                      (getColor "#FFFFFF" $ currentBackground styleAndColor)
+                  if elem Reverse $ currentStyle styleAndColor
+                  then
+                    T.pack $ printf " foreground=\"%s\" background=\"%s\""
+                    (getColor "#FFFFFF" $ currentBackground styleAndColor)
+                    (getColor "#000000" $ currentForeground styleAndColor)
+                  else
+                    T.pack $ printf " foreground=\"%s\" background=\"%s\""
+                    (getColor "#000000" $ currentForeground styleAndColor)
+                    (getColor "#FFFFFF" $ currentBackground styleAndColor)
             in parts >< ["<span", part0, part1, part2, part3, ">"]
           else parts
 

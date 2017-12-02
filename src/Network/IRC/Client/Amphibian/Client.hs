@@ -123,7 +123,7 @@ runClient = do
     tabs <- atomically $ newTVar S.empty
     settings <- atomically . newTVar $
                 Settings { settingsReconnectDelay = 10.0,
-                           settingsPongWaitDelay = 120.0 }
+                           settingsPongWaitDelay = 10.0 }
     let client =
           Client { clientRunning = running,
                    clientNextIndex = nextIndex,
