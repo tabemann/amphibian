@@ -1158,8 +1158,9 @@ createTab window title notification = do
                 index <- fromIntegral <$> Gtk.editableGetPosition entry
                 buffer <- Gtk.entryGetBuffer entry
                 completions <- atomically . readTVar $ tabCompletions tab
-                let insertedText = completeText text index completions
-                insertEntry tab insertedText
+                let (insertedText, deleteCount) =
+                      completeText text index completions
+                deleteInsertEntry tab insertedText deleteCount
                 return True
           Just "k"
             | hasControlModifier modifiers -> do
@@ -1201,6 +1202,20 @@ insertEntry tab text = do
     (fromIntegral $ T.length text)
   Gtk.editableSetPosition entry $ index + (fromIntegral $ T.length text)
 
+-- | Delete and inseert text into the entry for a tab.
+deleteInsertEntry :: Tab -> T.Text -> Int -> IO ()
+deleteInsertEntry tab text deleteCount = do
+  let deleteCount' = fromIntegral deleteCount
+  let entry = tabEntry tab
+  buffer <- Gtk.entryGetBuffer entry
+  index <- Gtk.editableGetPosition entry
+  Gtk.entryBufferDeleteText buffer (fromIntegral $ index - deleteCount')
+    deleteCount'
+  Gtk.entryBufferInsertText buffer (fromIntegral $ index - deleteCount') text
+    (fromIntegral $ T.length text)
+  Gtk.editableSetPosition entry $
+    (fromIntegral $ index - deleteCount') + (fromIntegral $ T.length text)
+
 -- | Check whether a key has no normal (shift, control, meta, hyper, super)
 -- modifiers.
 hasNoNormalModifiers :: [Gdk.ModifierType] -> Bool
@@ -1221,21 +1236,21 @@ hasControlModifier modifiers =
   notElem Gdk.ModifierTypeSuperMask modifiers
 
 -- | Complete text.
-completeText :: T.Text -> Int -> S.Seq T.Text -> T.Text
+completeText :: T.Text -> Int -> S.Seq T.Text -> (T.Text, Int)
 completeText text index completions =
   if T.length substring > 0
   then completeText' completions
-  else ""
+  else ("", 0)
   where completeText' completions =
           case S.viewl completions of
             completion :< rest
-              | T.take (T.length substring) completion == substring ->
-                T.drop (T.length substring) completion
+              | T.toLower (T.take (T.length substring) completion) ==
+                substring -> (completion, T.length substring)
               | otherwise -> completeText' rest
-            S.EmptyL -> ""
+            S.EmptyL -> ("", 0)
         substring =
           if index > 0
-          then prevString $ index - 1
+          then T.toLower . prevString $ index - 1
           else ""
         prevString currentIndex =
           if not . isSpace $ T.index text currentIndex
