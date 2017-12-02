@@ -123,7 +123,9 @@ runClient = do
     tabs <- atomically $ newTVar S.empty
     settings <- atomically . newTVar $
                 Settings { settingsReconnectDelay = 10.0,
-                           settingsPongWaitDelay = 10.0 }
+                           settingsPongWaitDelay = 10.0,
+                           mentionForegroundColor = 7,
+                           mentionBackgroundColor = 99 }
     let client =
           Client { clientRunning = running,
                    clientNextIndex = nextIndex,
@@ -471,8 +473,8 @@ isTabMostRecentTabForWindow client clientTab = do
     Nothing -> return False
 
 -- | Format a message.
-formatMessage :: T.Text -> IO T.Text
-formatMessage message = do
+formatMessage :: Client -> Maybe Session -> T.Text -> IO T.Text
+formatMessage client session message = do
   currentTime <- getCurrentTime
   timeZone <- getCurrentTimeZone
   let localTime = utcToLocalTime timeZone currentTime
@@ -543,7 +545,7 @@ resetNotification clientTab = do
 -- | Display session message.
 displaySessionMessage :: Client -> Session -> T.Text -> IO ()
 displaySessionMessage client session message = do
-  message <- formatMessage message
+  message <- formatMessage client (Just session) message
   responses <- do
     clientTabs <- atomically $ do
       clientTabs <- findSessionTabsForSession client session
@@ -562,7 +564,7 @@ displaySessionMessage client session message = do
 -- | Display channel message.
 displayChannelMessage :: Client -> Channel -> T.Text -> IO ()
 displayChannelMessage client channel message = do
-  message <- formatMessage message
+  message <- formatMessage client (Just $ channelSession channel) message
   responses <- do
     clientTabs <- atomically $ findChannelTabsForChannel client channel
     forM clientTabs $ \clientTab -> do
@@ -573,7 +575,7 @@ displayChannelMessage client channel message = do
 -- | Display user message.
 displayUserMessage :: Client -> User -> T.Text -> IO ()
 displayUserMessage client user message = do
-  message <- formatMessage message
+  message <- formatMessage client (Just $ userSession user) message
   responses <- do
     clientTabs <- atomically $ do
       clientTabs <- findUserTabsForUser client user
@@ -592,7 +594,7 @@ displayUserMessage client user message = do
 -- | Display message on all tabs for user.
 displayUserMessageAll :: Client -> User -> T.Text -> IO ()
 displayUserMessageAll client user message = do
-  message <- formatMessage message
+  message <- formatMessage client (Just $ userSession user) message
   responses <- do
     tabs <- atomically $ findAllTabsForUser client user
     forM tabs $ \clientTab -> do
@@ -603,7 +605,7 @@ displayUserMessageAll client user message = do
 -- | Display messsage on all tabs for session.
 displaySessionMessageAll :: Client -> Session -> T.Text -> IO ()
 displaySessionMessageAll client session message = do
-  message <- formatMessage message
+  message <- formatMessage client (Just session) message
   responses <- do
     tabs <- atomically $ findAllTabsForSession client session
     forM tabs $ \clientTab -> do
@@ -614,7 +616,7 @@ displaySessionMessageAll client session message = do
 -- | Display message on most recent tab for session.
 displaySessionMessageOnMostRecentTab :: Client -> Session -> T.Text -> IO ()
 displaySessionMessageOnMostRecentTab client session message = do
-  message <- formatMessage message
+  message <- formatMessage client (Just session) message
   response <- do
     clientTab <- atomically $ findMostRecentTabForSession client session
     case clientTab of
@@ -629,7 +631,8 @@ displaySessionMessageOnMostRecentTab client session message = do
 -- | Display message on tab.
 displayMessage :: Client -> ClientTab -> T.Text -> IO ()
 displayMessage client clientTab message = do
-  message <- formatMessage message
+  session <- atomically $ getSessionForTab clientTab
+  message <- formatMessage client session message
   writeToLog clientTab message
   response <- atomically $
     addTabText (clientTabTab clientTab) message
@@ -638,12 +641,7 @@ displayMessage client clientTab message = do
 -- | Display message on tabs.
 displayMessageOnTabs :: Client -> S.Seq ClientTab -> T.Text -> IO ()
 displayMessageOnTabs client tabs message = do
-  message <- formatMessage message
-  forM_ tabs $ \clientTab -> writeToLog clientTab message
-  responses <- atomically $
-    forM tabs $ \clientTab ->
-    addTabText (clientTabTab clientTab) message
-  forM_ responses $ \response -> asyncHandleResponse response
+  forM_ tabs $ \clientTab -> displayMessage client clientTab message
 
 -- | Handle a session event.
 handleSessionEvent :: Client -> Session -> IRCConnectionEvent -> IO ()
@@ -1591,12 +1589,20 @@ channelModesToExclude = [byteOfChar 'b', byteOfChar 'o', byteOfChar 'O',
 -- | Handle PRIVMSG message.
 handlePrivmsgMessage :: Client -> Session -> IRCMessage -> IO ()
 handlePrivmsgMessage client session message = do
+  settings <- atomically . readTVar $ clientSettings client
   case (ircMessagePrefix message,
         S.lookup 0 $ ircMessageParams message,
         ircMessageCoda message) of
     (Just prefix, Just target, Just text) -> do
       let source = extractNick prefix
       ourNick <- atomically . readTVar $ sessionNick session
+      let text' = ourDecodeUtf8 text
+          text'' =
+            if T.isInfixOf (ourDecodeUtf8 ourNick) text'
+            then colorText text'
+                 (mentionForegroundColor settings)
+                 (mentionBackgroundColor settings)
+            else text'
       if target == ourNick
         then do
           user <- atomically $ findOrCreateUserByNick client session source
@@ -1604,7 +1610,7 @@ handlePrivmsgMessage client session message = do
             Nothing -> do
               tabs <- findOrCreateUserTabsForUser client user
               forM_ tabs $ \tab -> do
-                updateTabTitleForUserMessage client tab $ ourDecodeUtf8 text
+                updateTabTitleForUserMessage client tab text'
                 response <- atomically . addCompletion (clientTabTab tab) $
                             ourDecodeUtf8 ourNick
                 asyncHandleResponse response
@@ -1613,8 +1619,7 @@ handlePrivmsgMessage client session message = do
                 asyncHandleResponse response
               updateNickForAllSessionTabs client session
               displayMessageOnTabs client tabs . T.pack $
-                printf "<%s> %s" (stripText $ ourDecodeUtf8 source)
-                (ourDecodeUtf8 text)
+                printf "<%s> %s" (stripText $ ourDecodeUtf8 source) text''
             Just (command, param) ->
               handleUserCtcp client user command param
         else do
@@ -1633,7 +1638,7 @@ handlePrivmsgMessage client session message = do
                       ourDecodeUtf8 text
                   displayChannelMessage client channel . T.pack $
                     printf "<%s%s> %s" (stripText $ userPrefix)
-                    (stripText $ ourDecodeUtf8 source) (ourDecodeUtf8 text)
+                    (stripText $ ourDecodeUtf8 source) text''
                 Just (command, param) ->
                   handleChannelCtcp client channel user command param
             Nothing -> return ()
@@ -1642,12 +1647,20 @@ handlePrivmsgMessage client session message = do
 -- | Handle NOTICE message.
 handleNoticeMessage :: Client -> Session -> IRCMessage -> IO ()
 handleNoticeMessage client session message = do
+  settings <- atomically . readTVar $ clientSettings client
   case (ircMessagePrefix message,
         S.lookup 0 $ ircMessageParams message,
         ircMessageCoda message) of
     (Just prefix, Just target, Just text) -> do
       let source = extractNick prefix
       ourNick <- atomically . readTVar $ sessionNick session
+      let text' = ourDecodeUtf8 text
+          text'' =
+            if T.isInfixOf (ourDecodeUtf8 ourNick) text'
+            then colorText text'
+                 (mentionForegroundColor settings)
+                 (mentionBackgroundColor settings)
+            else text'
       if target == ourNick
         then do
           user <- atomically $ findOrCreateUserByNick client session source
@@ -1658,10 +1671,9 @@ handleNoticeMessage client session message = do
                 atomically $ findMostRecentTabForSession client session
               case tab of
                 Just tab ->
-                  updateTabTitleForUserMessage client tab $ ourDecodeUtf8 text
+                  updateTabTitleForUserMessage client tab text'
               displaySessionMessageOnMostRecentTab client session . T.pack $
-                printf "-%s- %s" (stripText $ ourDecodeUtf8 source)
-                (ourDecodeUtf8 text)
+                printf "-%s- %s" (stripText $ ourDecodeUtf8 source) text''
         else do
           channel <- atomically $ findChannelByName session target
           case channel of
@@ -1670,8 +1682,7 @@ handleNoticeMessage client session message = do
               forM_ tabs $ \tab ->
                 updateTabTitleForChannelMessage client tab $ ourDecodeUtf8 text
               displayChannelMessage client channel . T.pack $
-                printf "-%s- %s" (stripText $ ourDecodeUtf8 source)
-                (ourDecodeUtf8 text)
+                printf "-%s- %s" (stripText $ ourDecodeUtf8 source) text''
             Nothing -> return ()
     _ -> return ()
 

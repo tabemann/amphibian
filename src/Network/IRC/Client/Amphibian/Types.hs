@@ -537,7 +537,9 @@ data ClientTaggedEvent = TaggedSessionEvent Session IRCConnectionEvent
 
 -- | Settings type
 data Settings = Settings { settingsReconnectDelay :: Double,
-                           settingsPongWaitDelay :: Double }
+                           settingsPongWaitDelay :: Double,
+                           mentionForegroundColor :: Int,
+                           mentionBackgroundColor :: Int }
 
 -- | Style
 data Style = Bold

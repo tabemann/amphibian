@@ -81,7 +81,9 @@ module Network.IRC.Client.Amphibian.UI
    subscribeTabUser,
    recvTabUser,
    tryRecvTabUser,
-   stripText)
+   stripText,
+   stripTextColor,
+   colorText)
 
 where
 
@@ -1460,6 +1462,53 @@ stripText text =
                     (Nothing, _) -> stripText' rest parts
                 _ -> stripText' rest parts
             (Nothing, rest) -> stripText' rest parts
+
+-- | Strip text color.
+stripTextColor :: T.Text -> T.Text
+stripTextColor text =
+  let parts = T.splitOn "\n" text
+      parts' = fmap (\part -> stripTextColor' part []) parts
+  in T.intercalate "\n" parts'
+  where stripTextColor' text parts =
+          case T.uncons text of
+            Just (char, rest)
+              | char == '\x000002' ->
+                stripTextColor' rest (parts |> T.singleton char)
+              | char == '\x00001D' ->
+                stripTextColor' rest (parts |> T.singleton char)
+              | char == '\x00001F' ->
+                stripTextColor' rest (parts |> T.singleton char)
+              | char == '\x000016' ->
+                stripTextColor' rest (parts |> T.singleton char)
+              | char == '\x00000F' ->
+                stripTextColor' rest (parts |> T.singleton char)
+              | char == '\x000003' -> handleColor rest parts
+              | otherwise ->
+                let (text', rest) = T.span (not . isFormattingChar) text
+                in stripTextColor' rest (parts |> text')
+            Nothing -> T.concat $ toList parts
+        handleColor text parts =
+          case parseColorNumber text of
+            (Just foreground, rest) ->
+              case T.uncons rest of
+                Just (',', rest') ->
+                  case parseColorNumber rest' of
+                    (Just background, rest'') -> stripTextColor' rest'' parts
+                    (Nothing, _) -> stripTextColor' rest parts
+                _ -> stripTextColor' rest parts
+            (Nothing, rest) -> stripTextColor' rest parts
+
+-- | Color a string.
+colorText :: T.Text -> Int -> Int -> T.Text
+colorText text foreground background =
+  if ((foreground >= 0 && foreground <= 15) || foreground == 99) &&
+     ((background >= 0 && background <= 15) || background == 99)
+  then
+    let parts = T.splitOn "\x00000F" $ stripTextColor text
+        colorText = T.pack $ printf "\x000003%02d,%02d" foreground background
+        interColorText = T.pack $ printf "\x00000F%s" colorText
+    in T.concat [colorText, T.intercalate interColorText parts]
+  else error "invalid color"
 
 -- | Get a style for a notification.
 styleOfNotification :: Notification -> T.Text
