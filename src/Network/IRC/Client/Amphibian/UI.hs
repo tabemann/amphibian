@@ -1228,9 +1228,7 @@ completeText text index completions =
           case S.viewl completions of
             completion :< rest
               | T.take (T.length substring) completion == substring ->
-                if index == T.length text
-                then T.drop (T.length substring) completion
-                else T.drop (T.length substring - 1) completion
+                T.drop (T.length substring) completion
               | otherwise -> completeText' rest
             S.EmptyL -> ""
         substring =
@@ -1243,7 +1241,8 @@ completeText text index completions =
             if currentIndex > 0
             then prevString $ currentIndex - 1
             else T.take index text
-          else T.take (index - currentIndex) $ T.drop (currentIndex + 1) text
+          else T.take (index - (currentIndex + 1)) $
+               T.drop (currentIndex + 1) text
             
 -- | Escape text for markup.
 escapeText :: T.Text -> T.Text
