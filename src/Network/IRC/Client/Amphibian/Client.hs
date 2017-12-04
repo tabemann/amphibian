@@ -123,7 +123,7 @@ runClient = do
     tabs <- atomically $ newTVar S.empty
     settings <- atomically . newTVar $
                 Settings { settingsReconnectDelay = 10.0,
-                           settingsPongWaitDelay = 10.0,
+                           settingsPongWaitDelay = 20.0,
                            mentionForegroundColor = 7,
                            mentionBackgroundColor = 99 }
     let client =
@@ -2129,17 +2129,18 @@ cleanupClosedTab client clientTab = do
 -- | Handle a line entered event.
 handleLineEntered :: Client -> ClientTab -> T.Text -> IO ()
 handleLineEntered client clientTab text = do
-  let history = clientTabHistory clientTab
-  response <- atomically $ addHistory history text
-  asyncHandleResponse response
-  case T.uncons text of
-    Just ('/', rest) ->
-      case T.uncons rest of
-        Just ('/', _) -> handleNormalLine client clientTab rest
-        Just _ -> handleCommand client clientTab rest
-        Nothing -> return ()
-    Just _ -> handleNormalLine client clientTab text
-    Nothing -> return ()
+  forM_ (T.splitOn "\n" text) $ \text -> do
+    let history = clientTabHistory clientTab
+    response <- atomically $ addHistory history text
+    asyncHandleResponse response
+    case T.uncons text of
+      Just ('/', rest) ->
+        case T.uncons rest of
+          Just ('/', _) -> handleNormalLine client clientTab rest
+          Just _ -> handleCommand client clientTab rest
+          Nothing -> return ()
+      Just _ -> handleNormalLine client clientTab text
+      Nothing -> return ()
 
 -- | Handle a normal line that has been entered.
 handleNormalLine :: Client -> ClientTab -> T.Text -> IO ()
@@ -2191,26 +2192,45 @@ handleNormalLine client clientTab text = do
 handleCommand :: Client -> ClientTab -> T.Text -> IO ()
 handleCommand client clientTab command = do
   case parseCommandField command of
-    Just (command, rest)
-      | command == "new" -> handleNewCommand client clientTab rest
-      | command == "new-window" -> handleNewWindowCommand client clientTab rest
-      | command == "close" -> handleCloseCommand client clientTab rest
-      | command == "server" -> handleServerCommand client clientTab rest
-      | command == "quit" -> handleQuitCommand client clientTab rest
-      | command == "join" -> handleJoinCommand client clientTab rest
-      | command == "part" -> handlePartCommand client clientTab rest
-      | command == "msg" -> handleMsgCommand client clientTab rest
-      | command == "notice" -> handleNoticeCommand client clientTab rest
-      | command == "topic" -> handleTopicCommand client clientTab rest
-      | command == "mode" -> handleModeCommand client clientTab rest
-      | command == "kick" -> handleKickCommand client clientTab rest
-      | command == "nick" -> handleNickCommand client clientTab rest
-      | command == "me" -> handleMeCommand client clientTab rest
-      | command == "ping" -> handlePingCommand client clientTab rest
-      | command == "reconnect" -> handleReconnectCommand client clientTab rest
-      | command == "whois" -> handleWhoisCommand client clientTab rest
-      | command == "whowas" -> handleWhowasCommand client clientTab rest
-      | otherwise -> handleUnrecognizedCommand client clientTab command
+    Just (command, rest) -> do
+      let command' = T.toLower command
+      if command' == "new"
+        then handleNewCommand client clientTab rest
+        else if command' == "new-window"
+        then handleNewWindowCommand client clientTab rest
+        else if command' == "close"
+        then handleCloseCommand client clientTab rest
+        else if command' == "server"
+        then handleServerCommand client clientTab rest
+        else if command' == "quit"
+        then handleQuitCommand client clientTab rest
+        else if command' == "join"
+        then handleJoinCommand client clientTab rest
+        else if command' == "part"
+        then handlePartCommand client clientTab rest
+        else if command' == "msg"
+        then handleMsgCommand client clientTab rest
+        else if command' == "notice"
+        then handleNoticeCommand client clientTab rest
+        else if command' == "topic"
+        then handleTopicCommand client clientTab rest
+        else if command' == "mode"
+        then handleModeCommand client clientTab rest
+        else if command' == "kick"
+        then handleKickCommand client clientTab rest
+        else if command' == "nick"
+        then handleNickCommand client clientTab rest
+        else if command' == "me"
+        then handleMeCommand client clientTab rest
+        else if command' == "ping"
+        then handlePingCommand client clientTab rest
+        else if command' == "reconnect"
+        then handleReconnectCommand client clientTab rest
+        else if command' == "whois"
+        then handleWhoisCommand client clientTab rest
+        else if command' == "whowas"
+        then handleWhowasCommand client clientTab rest
+        else handleUnrecognizedCommand client clientTab command
     Nothing -> return ()
 
 -- | Handle the /new command.

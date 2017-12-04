@@ -150,9 +150,7 @@ loadLog :: Log -> IO ()
 loadLog log = do
   loadLog' `catch` (\e -> return $ const () (e :: IOException))
   where loadLog' = do
-          logDir <- getUserDataDir $ "amphibian" </> "log" </>
-                    printf "%s:%d" (logHostname log)
-                    (fromIntegral (logPort log) :: Int)
+          logDir <- getUserDataDir $ "amphibian" </> "log" </> logHostname log
           createDirectoryIfMissing True logDir
           let filePath = logDir </>
                          (T.unpack . ourDecodeUtf8 $ logNickOrName log)

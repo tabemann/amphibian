@@ -199,8 +199,7 @@ handleLoadHistory history hostname port nickOrName (Response response) = do
       atomically . putTMVar response . Left $ Error "history already loaded"
     HistoryNotStarted -> error "impossible"
   where loadHistory' = do
-          historyDir <- getUserDataDir $ "amphibian" </> "history" </>
-                    printf "%s:%d" hostname (fromIntegral port :: Int)
+          historyDir <- getUserDataDir $ "amphibian" </> "history" </> hostname
           createDirectoryIfMissing True historyDir
           let filePath =
                 case nickOrName of

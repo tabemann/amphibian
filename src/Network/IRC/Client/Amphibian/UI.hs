@@ -1186,6 +1186,10 @@ createTab window title notification = do
             | hasControlModifier modifiers -> do
                 insertEntry tab "\x00000F"
                 return True
+          Just "Return"
+            | hasControlModifier modifiers -> do
+                insertEntry tab "\n"
+                return True
           _ -> return False
       Gtk.notebookAppendPageMenu notebook bodyBox (Just tabBox) (Just menuLabel)
 --      printf "*** DONE CREATING TAB\n"
