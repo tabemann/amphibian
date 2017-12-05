@@ -73,7 +73,6 @@ module Network.IRC.Client.Amphibian.Types
    ClientTaggedEvent(..),
    Settings(..),
    Log(..),
-   LogState(..),
    LogAction(..),
    History(..),
    HistoryAction(..),
@@ -408,23 +407,15 @@ data SessionState = SessionInactive
 
 -- | Log type.
 data Log = Log
-  { logHandle :: TVar (Maybe Handle),
-    logText :: TVar (S.Seq T.Text),
-    logHostname :: NS.HostName,
-    logPort :: NS.PortNumber,
-    logNickOrName :: B.ByteString,
-    logState :: TVar LogState,
+  { logRunning :: TVar Bool,
     logActions :: TQueue LogAction }
 
--- | Log state.
-data LogState = LogNotStarted
-              | LogStarted
-              deriving (Eq, Show)
-
 -- | Log action.
-data LogAction = WriteLog T.Text (Response ())
+data LogAction = LoadLog NS.HostName NS.PortNumber B.ByteString (Response ())
+               | WriteLog T.Text (Response ())
                | ReadLog (Response T.Text)
                | StopLog (Response ())
+               | GetLogLoaded (Response Bool)
 
 -- | History type.
 data History = History

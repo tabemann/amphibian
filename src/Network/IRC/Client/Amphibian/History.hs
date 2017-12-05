@@ -41,6 +41,7 @@ module Network.IRC.Client.Amphibian.History
    addHistory,
    getPrevHistory,
    getNextHistory,
+   getHistoryRunning,
    getHistoryLoaded)
 
 where
@@ -194,6 +195,10 @@ getHistoryLoaded history = do
     then putTMVar response . Left $ Error "history not started"
     else writeTQueue (historyActions history) $ GetHistoryLoaded response'
   return response'
+
+-- | Get whether the history is running.
+getHistoryRunning :: History -> STM Bool
+getHistoryRunning = readTVar . historyRunning
 
 -- | Run history.
 runHistory :: History -> HistoryState -> IO ()

@@ -2844,7 +2844,7 @@ createSession client hostname port nick username realName = do
         ourUserIndex <- getNextClientIndex client
         ourUserNick <- newTVar nick
         ourUserType <- newTVar []
-        ourUserLog <- newLog "" 0 B.empty
+        ourUserLog <- newLog
         let user = User { userIndex = ourUserIndex,
                           userSession = session,
                           userNick = ourUserNick,
@@ -3130,7 +3130,7 @@ findOrCreateUserByNick client session nick = do
       type' <- newTVar S.empty
       hostname <- readTVar $ sessionOrigHostname session
       port <- readTVar $ sessionPort session
-      log <- newLog hostname port nick
+      log <- newLog
       let user = User { userIndex = index,
                         userSession = session,
                         userNick = nick',
@@ -3156,7 +3156,7 @@ findOrCreateChannelByName client session name = do
       mode <- newTVar S.empty
       hostname <- readTVar $ sessionOrigHostname session
       port <- readTVar $ sessionPort session
-      log <- newLog hostname port name
+      log <- newLog
       let channel = Channel { channelIndex = index,
                               channelSession = session,
                               channelState = state,
@@ -3361,13 +3361,23 @@ formatCtcpReply target command Nothing =
 -- | Populate a client tab from a log.
 populateTabFromLog :: Session -> ClientTab -> B.ByteString -> Log -> IO ()
 populateTabFromLog session clientTab nickOrName log = do
-  state <- atomically $ getLogState log
+  running <- atomically $ getLogRunning log
   result <-
-    case state of
-      LogNotStarted -> startLog log
-      LogStarted -> return $ Right ()
+    if not running
+    then startLog log
+    else return $ Right ()
   case result of
     Right () -> do
+      hostname <- atomically . readTVar $ sessionOrigHostname session
+      port <- atomically . readTVar $ sessionPort session
+      response <- atomically $ getLogLoaded log
+      result <- atomically $ getResponse response
+      case result of
+        Right False -> do
+          response <- atomically $ loadLog log hostname port nickOrName
+          asyncHandleResponse response
+        Right True -> return ()
+        Left (Error errorText) -> displayError errorText
       response <- atomically $ readLog log
       result <- atomically $ getResponse response
       case result of

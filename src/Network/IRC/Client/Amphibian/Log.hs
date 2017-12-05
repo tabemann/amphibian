@@ -37,9 +37,11 @@ module Network.IRC.Client.Amphibian.Log
    newLog,
    startLog,
    stopLog,
+   loadLog,
    writeLog,
    readLog,
-   getLogState)
+   getLogLoaded,
+   getLogRunning)
 
 where
 
@@ -87,133 +89,167 @@ import System.FilePath.Posix ((</>))
 import System.Directory (createDirectoryIfMissing)
 import Prelude hiding (readFile)
 
+-- | Log state type
+data LogState = LogState
+  { logHandle :: Maybe Handle,
+    logText :: S.Seq T.Text,
+    logLoaded :: Bool }
+
 -- | Create a new log.
-newLog :: NS.HostName -> NS.PortNumber -> B.ByteString -> STM Log
-newLog hostname port nickOrName = do
-  handle <- newTVar Nothing
-  text <- newTVar S.empty
-  state <- newTVar LogNotStarted
+newLog :: STM Log
+newLog = do
+  running <- newTVar False
   actions <- newTQueue
-  return Log { logHandle = handle,
-               logText = text,
-               logHostname = hostname,
-               logPort = port,
-               logNickOrName = nickOrName,
-               logState = state,
+  return Log { logRunning = running,
                logActions = actions }
 
 -- | Start a log.
 startLog :: Log -> IO (Either Error ())
 startLog log = do
   alreadyRunning <- atomically $ do
-    state <- readTVar $ logState log
-    if state == LogNotStarted
-      then do writeTVar (logState log) LogStarted
+    running <- readTVar $ logRunning log
+    if not running
+      then do writeTVar (logRunning log) True
               return False
       else return True
   if not alreadyRunning
-    then do async $ do runLog log
+    then do let state = LogState { logHandle = Nothing,
+                                   logText = S.empty,
+                                   logLoaded = False }
+            async $ do runLog log state
             return $ Right ()
     else return . Left $ Error "log already started"
 
 -- | Stop a log.
 stopLog :: Log -> STM (Response ())
 stopLog log = do
-  state <- readTVar $ logState log
+  running <- readTVar $ logRunning log
   response <- newEmptyTMVar
   let response' = Response response
-  case state of
-    LogStarted -> writeTQueue (logActions log) $ StopLog response'
-    LogNotStarted -> putTMVar response $ Right ()
+  if not running
+    then putTMVar response $ Right ()
+    else writeTQueue (logActions log) $ StopLog response'
+  return response'
+
+-- | Load log.
+loadLog :: Log -> NS.HostName -> NS.PortNumber -> B.ByteString ->
+           STM (Response ())
+loadLog log hostname port nickOrName = do
+  running <- readTVar $ logRunning log
+  response <- newEmptyTMVar
+  let response' = Response response
+  if not running
+    then putTMVar response . Left $ Error "log not started"
+    else writeTQueue (logActions log) $
+         LoadLog hostname port nickOrName response'
   return response'
 
 -- | Write to a log.
 writeLog :: Log -> T.Text -> STM (Response ())
 writeLog log text = do
-  response <- Response <$> newEmptyTMVar
-  writeTQueue (logActions log) $ WriteLog text response
-  return response
+  running <- readTVar $ logRunning log
+  response <- newEmptyTMVar
+  let response' = Response response
+  if not running
+    then putTMVar response . Left $ Error "log not started"
+    else writeTQueue (logActions log) $ WriteLog text response'
+  return response'
 
 -- | Read from a log.
 readLog :: Log -> STM (Response T.Text)
 readLog log = do
-  response <- Response <$> newEmptyTMVar
-  writeTQueue (logActions log) $ ReadLog response
-  return response
+  running <- readTVar $ logRunning log
+  response <- newEmptyTMVar
+  let response' = Response response
+  if not running
+    then putTMVar response . Left $ Error "log not started"
+    else writeTQueue (logActions log) $ ReadLog response'
+  return response'
 
--- | Get log state.
-getLogState :: Log -> STM LogState
-getLogState log = readTVar $ logState log
+-- | Get whether a log is loaded.
+getLogLoaded :: Log -> STM (Response Bool)
+getLogLoaded log = do
+  running <- readTVar $ logRunning log
+  response <- newEmptyTMVar
+  let response' = Response response
+  if not running
+    then putTMVar response . Left $ Error "log not started"
+    else writeTQueue (logActions log) $ GetLogLoaded response'
+  return response'
 
--- | Load log from file.
-loadLog :: Log -> IO ()
-loadLog log = do
-  loadLog' `catch` (\e -> return $ const () (e :: IOException))
-  where loadLog' = do
-          logDir <- getUserDataDir $ "amphibian" </> "log" </> logHostname log
-          createDirectoryIfMissing True logDir
-          let filePath = logDir </>
-                         (T.unpack . ourDecodeUtf8 $ logNickOrName log)
-          text <- readFile filePath `catch`
-                  (\e -> return $ const "" (e :: SomeException))
-          atomically . writeTVar (logText log) $ S.singleton text
-          atomically . writeTVar (logHandle log) =<< Just <$>
-            openFile filePath AppendMode
+-- | Get whether a log is running.
+getLogRunning :: Log -> STM Bool
+getLogRunning = readTVar . logRunning
 
 -- | Run log.
-runLog :: Log -> IO ()
-runLog log = do
-  action <- atomically . readTQueue $ logActions log
+runLog :: Log -> LogState -> IO ()
+runLog outer log = do
+  action <- atomically . readTQueue $ logActions outer
   case action of
+    LoadLog hostname port nickOrName response -> do
+      log <- handleLoadLog log hostname port nickOrName
+      runLog outer log
     WriteLog text response -> do
-      handleWriteLog log text response
-      runLog log
+      log <- handleWriteLog log text response
+      runLog outer log
     ReadLog response -> do
-      handleReadLog log response
-      runLog log
+      log <- handleReadLog log response
+      runLog outer log
+    GetLogLoaded response -> do
+      log <- handleGetLogLoaded log response
+      runLog outer log
     StopLog response ->
-      handleStopLog log response
+      handleStopLog log outer response
+
+-- | Load log from file.
+handleLoadLog :: LogState -> NS.HostName -> NS.PortNumber -> B.ByteString ->
+                 IO LogState
+handleLoadLog log hostname port nickOrName  =
+  if not $ logLoaded log
+  then loadLog' `catch` (\e -> return $ const log (e :: IOException))
+  else return log
+  where loadLog' = do
+          logDir <- getUserDataDir $ "amphibian" </> "log" </> hostname
+          createDirectoryIfMissing True logDir
+          let filePath = logDir </> (T.unpack . ourDecodeUtf8 $ nickOrName)
+          text <- readFile filePath `catch`
+                  (\e -> return $ const "" (e :: SomeException))
+          handle <- openFile filePath AppendMode
+          return $ log { logText = logText log |> text,
+                         logHandle = Just handle,
+                         logLoaded = True }
 
 -- | Handle write log.
-handleWriteLog :: Log -> T.Text -> Response () -> IO ()
+handleWriteLog :: LogState -> T.Text -> Response () -> IO LogState
 handleWriteLog log text (Response response) = do
-  handle <- atomically $ do
-    logText' <- readTVar $ logText log
-    writeTVar (logText log) $ logText' |> text
-    readTVar $ logHandle log
-  case handle of
+  case logHandle log of
     Just handle -> do
       hPutStr handle text
       hFlush handle
     Nothing -> return ()
   atomically . putTMVar response $ Right ()
+  return $ log { logText = logText log |> text }
 
 -- | Handle read log.
-handleReadLog :: Log -> Response T.Text -> IO ()
+handleReadLog :: LogState -> Response T.Text -> IO LogState
 handleReadLog log (Response response) = do
-  logLoaded <- atomically $ do
-    handle <- readTVar $ logHandle log
-    return $ handle /= Nothing
-  if not logLoaded
-    then loadLog log
-    else return ()
-  atomically $ do
-    text <- T.concat . toList <$> (readTVar $ logText log)
-    writeTVar (logText log) $ S.singleton text
-    putTMVar response $ Right text
+  let text = T.concat . toList $ logText log
+  atomically . putTMVar response $ Right text
+  return $ log { logText = S.singleton text }
+
+-- | Get whether the log is loaded.
+handleGetLogLoaded :: LogState -> Response Bool -> IO LogState
+handleGetLogLoaded log (Response response) = do
+  atomically . putTMVar response . Right $ logLoaded log
+  return log
 
 -- | Handle stop log.
-handleStopLog :: Log -> Response () -> IO ()
-handleStopLog log (Response response) = do
-  logHandle' <- atomically $ do
-    logHandle' <- readTVar $ logHandle log
-    writeTVar (logHandle log) Nothing
-    return logHandle'
-  case logHandle' of
-    Just logHandle' -> hClose logHandle'
+handleStopLog :: LogState -> Log -> Response () -> IO ()
+handleStopLog log outer (Response response) = do
+  case logHandle log of
+    Just handle -> hClose handle
     Nothing -> return ()
   atomically $ do
-    writeTVar (logState log) LogNotStarted
-    writeTVar (logText log) S.empty
+    writeTVar (logRunning outer) False
     putTMVar response $ Right ()
   
