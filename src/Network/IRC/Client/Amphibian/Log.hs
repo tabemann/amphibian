@@ -90,7 +90,7 @@ import System.Directory (createDirectoryIfMissing)
 import Prelude hiding (readFile)
 
 -- | Log state type
-data LogState = LogState
+data LogData = LogData
   { logHandle :: Maybe Handle,
     logText :: S.Seq T.Text,
     logLoaded :: Bool }
@@ -113,9 +113,9 @@ startLog log = do
               return False
       else return True
   if not alreadyRunning
-    then do let state = LogState { logHandle = Nothing,
-                                   logText = S.empty,
-                                   logLoaded = False }
+    then do let state = LogData { logHandle = Nothing,
+                                  logText = S.empty,
+                                  logLoaded = False }
             async $ do runLog log state
             return $ Right ()
     else return . Left $ Error "log already started"
@@ -182,7 +182,7 @@ getLogRunning :: Log -> STM Bool
 getLogRunning = readTVar . logRunning
 
 -- | Run log.
-runLog :: Log -> LogState -> IO ()
+runLog :: Log -> LogData -> IO ()
 runLog outer log = do
   action <- atomically . readTQueue $ logActions outer
   case action of
@@ -202,8 +202,8 @@ runLog outer log = do
       handleStopLog log outer response
 
 -- | Load log from file.
-handleLoadLog :: LogState -> NS.HostName -> NS.PortNumber -> B.ByteString ->
-                 IO LogState
+handleLoadLog :: LogData -> NS.HostName -> NS.PortNumber -> B.ByteString ->
+                 IO LogData
 handleLoadLog log hostname port nickOrName  =
   if not $ logLoaded log
   then loadLog' `catch` (\e -> return $ const log (e :: IOException))
@@ -220,7 +220,7 @@ handleLoadLog log hostname port nickOrName  =
                          logLoaded = True }
 
 -- | Handle write log.
-handleWriteLog :: LogState -> T.Text -> Response () -> IO LogState
+handleWriteLog :: LogData -> T.Text -> Response () -> IO LogData
 handleWriteLog log text (Response response) = do
   case logHandle log of
     Just handle -> do
@@ -231,20 +231,20 @@ handleWriteLog log text (Response response) = do
   return $ log { logText = logText log |> text }
 
 -- | Handle read log.
-handleReadLog :: LogState -> Response T.Text -> IO LogState
+handleReadLog :: LogData -> Response T.Text -> IO LogData
 handleReadLog log (Response response) = do
   let text = T.concat . toList $ logText log
   atomically . putTMVar response $ Right text
   return $ log { logText = S.singleton text }
 
 -- | Get whether the log is loaded.
-handleGetLogLoaded :: LogState -> Response Bool -> IO LogState
+handleGetLogLoaded :: LogData -> Response Bool -> IO LogData
 handleGetLogLoaded log (Response response) = do
   atomically . putTMVar response . Right $ logLoaded log
   return log
 
 -- | Handle stop log.
-handleStopLog :: LogState -> Log -> Response () -> IO ()
+handleStopLog :: LogData -> Log -> Response () -> IO ()
 handleStopLog log outer (Response response) = do
   case logHandle log of
     Just handle -> hClose handle

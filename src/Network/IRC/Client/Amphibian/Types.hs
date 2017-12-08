@@ -104,11 +104,7 @@ newtype Error = Error T.Text
 
 -- | Connection type
 data Connection = Connection
-  { connectionState :: TVar ConnectionState,
-    connectionHostname :: TMVar NS.HostName,
-    connectionAddress :: TMVar NS.AddrInfo,
-    connectionPort :: TMVar NS.PortNumber,
-    connectionSocket :: TMVar NS.Socket,
+  { connectionRunning :: TVar Bool,
     connectionActionQueue :: TQueue ConnectionAction,
     connectionEventQueue :: TChan ConnectionEvent }
 
@@ -136,6 +132,10 @@ data ConnectionState = ConnectionNotStarted
 data ConnectionAction = Connect NS.HostName NS.PortNumber (Response ())
                       | Disconnect (Response ())
                       | SendData B.ByteString (Response ())
+                      | GetConnectionState (Response ConnectionState)
+                      | GetConnectionHostname (Response (Maybe NS.HostName))
+                      | GetConnectionPort (Response (Maybe NS.PortNumber))
+                      | GetConnectionAddress (Response (Maybe NS.AddrInfo))
                       | StopConnection (Response ())
 
 -- | Connection event type
@@ -162,9 +162,7 @@ newtype ConnectionEventSub = ConnectionEventSub (TChan ConnectionEvent)
 
 -- | IRC connection type
 data IRCConnection = IRCConnection
-  { ircConnectionConnection :: Connection,
-    ircConnectionState :: TVar IRCConnectionState,
-    ircConnectionBuffer :: TVar B.ByteString,
+  { ircConnectionRunning :: TVar Bool,
     ircConnectionActionQueue :: TQueue IRCConnectionAction,
     ircConnectionEventQueue :: TChan IRCConnectionEvent }
 
@@ -193,6 +191,13 @@ data IRCConnectionAction = ConnectIRC NS.HostName NS.PortNumber (Response ())
                          | DisconnectIRC (Response ())
                          | SendIRCMessage IRCMessage (Response ())
                          | StopIRCConnection (Response ())
+                         | GetIRCConnectionState (Response IRCConnectionState)
+                         | GetIRCConnectionHostname (Response
+                                                     (Maybe NS.HostName))
+                         | GetIRCConnectionAddress (Response
+                                                    (Maybe NS.AddrInfo))
+                         | GetIRCConnectionPort (Response
+                                                 (Maybe NS.PortNumber))
 
 -- | IRC connection event type
 data IRCConnectionEvent = IRCFoundAddr NS.AddrInfo

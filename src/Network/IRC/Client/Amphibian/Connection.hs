@@ -24,7 +24,7 @@
 -- SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
 -- INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 -- CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
--- ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THEfffffff
+-- ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 -- POSSIBILITY OF SUCH DAMAGE.
 
 {-# LANGUAGE OverloadedStrings, OverloadedLists #-}
@@ -50,9 +50,7 @@ module Network.IRC.Client.Amphibian.Connection
    getConnectionHostname,
    getConnectionAddress,
    getConnectionPort,
-   isConnectionActive,
-   areConnectionActionsPending,
-   getConnectionError)
+   isConnectionStateActive)
 
 where
 
@@ -94,23 +92,24 @@ import Control.Concurrent.STM.TMVar (TMVar,
                                      tryReadTMVar,
                                      takeTMVar,
                                      readTMVar)
+import Text.Printf (printf)
+
+-- | Connection state.
+data ConnectionData = ConnectionData
+  { connectionState :: ConnectionState,
+    connectionHostname :: Maybe NS.HostName,
+    connectionAddress :: Maybe NS.AddrInfo,
+    connectionPort ::  Maybe NS.PortNumber,
+    connectionSocket :: Maybe NS.Socket }
 
 -- | Create a new connection.
 newConnection :: STM Connection
 newConnection = do
-  state <- newTVar ConnectionNotStarted
-  hostname <- newEmptyTMVar
-  address <- newEmptyTMVar
-  port <- newEmptyTMVar
-  socket <- newEmptyTMVar
+  running <- newTVar False
   actionQueue <- newTQueue
   eventQueue <- newBroadcastTChan
   return $ Connection
-    { connectionState = state,
-      connectionHostname = hostname,
-      connectionAddress = address,
-      connectionPort = port,
-      connectionSocket = socket,
+    { connectionRunning = running,
       connectionActionQueue = actionQueue,
       connectionEventQueue = eventQueue }
 
@@ -118,27 +117,27 @@ newConnection = do
 startConnection :: Connection -> IO (Either Error ())
 startConnection connection = do
   alreadyRunning <- atomically $ do
-    state <- readTVar $ connectionState connection
-    if state == ConnectionNotStarted
-      then do writeTVar (connectionState connection) ConnectionStarted
-              tryTakeTMVar (connectionHostname connection) >> return ()
-              tryTakeTMVar (connectionAddress connection) >> return ()
-              tryTakeTMVar (connectionPort connection) >> return ()
-              tryTakeTMVar (connectionSocket connection) >> return ()
-              clearActions connection
+    running <- readTVar $ connectionRunning connection
+    if not running
+      then do writeTVar (connectionRunning connection) True
               return False
       else return True
   if not alreadyRunning
-    then do async $ runUnconnected connection
+    then do let state = ConnectionData { connectionState = ConnectionStarted,
+                                         connectionHostname = Nothing,
+                                         connectionAddress = Nothing,
+                                         connectionPort = Nothing,
+                                         connectionSocket = Nothing }
+            async $ runUnconnected connection state
             return $ Right ()
-    else return . Left . Error $ "connection already started"
+    else return . Left $ Error "connection already started"
 
 -- | Stop execution of a thread for a connection.
 stopConnection :: Connection -> STM (Response ())
 stopConnection connection = do
-  state <- readTVar $ connectionState connection
+  running <- readTVar $ connectionRunning connection
   response <- newEmptyTMVar
-  if state /= ConnectionNotStarted
+  if running
     then writeTQueue (connectionActionQueue connection)
          (StopConnection $ Response response)
     else putTMVar response . Left $ Error "connection not started"
@@ -147,9 +146,9 @@ stopConnection connection = do
 -- | Connect a connection.
 connect :: Connection -> NS.HostName -> NS.PortNumber -> STM (Response ())
 connect connection hostname port = do
-  state <- readTVar $ connectionState connection
+  running <- readTVar $ connectionRunning connection
   response <- newEmptyTMVar
-  if state /= ConnectionNotStarted
+  if running
     then writeTQueue (connectionActionQueue connection)
          (Connect hostname port $ Response response)
     else putTMVar response . Left $ Error "connection not started"
@@ -158,9 +157,9 @@ connect connection hostname port = do
 -- | Disconnect a connection.
 disconnect :: Connection -> STM (Response ())
 disconnect connection = do
-  state <- readTVar $ connectionState connection
+  running <- readTVar $ connectionRunning connection
   response <- newEmptyTMVar
-  if state /= ConnectionNotStarted
+  if running
     then writeTQueue (connectionActionQueue connection)
          (Disconnect $ Response response)
     else putTMVar response . Left $ Error "connection not started"
@@ -169,9 +168,9 @@ disconnect connection = do
 -- | Send data to a connection.
 sendData :: Connection -> B.ByteString -> STM (Response ())
 sendData connection bytes = do
-  state <- readTVar $ connectionState connection
+  running <- readTVar $ connectionRunning connection
   response <- newEmptyTMVar
-  if state /= ConnectionNotStarted
+  if running
     then writeTQueue (connectionActionQueue connection)
          (SendData bytes $ Response response)
     else putTMVar response . Left $ Error "connection not started"
@@ -191,103 +190,113 @@ tryRecvConnection :: ConnectionEventSub -> STM (Maybe ConnectionEvent)
 tryRecvConnection (ConnectionEventSub sub) = tryReadTChan sub
 
 -- | Get the state of a connection.
-getConnectionState :: Connection -> STM ConnectionState
-getConnectionState = readTVar . connectionState
+getConnectionState :: Connection -> STM (Response ConnectionState)
+getConnectionState connection = do
+  running <- readTVar $ connectionRunning connection
+  response <- newEmptyTMVar
+  let response' = Response response
+  if running
+    then writeTQueue (connectionActionQueue connection) $
+         GetConnectionState response'
+    else putTMVar response $ Right ConnectionNotStarted
+  return response'
 
 -- | Get the hostname of a connection.
-getConnectionHostname :: Connection -> STM (Maybe NS.HostName)
-getConnectionHostname = tryReadTMVar . connectionHostname
+getConnectionHostname :: Connection -> STM (Response (Maybe NS.HostName))
+getConnectionHostname connection = do
+  running <- readTVar $ connectionRunning connection
+  response <- newEmptyTMVar
+  let response' = Response response
+  if running
+    then writeTQueue (connectionActionQueue connection) $
+         GetConnectionHostname response'
+    else putTMVar response . Left $ Error "connection not started"
+  return response'
 
 -- | Get the address of a connection.
-getConnectionAddress :: Connection -> STM (Maybe NS.AddrInfo)
-getConnectionAddress = tryReadTMVar . connectionAddress
+getConnectionAddress :: Connection -> STM (Response (Maybe NS.AddrInfo))
+getConnectionAddress connection = do
+  running <- readTVar $ connectionRunning connection
+  response <- newEmptyTMVar
+  let response' = Response response
+  if running
+    then writeTQueue (connectionActionQueue connection) $
+         GetConnectionAddress response'
+    else putTMVar response . Left $ Error "connection not started"
+  return response'
 
 -- | Get the port of a connection.
-getConnectionPort :: Connection -> STM (Maybe NS.PortNumber)
-getConnectionPort = tryReadTMVar . connectionPort
+getConnectionPort :: Connection -> STM (Response (Maybe NS.PortNumber))
+getConnectionPort connection = do
+  running <- readTVar $ connectionRunning connection
+  response <- newEmptyTMVar
+  let response' = Response response
+  if running
+    then writeTQueue (connectionActionQueue connection) $
+         GetConnectionPort response'
+    else putTMVar response . Left $ Error "connection not started"
+  return response'
 
--- | Get whether a connection is active.
-isConnectionActive :: Connection -> STM Bool
-isConnectionActive connection = do
-  state <- readTVar $ connectionState connection
-  case state of
-    ConnectionNotStarted -> return False
-    ConnectionStarted -> return False
-    ConnectionFindingAddr -> return True
-    ConnectionNoAddrFound _ -> return False
-    ConnectionLookupCanceled -> return False
-    ConnectionFindingName -> return True
-    ConnectionNoNameFound _ -> return True
-    ConnectionReverseLookupCanceled -> return False
-    ConnectionConnecting -> return True
-    ConnectionConnected -> return True
-    ConnectionConnectingFailed _ -> return False
-    ConnectionConnectingCanceled -> return False
-    ConnectionDisconnected -> return False
-    ConnectionDisconnectError _ -> return False
-    ConnectionDisconnectedByPeer -> return False
-    ConnectionRecvError _ -> return False
-    ConnectionSendError _ -> return False
-
--- | Get whether connection actions are pending.
-areConnectionActionsPending :: Connection -> STM Bool
-areConnectionActionsPending = isEmptyTQueue . connectionActionQueue
-
--- | Get connection error text.
-getConnectionError :: Connection -> STM (Maybe Error)
-getConnectionError connection = do
-  state <- readTVar $ connectionState connection
-  case state of
-    ConnectionNotStarted -> return Nothing
-    ConnectionStarted -> return Nothing
-    ConnectionFindingAddr -> return Nothing
-    ConnectionNoAddrFound failure -> return $ Just failure
-    ConnectionLookupCanceled -> return Nothing
-    ConnectionFindingName -> return Nothing
-    ConnectionNoNameFound failure -> return $ Just failure
-    ConnectionReverseLookupCanceled -> return Nothing
-    ConnectionConnecting -> return Nothing
-    ConnectionConnected -> return Nothing
-    ConnectionConnectingFailed failure -> return $ Just failure
-    ConnectionConnectingCanceled -> return Nothing
-    ConnectionDisconnected -> return Nothing
-    ConnectionDisconnectError failure -> return $ Just failure
-    ConnectionDisconnectedByPeer -> return Nothing
-    ConnectionRecvError failure -> return $ Just failure
-    ConnectionSendError failure -> return $ Just failure
+-- | Test whether a state is the connection being active
+isConnectionStateActive :: ConnectionState -> Bool
+isConnectionStateActive ConnectionNotStarted = False
+isConnectionStateActive ConnectionStarted = False
+isConnectionStateActive ConnectionFindingAddr = True
+isConnectionStateActive (ConnectionNoAddrFound _) = False
+isConnectionStateActive ConnectionLookupCanceled = False
+isConnectionStateActive ConnectionFindingName = True
+isConnectionStateActive (ConnectionNoNameFound _) = True
+isConnectionStateActive ConnectionReverseLookupCanceled = False
+isConnectionStateActive ConnectionConnecting = True
+isConnectionStateActive ConnectionConnected = True
+isConnectionStateActive (ConnectionConnectingFailed _) = False
+isConnectionStateActive ConnectionConnectingCanceled = False
+isConnectionStateActive ConnectionDisconnected = False
+isConnectionStateActive (ConnectionDisconnectError _) = False
+isConnectionStateActive ConnectionDisconnectedByPeer = False
+isConnectionStateActive (ConnectionRecvError _) = False
+isConnectionStateActive (ConnectionSendError _) = False
 
 -- | Run an unconnected connection.
-runUnconnected :: Connection -> IO ()
-runUnconnected connection = do
-  action <- atomically . readTQueue $ connectionActionQueue connection
+runUnconnected :: Connection -> ConnectionData -> IO ()
+runUnconnected outer connection = do
+  action <- atomically . readTQueue $ connectionActionQueue outer
   case action of
     Connect hostname port response ->
-      runLookupAddress connection hostname port response
+      runLookupAddress outer connection hostname port response
     StopConnection (Response response) -> do
       atomically $ do
-        writeTChan (connectionEventQueue connection) ConnectionStopped
-        writeTVar (connectionState connection) ConnectionNotStarted
+        writeTChan (connectionEventQueue outer) ConnectionStopped
         putTMVar response (Right ())
-        clearActions connection
+        clearActions outer connection
     Disconnect (Response response) -> do
       atomically . putTMVar response . Left . Error $ "not connected"
-      runUnconnected connection
+      runUnconnected outer connection
     SendData _ (Response response) -> do
       atomically . putTMVar response . Left . Error $ "not connected"
-      runUnconnected connection
+      runUnconnected outer connection
+    GetConnectionState (Response response) -> do
+      atomically . putTMVar response . Right $ connectionState connection
+      runUnconnected outer connection
+    GetConnectionHostname (Response response) -> do
+      atomically . putTMVar response $ Right Nothing
+      runUnconnected outer connection
+    GetConnectionPort (Response response) -> do
+      atomically . putTMVar response $ Right Nothing
+      runUnconnected outer connection
+    GetConnectionAddress (Response response) -> do
+      atomically . putTMVar response $ Right Nothing
+      runUnconnected outer connection
 
 -- | Run looking up a hostname for a connection.
-runLookupAddress :: Connection -> NS.HostName -> NS.PortNumber -> Response () ->
+runLookupAddress :: Connection -> ConnectionData -> NS.HostName ->
+                    NS.PortNumber -> Response () ->
                     IO ()
-runLookupAddress connection hostname port connectResponse = do
-  atomically $ do writeTVar (connectionState connection) ConnectionFindingAddr
-                  tryTakeTMVar (connectionHostname connection) >> return ()
-                  tryTakeTMVar (connectionAddress connection) >> return ()
-                  tryTakeTMVar (connectionPort connection) >> return ()
-                  tryTakeTMVar (connectionSocket connection) >> return ()
+runLookupAddress outer connection hostname port
+  connectResponse@(Response connectResponse') = do
   resultVar <- atomically newEmptyTMVar
   lookup <- async $ doLookup resultVar hostname port
-  handleMessages connection lookup resultVar hostname port connectResponse
+  handleMessages connection lookup resultVar
   where doLookup resultVar hostname port = do
           result <- do
             let hints = NS.defaultHints { NS.addrFlags = [NS.AI_NUMERICSERV],
@@ -296,67 +305,78 @@ runLookupAddress connection hostname port connectResponse = do
                     (Just $ show port))
                   (\e -> return . Left . T.pack $ show (e :: IOException))
           atomically $ putTMVar resultVar result
-        handleMessages connection lookup resultVar hostname port
-          connectResponse@(Response connectResponse') = do
+        handleMessages connection lookup resultVar = do
           lookupOrAction <- atomically $
             (Right <$> takeTMVar resultVar) `orElse`
-            (Left <$> readTQueue (connectionActionQueue connection))
+            (Left <$> readTQueue (connectionActionQueue outer))
           case lookupOrAction of
             Right (Right resultVar) -> do
               let address = resultVar !! 0
-              atomically $ do
-                putTMVar (connectionHostname connection) hostname
-                putTMVar (connectionPort connection) port
-                putTMVar (connectionAddress connection) address
-                writeTVar (connectionState connection) ConnectionFindingName
-                writeTChan (connectionEventQueue connection) (FoundAddr address)
-              runLookupName connection connectResponse
+                  connection' =
+                    connection { connectionHostname = Just hostname,
+                                 connectionPort = Just port,
+                                 connectionAddress = Just address,
+                                 connectionState = ConnectionFindingName }
+              atomically $
+                writeTChan (connectionEventQueue outer) (FoundAddr address)
+              runLookupName outer connection' connectResponse
             Right (Left errorText) -> do
+              let connection' =
+                    connection { connectionState =
+                                   ConnectionNoAddrFound $ Error errorText }
               atomically $ do
-                writeTVar (connectionState connection)
-                  (ConnectionNoAddrFound $ Error errorText)
-                writeTChan (connectionEventQueue connection)
+                writeTChan (connectionEventQueue outer)
                   (NoAddrFound $ Error errorText)
                 putTMVar connectResponse' . Left . Error $ errorText
-                clearActions connection
-              runUnconnected connection
+                clearActions outer connection'
+              runUnconnected outer connection'
             Left (Connect _ _ (Response response)) -> do
-              atomically . putTMVar response . Left . Error $
-                "already connecting"
-              handleMessages connection lookup resultVar hostname port
-                connectResponse
+              atomically . putTMVar response . Left $ Error "already connecting"
+              handleMessages connection lookup resultVar
             Left (Disconnect (Response response)) -> do
               cancel lookup
+              let connection' =
+                    connection { connectionState = ConnectionLookupCanceled }
               atomically $ do
-                writeTVar (connectionState connection)
-                  ConnectionLookupCanceled
-                writeTChan (connectionEventQueue connection) LookupCanceled
-                putTMVar connectResponse' . Left . Error $ "lookup canceled"
+                writeTChan (connectionEventQueue outer) LookupCanceled
+                putTMVar connectResponse' . Left $ Error "lookup canceled"
                 putTMVar response $ Right ()
-              runUnconnected connection
+              runUnconnected outer connection'
             Left (SendData _ (Response response)) -> do
-              atomically . putTMVar response . Left . Error $
-                "not connected"
-              handleMessages connection lookup resultVar hostname port
-                connectResponse
+              atomically . putTMVar response . Left $ Error "not connected"
+              handleMessages connection lookup resultVar
             Left (StopConnection (Response response)) -> do
               cancel lookup
+              let connection' =
+                    connection { connectionState = ConnectionLookupCanceled }
               atomically $ do
-                writeTVar (connectionState connection) ConnectionNotStarted
-                writeTChan (connectionEventQueue connection) LookupCanceled
-                writeTChan (connectionEventQueue connection) ConnectionStopped
+                writeTVar (connectionRunning outer) False
+                writeTChan (connectionEventQueue outer) LookupCanceled
+                writeTChan (connectionEventQueue outer) ConnectionStopped
                 putTMVar response $ Right ()
-                clearActions connection
+                clearActions outer connection'
+            Left (GetConnectionState (Response response)) -> do
+              atomically . putTMVar response $ Right ConnectionFindingAddr
+              handleMessages connection lookup resultVar
+            Left (GetConnectionHostname (Response response)) -> do
+              atomically . putTMVar response . Right $ Just hostname
+              handleMessages connection lookup resultVar
+            Left (GetConnectionPort (Response response)) -> do
+              atomically . putTMVar response . Right $ Just port
+              handleMessages connection lookup resultVar
+            Left (GetConnectionAddress (Response response)) -> do
+              atomically . putTMVar response $ Right Nothing
+              handleMessages connection lookup resultVar
 
 -- | Run reverse looking up a name for a connection.
-runLookupName :: Connection -> Response () -> IO ()
-runLookupName connection connectResponse = do
-  (resultVar, address) <- atomically $ do
-    resultVar <- newEmptyTMVar
-    address <- NS.addrAddress <$> readTMVar (connectionAddress connection)
-    return (resultVar, address)
-  lookup <- async $ doLookup resultVar address
-  handleMessages connection lookup resultVar connectResponse
+runLookupName :: Connection -> ConnectionData -> Response () -> IO ()
+runLookupName outer connection connectResponse@(Response connectResponse') = do
+  resultVar <- atomically newEmptyTMVar
+  let address = case connectionAddress connection of
+                  Just address -> address
+                  Nothing -> error "impossible"
+  lookup <- async . doLookup resultVar $ NS.addrAddress address
+  handleMessages connection lookup resultVar
   where doLookup resultVar address = do
           result <- do
             catch (Right <$> actuallyDoLookup address)
@@ -365,130 +385,170 @@ runLookupName connection connectResponse = do
         actuallyDoLookup address = do
           (Just hostname, _) <- NS.getNameInfo [] True False address
           return hostname
-        handleMessages connection lookup resultVar
-          connectResponse@(Response connectResponse') = do
+        handleMessages connection lookup resultVar = do
           lookupOrAction <- atomically $
             (Right <$> takeTMVar resultVar) `orElse`
-            (Left <$> readTQueue (connectionActionQueue connection))
+            (Left <$> readTQueue (connectionActionQueue outer))
           case lookupOrAction of
             Right (Right hostname) -> do
+              let connection' =
+                    connection { connectionHostname = Just hostname,
+                                 connectionState = ConnectionConnecting }
               atomically $ do
-                (tryTakeTMVar $ connectionHostname connection) >> return ()
-                putTMVar (connectionHostname connection) hostname
-                writeTVar (connectionState connection) ConnectionConnecting
-                writeTChan (connectionEventQueue connection)
+                writeTChan (connectionEventQueue outer)
                   (FoundName hostname)
-              runConnecting connection connectResponse
+              runConnecting outer connection' connectResponse
             Right (Left errorText) -> do
+              let connection' =
+                    connection { connectionState =
+                                 ConnectionNoNameFound $ Error errorText }
               atomically $ do
-                writeTVar (connectionState connection)
-                  (ConnectionNoNameFound $ Error errorText)
-                writeTChan (connectionEventQueue connection)
+                writeTChan (connectionEventQueue outer)
                   (NoNameFound $ Error errorText)
-              runConnecting connection connectResponse
+              runConnecting outer connection' connectResponse
             Left (Connect _ _ (Response response)) -> do
               atomically . putTMVar response . Left . Error $
                 "already connecting"
               handleMessages connection lookup resultVar
-                connectResponse
             Left (Disconnect (Response response)) -> do
               cancel lookup
+              let connection' =
+                    connection { connectionState =
+                                 ConnectionReverseLookupCanceled }
               atomically $ do
-                writeTVar (connectionState connection)
-                  ConnectionReverseLookupCanceled
-                writeTChan (connectionEventQueue connection)
-                  ReverseLookupCanceled
+                writeTChan (connectionEventQueue outer) ReverseLookupCanceled
                 putTMVar connectResponse' . Left . Error $
                   "reverse lookup canceled"
                 putTMVar response $ Right ()
-              runUnconnected connection
+              runUnconnected outer connection'
             Left (SendData _ (Response response)) -> do
               atomically . putTMVar response . Left . Error $
                 "not connected"
               handleMessages connection lookup resultVar
-                connectResponse
             Left (StopConnection (Response response)) -> do
               cancel lookup
+              let connection' =
+                    connection { connectionState = ConnectionLookupCanceled }
               atomically $ do
-                writeTVar (connectionState connection) ConnectionNotStarted
-                writeTChan (connectionEventQueue connection) LookupCanceled
-                writeTChan (connectionEventQueue connection) ConnectionStopped
+                writeTVar (connectionRunning outer) False
+                writeTChan (connectionEventQueue outer) LookupCanceled
+                writeTChan (connectionEventQueue outer) ConnectionStopped
                 putTMVar response $ Right ()
-                clearActions connection
+                clearActions outer connection'
+            Left (GetConnectionState (Response response)) -> do
+              atomically . putTMVar response $ Right ConnectionFindingName
+              handleMessages connection lookup resultVar
+            Left (GetConnectionHostname (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionHostname connection
+              handleMessages connection lookup resultVar
+            Left (GetConnectionPort (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionPort connection
+              handleMessages connection lookup resultVar
+            Left (GetConnectionAddress (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionAddress connection
+              handleMessages connection lookup resultVar
 
 -- | Run connecting to a host.
-runConnecting :: Connection -> Response () -> IO ()
-runConnecting connection response = do
+runConnecting :: Connection -> ConnectionData -> Response () -> IO ()
+runConnecting outer connection (Response connectResponse) = do
   resultVar <- atomically newEmptyTMVar
   connecting <- async $ doConnecting connection resultVar
-  handleMessages connection connecting resultVar response
+  handleMessages connection connecting resultVar
   where doConnecting connection resultVar = do
           result <- catch
             (Right <$> actuallyDoConnecting connection)
             (\e -> return . Left . T.pack $ show (e :: IOException))
           atomically $ putTMVar resultVar result
         actuallyDoConnecting connection = do
-          address <- atomically . readTMVar $ connectionAddress connection
-          socket <- NS.socket (NS.addrFamily address)
-            (NS.addrSocketType address) (NS.addrProtocol address)
-          NS.connect socket $ NS.addrAddress address
-          return socket
-        handleMessages connection connecting resultVar
-          connectResponse@(Response connectResponse') = do
+          case connectionAddress connection of
+            Just address -> do
+              socket <- NS.socket (NS.addrFamily address)
+               (NS.addrSocketType address) (NS.addrProtocol address)
+              NS.connect socket $ NS.addrAddress address
+              return socket
+            Nothing -> error "impossible"
+        handleMessages connection connecting resultVar = do
           connectOrAction <- atomically $
             (Right <$> takeTMVar resultVar) `orElse`
-            (Left <$> readTQueue (connectionActionQueue connection))
+            (Left <$> readTQueue (connectionActionQueue outer))
           case connectOrAction of
             Right (Right socket) -> do
+              let connection' =
+                    connection { connectionSocket = Just socket,
+                                 connectionState = ConnectionConnected }
               atomically $ do
-                putTMVar (connectionSocket connection) socket
-                writeTVar (connectionState connection) ConnectionConnected
-                writeTChan (connectionEventQueue connection) Connected
-                putTMVar connectResponse' $ Right ()
-              runConnected connection
+                writeTChan (connectionEventQueue outer) Connected
+                putTMVar connectResponse $ Right ()
+              runConnected outer connection'
             Right (Left errorText) -> do
+              let connection' =
+                    connection { connectionState =
+                                 ConnectionConnectingFailed $ Error errorText }
               atomically $ do
-                writeTVar (connectionState connection)
-                  (ConnectionConnectingFailed $ Error errorText)
-                writeTChan (connectionEventQueue connection)
+                writeTChan (connectionEventQueue outer)
                   (ConnectingFailed $ Error errorText)
-                putTMVar connectResponse' . Left $ Error errorText
-                clearActions connection
-              runUnconnected connection
+                putTMVar connectResponse . Left $ Error errorText
+                clearActions outer connection'
+              runUnconnected outer connection'
             Left (Connect _ _ (Response response)) -> do
               atomically . putTMVar response . Left . Error $
                 "already connecting"
-              handleMessages connection connecting resultVar connectResponse
+              handleMessages connection connecting resultVar
             Left (Disconnect (Response response)) -> do
               cancel connecting
+              let connection' =
+                    connection { connectionState =
+                                 ConnectionConnectingCanceled }
               atomically $ do
-                writeTVar (connectionState connection)
-                  ConnectionConnectingCanceled
-                writeTChan (connectionEventQueue connection) ConnectingCanceled
-                putTMVar connectResponse' . Left . Error $ "connect canceled"
+                writeTChan (connectionEventQueue outer) ConnectingCanceled
+                putTMVar connectResponse . Left $ Error "connect canceled"
                 putTMVar response $ Right ()
-              runUnconnected connection
+              runUnconnected outer connection'
             Left (SendData _ (Response response)) -> do
               atomically . putTMVar response . Left . Error $
                 "not connected"
-              handleMessages connection connecting resultVar connectResponse
+              handleMessages connection connecting resultVar
             Left (StopConnection (Response response)) -> do
               cancel connecting
+              let connection' =
+                    connection { connectionState =
+                                   ConnectionConnectingCanceled }
               atomically $ do
-                writeTVar (connectionState connection) ConnectionNotStarted
-                writeTChan (connectionEventQueue connection) ConnectingCanceled
-                writeTChan (connectionEventQueue connection) ConnectionStopped
+                writeTVar (connectionRunning outer) False
+                writeTChan (connectionEventQueue outer) ConnectingCanceled
+                writeTChan (connectionEventQueue outer) ConnectionStopped
+                putTMVar connectResponse . Left $ Error "connect canceled"
                 putTMVar response $ Right ()
-                clearActions connection
+                clearActions outer connection'
+            Left (GetConnectionState (Response response)) -> do
+              atomically . putTMVar response $ Right ConnectionConnecting
+              handleMessages connection connecting resultVar
+            Left (GetConnectionHostname (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionHostname connection
+              handleMessages connection connecting resultVar
+            Left (GetConnectionPort (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionPort connection
+              handleMessages connection connecting resultVar
+            Left (GetConnectionAddress (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionAddress connection
+              handleMessages connection connecting resultVar
 
 -- | Run being connected to a host.
-runConnected :: Connection -> IO ()
-runConnected connection = do
-  resultVar <- atomically newEmptyTMVar
-  receiving <- async $ doReceiving connection resultVar
-  handleMessages connection receiving resultVar
-  where doReceiving connection resultVar = do
-          socket <- atomically . readTMVar $ connectionSocket connection
+runConnected :: Connection -> ConnectionData -> IO ()
+runConnected outer connection = do
+  case connectionSocket connection of
+    Just socket -> do
+      resultVar <- atomically newEmptyTMVar
+      receiving <- async $ doReceiving socket resultVar
+      handleMessages connection receiving resultVar
+    Nothing -> error "impossible"
+  where doReceiving socket resultVar = do
           result <- catch
             (Right <$> NSB.recv socket 4096)
             (\e -> do
@@ -500,54 +560,64 @@ runConnected connection = do
             Right bytes
               | B.null bytes -> atomically . putTMVar resultVar $ Right ()
               | otherwise -> do
-                  atomically . writeTChan (connectionEventQueue connection) $
+                  atomically . writeTChan (connectionEventQueue outer) $
                     RecvData bytes
-                  doReceiving connection resultVar
+                  doReceiving socket resultVar
             Left errorText -> atomically . putTMVar resultVar $ Left errorText
         handleMessages connection receiving resultVar = do
           closeOrAction <- atomically $
             (Right <$> takeTMVar resultVar) `orElse`
-            (Left <$> readTQueue (connectionActionQueue connection))
+            (Left <$> readTQueue (connectionActionQueue outer))
           case closeOrAction of
             Right (Right ()) -> do
+              let connection' =
+                    connection { connectionSocket = Nothing,
+                                 connectionState =
+                                   ConnectionDisconnectedByPeer }
               atomically $ do
-                takeTMVar $ connectionSocket connection
-                writeTVar (connectionState connection)
-                  ConnectionDisconnectedByPeer
-                writeTChan (connectionEventQueue connection)
+                writeTChan (connectionEventQueue outer)
                   DisconnectedByPeer
-                clearActions connection
-              runUnconnected connection
+                clearActions outer connection'
+              runUnconnected outer connection'
             Right (Left errorText) -> do
+              let connection' =
+                    connection { connectionSocket = Nothing,
+                                 connectionState =
+                                   ConnectionRecvError $ Error errorText }
               atomically $ do
-                takeTMVar $ connectionSocket connection
-                writeTVar (connectionState connection)
-                  (ConnectionRecvError $ Error errorText)
-                writeTChan (connectionEventQueue connection)
+                writeTChan (connectionEventQueue outer)
                   (RecvError $ Error errorText)
-                clearActions connection
-              runUnconnected connection
+                clearActions outer connection'
+              runUnconnected outer connection'
             Left (Connect _ _ (Response response)) -> do
               atomically . putTMVar response . Left . Error $
                 "already connected"
               handleMessages connection receiving resultVar
             Left (Disconnect (Response response)) -> do
-              doDisconnect connection receiving $ \result ->
+              doDisconnect connection receiving $ \result connection ->
                 case result of
                   Right () -> do
-                    writeTVar (connectionState connection)
-                      ConnectionDisconnected
-                    writeTChan (connectionEventQueue connection) Disconnected
-                    putTMVar response $ Right ()
+                    let connection' =
+                          connection { connectionState =
+                                         ConnectionDisconnected }
+                    atomically $ do
+                      writeTChan (connectionEventQueue outer) Disconnected
+                      putTMVar response $ Right ()
+                    runUnconnected outer connection'
                   Left errorText -> do
-                    writeTVar (connectionState connection)
-                      (ConnectionDisconnectError $ Error errorText)
-                    writeTChan (connectionEventQueue connection)
-                      (DisconnectError $ Error errorText)
-                    putTMVar response . Left $ Error errorText
-              runUnconnected connection
+                    let connection' =
+                          connection { connectionState =
+                                         ConnectionDisconnectError $
+                                         Error errorText }
+                    atomically $ do
+                      writeTChan (connectionEventQueue outer)
+                        (DisconnectError $ Error errorText)
+                      putTMVar response . Left $ Error errorText
+                    runUnconnected outer connection'
             Left (SendData bytes (Response response)) -> do
-              socket <- atomically . readTMVar $ connectionSocket connection
+              let socket = case connectionSocket connection of
+                             Just socket -> socket
+                             Nothing -> error "impossible"
               result <- catch
                 (Right <$> NSB.sendAll socket bytes)
                 (\e -> return . Left . T.pack $ show (e :: IOException))
@@ -560,58 +630,96 @@ runConnected connection = do
                     (\e -> return . Left . T.pack $ show (e :: IOException)) >>
                     return ()
                   cancel receiving
+                  let connection' =
+                        connection { connectionSocket = Nothing,
+                                     connectionState =
+                                       ConnectionSendError $ Error errorText }
                   atomically $ do
-                    takeTMVar $ connectionSocket connection
-                    writeTVar (connectionState connection)
-                      (ConnectionSendError $ Error errorText)
-                    writeTChan (connectionEventQueue connection)
+                    writeTChan (connectionEventQueue outer)
                       (SendError $ Error errorText)
                     putTMVar response . Left $ Error errorText
-                  runUnconnected connection
+                  runUnconnected outer connection'
             Left (StopConnection (Response response)) -> do
-              doDisconnect connection receiving $ \result -> do
-                writeTVar (connectionState connection) ConnectionNotStarted
+              doDisconnect connection receiving $ \result connection -> do
                 case result of
                   Right () -> do
-                    writeTChan (connectionEventQueue connection) Disconnected
-                    putTMVar response $ Right ()
-                    clearActions connection
+                    let connection' =
+                          connection { connectionState =
+                                         ConnectionDisconnected }
+                    atomically $ do
+                      writeTVar (connectionRunning outer) False
+                      writeTChan (connectionEventQueue outer) Disconnected
+                      writeTChan (connectionEventQueue outer)
+                        ConnectionStopped
+                      putTMVar response $ Right ()
+                      clearActions outer connection'
                   Left errorText -> do
-                    writeTVar (connectionState connection)
-                      (ConnectionDisconnectError $ Error errorText)
-                    writeTChan (connectionEventQueue connection)
-                      (DisconnectError $ Error errorText)
-                    putTMVar response . Left $ Error errorText
-                    writeTChan (connectionEventQueue connection)
-                      ConnectionStopped
-                    clearActions connection
+                    let connection' =
+                          connection { connectionState =
+                                         ConnectionDisconnectError $
+                                         Error errorText }
+                    atomically $ do
+                      writeTVar (connectionRunning outer) False
+                      writeTChan (connectionEventQueue outer)
+                        (DisconnectError $ Error errorText)
+                      putTMVar response . Left $ Error errorText
+                      writeTChan (connectionEventQueue outer)
+                        ConnectionStopped
+                      clearActions outer connection'
+            Left (GetConnectionState (Response response)) -> do
+              atomically . putTMVar response $ Right ConnectionConnected
+              handleMessages connection receiving resultVar
+            Left (GetConnectionHostname (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionHostname connection
+              handleMessages connection receiving resultVar
+            Left (GetConnectionPort (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionPort connection
+              handleMessages connection receiving resultVar
+            Left (GetConnectionAddress (Response response)) -> do
+              atomically . putTMVar response . Right $
+                connectionAddress connection
+              handleMessages connection receiving resultVar
         doDisconnect connection receiving handleResult = do
-          socket <- atomically . readTMVar $ connectionSocket connection
+          let socket = case connectionSocket connection of
+                         Just socket -> socket
+                         Nothing -> error "impossible"
           result <- catch
             (Right <$> NS.shutdown socket NS.ShutdownBoth)
             (\e -> return . Left . T.pack $ show (e :: IOException))
           cancel receiving
-          case result of
-            Right () -> do
-              atomically $ do
-                takeTMVar $ connectionSocket connection
-                handleResult result
-            Left errorText -> do
-              atomically $ do
-                takeTMVar $ connectionSocket connection
-                handleResult result
+          let connection' =
+                connection { connectionSocket = Nothing }
+          handleResult result connection'
 
 -- | Clear actions.
-clearActions :: Connection -> STM ()
-clearActions connection = do
-  action <- tryReadTQueue $ connectionActionQueue connection
+clearActions :: Connection -> ConnectionData -> STM ()
+clearActions outer connection = do
+  action <- tryReadTQueue $ connectionActionQueue outer
   case action of
-    Just action -> do
-      let response = case action of
-            Connect _ _ (Response response) -> response
-            Disconnect (Response response) -> response
-            SendData _ (Response response) -> response
-            StopConnection (Response response) -> response
+    Just (Connect _ _  (Response response)) -> do
       putTMVar response . Left $ Error "canceled"
-      clearActions connection
+      clearActions outer connection
+    Just (Disconnect (Response response)) -> do
+      putTMVar response . Left $ Error "canceled"
+      clearActions outer connection
+    Just (SendData _ (Response response)) -> do
+      putTMVar response . Left $ Error "canceled"
+      clearActions outer connection
+    Just (StopConnection (Response response)) -> do
+      putTMVar response . Left $ Error "canceled"
+      clearActions outer connection
+    Just (GetConnectionState (Response response)) -> do
+      putTMVar response . Right $ connectionState connection
+      clearActions outer connection
+    Just (GetConnectionHostname (Response response)) -> do
+      putTMVar response . Right $ connectionHostname connection
+      clearActions outer connection
+    Just (GetConnectionPort (Response response)) -> do
+      putTMVar response . Right $ connectionPort connection
+      clearActions outer connection
+    Just (GetConnectionAddress (Response response)) -> do
+      putTMVar response . Right $ connectionAddress connection
+      clearActions outer connection
     Nothing -> return ()

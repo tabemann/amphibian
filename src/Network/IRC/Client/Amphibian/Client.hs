@@ -676,10 +676,18 @@ handleSessionEvent client session event = do
       tryReconnectSession client session
     IRCConnected -> do
       let connection = sessionIRCConnection session
+      hostnameResponse <- atomically $ getIRCConnectionHostname connection
+      portResponse <- atomically $ getIRCConnectionPort connection
       (hostname, port) <- atomically $ do
-        hostname <- getIRCConnectionHostname connection
-        port <- getIRCConnectionPort connection
-        return (hostname, port)
+        hostname <- getResponse hostnameResponse
+        let hostname' = case hostname of
+                          Right hostname -> hostname
+                          Left (Error errorText) -> Nothing
+        port <- getResponse portResponse
+        let port' = case port of
+                      Right port -> port
+                      Left (Error errorText) -> Nothing
+        return (hostname', port')
       case (hostname, port) of
         (Just hostname, Just port) -> do
           displaySessionMessage client session
@@ -2008,11 +2016,12 @@ reconnectSession client session withDelay = do
       reconnectingAsync <- async $ do
         threadDelay . floor $ delay * 1000000.0
         let connection = sessionIRCConnection session
-        state <- atomically $ getIRCConnectionState connection
-        if state /= IRCConnectionNotStarted
-          then do
-            active <- atomically $ isIRCConnectionActive connection
-            if active
+        stateResponse <- atomically $ getIRCConnectionState connection
+        state <- atomically $ getResponse stateResponse
+        case state of
+          Right IRCConnectionNotStarted -> return ()
+          Right state -> do
+            if isIRCConnectionStateActive state
               then do
                 response <- atomically $ disconnectIRC connection
                 result <- atomically $ getResponse response
@@ -2024,7 +2033,7 @@ reconnectSession client session withDelay = do
             port <- atomically . readTVar $ sessionPort session
             response <- atomically $ connectIRC connection hostname port
             asyncHandleResponse response
-          else return ()
+          Left (Error errorText) -> displayError errorText
         atomically $ writeTVar (sessionReconnecting session) Nothing
       atomically $ do
         writeTVar (sessionReconnecting session) (Just reconnectingAsync)

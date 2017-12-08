@@ -94,7 +94,7 @@ import Data.Char (isSpace)
 import Prelude hiding (readFile)
 
 -- | Private history state type.
-data HistoryState = HistoryState
+data HistoryData = HistoryData
   { historyHandle :: Maybe Handle,
     historyLines :: S.Seq T.Text,
     historyPosition :: Maybe Int,
@@ -119,11 +119,11 @@ startHistory history = do
               return False
       else return True
   if not alreadyRunning
-    then do let state = HistoryState { historyHandle = Nothing,
-                                       historyLines = S.empty,
-                                       historyPosition = Nothing,
-                                       historyNickOrName = Nothing,
-                                       historyLoaded = False }
+    then do let state = HistoryData { historyHandle = Nothing,
+                                      historyLines = S.empty,
+                                      historyPosition = Nothing,
+                                      historyNickOrName = Nothing,
+                                      historyLoaded = False }
             async $ do runHistory history state
             return $ Right ()
     else return . Left $ Error "history already started"
@@ -201,7 +201,7 @@ getHistoryRunning :: History -> STM Bool
 getHistoryRunning = readTVar . historyRunning
 
 -- | Run history.
-runHistory :: History -> HistoryState -> IO ()
+runHistory :: History -> HistoryData -> IO ()
 runHistory outer history = do
   action <- atomically . readTQueue $ historyActions outer
   case action of
@@ -224,8 +224,8 @@ runHistory outer history = do
       handleStopHistory history outer response
 
 -- | Load history from file.
-handleLoadHistory :: HistoryState -> NS.HostName -> NS.PortNumber ->
-                     Maybe B.ByteString -> Response () -> IO HistoryState
+handleLoadHistory :: HistoryData -> NS.HostName -> NS.PortNumber ->
+                     Maybe B.ByteString -> Response () -> IO HistoryData
 handleLoadHistory history hostname port nickOrName (Response response) =
   if not $ historyLoaded history
   then loadHistory' `catch` (\e -> return $ const history (e :: IOException))
@@ -253,7 +253,7 @@ handleLoadHistory history hostname port nickOrName (Response response) =
           return history'
 
 -- | Handle add history.
-handleAddHistory :: HistoryState -> T.Text -> Response () -> IO HistoryState
+handleAddHistory :: HistoryData -> T.Text -> Response () -> IO HistoryData
 handleAddHistory history text (Response response) = do
   case historyHandle history of
     Just handle -> do
@@ -285,8 +285,8 @@ filterLineForHistoryFile nickOrName text =
      else text'
 
 -- | Get previous history.
-handleGetPrevHistory :: HistoryState -> Response (Maybe T.Text) ->
-                        IO HistoryState
+handleGetPrevHistory :: HistoryData -> Response (Maybe T.Text) ->
+                        IO HistoryData
 handleGetPrevHistory history (Response response) = do
   let newPosition =
         case historyPosition history of
@@ -304,8 +304,8 @@ handleGetPrevHistory history (Response response) = do
             return history
 
 -- | Get the next history.
-handleGetNextHistory :: HistoryState -> Response (Maybe T.Text) ->
-                        IO HistoryState
+handleGetNextHistory :: HistoryData -> Response (Maybe T.Text) ->
+                        IO HistoryData
 handleGetNextHistory history (Response response) = do
   let lines = historyLines history
   case historyPosition history of
@@ -324,13 +324,13 @@ handleGetNextHistory history (Response response) = do
         Nothing -> error "impossible"
 
 -- | Get whether the history is loaded.
-handleGetHistoryLoaded :: HistoryState -> Response Bool -> IO HistoryState
+handleGetHistoryLoaded :: HistoryData -> Response Bool -> IO HistoryData
 handleGetHistoryLoaded history (Response response) = do
   atomically . putTMVar response . Right $ historyLoaded history
   return history
 
 -- | Handle stop history.
-handleStopHistory :: HistoryState -> History -> Response () -> IO ()
+handleStopHistory :: HistoryData -> History -> Response () -> IO ()
 handleStopHistory history outer (Response response) = do
   case historyHandle history of
     Just handle -> hClose handle
