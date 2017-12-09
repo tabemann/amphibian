@@ -644,10 +644,30 @@ runWindow window = do
             iter <- Gtk.textBufferGetStartIter $ tabTextBuffer tab
             Gtk.textIterForwardToEnd iter
             let text' = formatText text
+--            adjustment <- Gtk.scrollableGetVadjustment $ tabTextView tab
+--            value <- Gtk.adjustmentGetValue adjustment
+--            upper <- Gtk.adjustmentGetUpper adjustment
+--            pageSize <- Gtk.adjustmentGetPageSize adjustment
+--            printf "VALUE: %f UPPER: %f PAGESIZE: %f\n" value upper pageSize
             Gtk.textBufferInsertMarkup (tabTextBuffer tab) iter text'
               (fromIntegral . B.length $ encodeUtf8 text')
             Gtk.textViewScrollToMark (tabTextView tab) (tabTextMark tab)
-              0.0 True 0.5 0.05
+              0.0 True 0.5 0.5
+--            if value >= (upper - pageSize) - 1
+--              then do
+--                GLib.idleAdd GLib.PRIORITY_DEFAULT $ do
+--                  adjustment' <- Gtk.scrollableGetVadjustment $ tabTextView tab
+--                  upper' <- Gtk.adjustmentGetUpper adjustment'
+--                  pageSize' <- Gtk.adjustmentGetPageSize adjustment'
+--                  printf "UPPER': %f PAGESIZE': %f\n" upper' pageSize'
+--                  Gtk.adjustmentSetValue adjustment' $ upper' - pageSize'
+--                  Gtk.scrollableSetVadjustment (tabTextView tab) $
+--                    Just adjustment'
+--                  Gtk.textViewScrollToMark (tabTextView tab) (tabTextMark tab)
+--                    0.0 True 0.5 0.5
+--                  return False
+--                return ()
+--              else return ()
             atomically $ do
               putTMVar response $ Right ()
               putTMVar lock ()
