@@ -50,6 +50,7 @@ import qualified Network.Socket as NS
 import Data.Text.Encoding (encodeUtf8)
 import Data.Functor ((<$>),
                       fmap)
+import Data.Monoid ((<>))
 import Data.Sequence ((|>),
                       (<|),
                       (><),
@@ -989,10 +990,17 @@ handleJoinMessage client session message = do
               inChannel <- atomically $ isUserInChannel channel user
               if not inChannel
                 then do
-                  displayChannelMessage client channel . T.pack $
-                    printf "* %s (%s) has joined"
-                    (stripText $ ourDecodeUtf8 nick)
-                    (stripText $ ourDecodeUtf8 prefix)
+                  response <- atomically $ filterWithIgnoreList
+                              (clientIgnoreList client) prefix [UserEventStatus]
+                  result <- atomically $ getResponse response
+                  case result of
+                    Right True -> do
+                      displayChannelMessage client channel . T.pack $
+                        printf "* %s (%s) has joined"
+                        (stripText $ ourDecodeUtf8 nick)
+                        (stripText $ ourDecodeUtf8 prefix)
+                    Right False -> return ()
+                    Left (Error errorText) -> displayError errorText
                   atomically $ do
                     type' <- readTVar $ userType user
                     let index = channelIndex channel
@@ -1058,10 +1066,18 @@ handlePartMessage client session message =
                      ourNick <- atomically . readTVar $ sessionNick session
                      if nick /= ourNick
                        then do
-                         displayChannelMessage client channel . T.pack $
-                           printf "* %s (%s) has left"
-                           (stripText $ ourDecodeUtf8 nick)
-                           (stripText $ ourDecodeUtf8 prefix)
+                         response <- atomically $ filterWithIgnoreList
+                                     (clientIgnoreList client) prefix
+                                     [UserEventStatus]
+                         result <- atomically $ getResponse response
+                         case result of
+                           Right True -> do
+                             displayChannelMessage client channel . T.pack $
+                               printf "* %s (%s) has left"
+                               (stripText $ ourDecodeUtf8 nick)
+                               (stripText $ ourDecodeUtf8 prefix)
+                           Right False -> return ()
+                           Left (Error errorText) -> displayError errorText
                          removeUserFromChannel client channel user
                          tabs <- atomically $ findChannelTabsForChannel client
                                  channel
@@ -1149,16 +1165,23 @@ handleQuitMessage client session message = do
           ourNick <- atomically . readTVar $ sessionNick session
           if nick /= ourNick
             then do
-              case ircMessageCoda message of
-                Just coda -> do
-                  displayUserMessageAll client user . T.pack $
-                    printf "* %s has quit (%s)"
-                    (stripText $ ourDecodeUtf8 nick)
-                    (stripText $ ourDecodeUtf8 coda)
-                Nothing -> do
-                  displayUserMessageAll client user . T.pack $
-                    printf "* %s has quit"
-                    (stripText $ ourDecodeUtf8 nick)
+              response <- atomically $ filterWithIgnoreList
+                          (clientIgnoreList client) prefix [UserEventStatus]
+              result <- atomically $ getResponse response
+              case result of
+                Right True -> do
+                  case ircMessageCoda message of
+                    Just coda -> do
+                      displayUserMessageAll client user . T.pack $
+                        printf "* %s has quit (%s)"
+                        (stripText $ ourDecodeUtf8 nick)
+                        (stripText $ ourDecodeUtf8 coda)
+                    Nothing -> do
+                      displayUserMessageAll client user . T.pack $
+                        printf "* %s has quit"
+                        (stripText $ ourDecodeUtf8 nick)
+                Right False -> return ()
+                Left (Error errorText) -> displayError errorText
             else return ()
           removeUserFromAllChannels client session user
         Nothing -> return ()
@@ -1240,10 +1263,18 @@ handleNickMessage client session message =
                                     addCompletion (clientTabTab tab)
                                     (ourDecodeUtf8 newNick)
                         asyncHandleResponse response
-                      displayUserMessageAll client user . T.pack $
-                        printf "* %s is now known as %s"
-                        (stripText $ ourDecodeUtf8 nick)
-                        (stripText $ ourDecodeUtf8 newNick)
+                      response <- atomically $ filterWithIgnoreList
+                                  (clientIgnoreList client) prefix
+                                  [UserEventStatus]
+                      result <- atomically $ getResponse response
+                      case result of
+                        Right True -> do
+                          displayUserMessageAll client user . T.pack $
+                            printf "* %s is now known as %s"
+                            (stripText $ ourDecodeUtf8 nick)
+                            (stripText $ ourDecodeUtf8 newNick)
+                        Right False -> return ()
+                        Left (Error errorText) -> displayError errorText
                     Nothing -> return ()
         else return ()
     _ -> return ()
@@ -2734,7 +2765,8 @@ handleIgnoreCommand client clientTab text =
                  fmap textOfUserEventType userEventTypes) mask
             Nothing ->
               displayMessage client clientTab
-              "* Syntax: /ignore ([CHAN] [PRIV] [NOTI] [CTCP] | [ALL] | [NONE])"
+              ("* Syntax: /ignore ([CHAN] [PRIV] [NOTI] [CTCP] [STAT] | " <>
+               "[ALL] | [NONE])")
     Nothing -> do
       response <- atomically . getIgnoreListEntries $ clientIgnoreList client
       result <- atomically $ getResponse response
@@ -2774,6 +2806,9 @@ handleIgnoreCommand client clientTab text =
                   | field == "invi" ->
                     parseUserEventTypes rest
                     (userEventTypes |> UserEventInvite)
+                  | field == "stat" ->
+                    parseUserEventTypes rest
+                    (userEventTypes |> UserEventStatus)
                   | otherwise -> Nothing
             Nothing -> Just userEventTypes
         displayIgnore (mask, userEventTypes) = do
@@ -2787,6 +2822,7 @@ handleIgnoreCommand client clientTab text =
         textOfUserEventType UserEventCtcp = "CTCP"
         textOfUserEventType UserEventDcc = "DCC"
         textOfUserEventType UserEventInvite = "INVI"
+        textOfUserEventType UserEventStatus = "STAT"
         textOfUserEventType UserEventAll = "ALL"
 
 -- | Handle /unignore command.

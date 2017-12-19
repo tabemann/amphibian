@@ -440,8 +440,9 @@ normalizeUserEventTypes userEventTypes =
         ignoreCtcp = UserEventCtcp `elem` userEventTypes
         ignoreDcc = UserEventDcc `elem` userEventTypes
         ignoreInvite = UserEventInvite `elem` userEventTypes
+        ignoreStatus = UserEventStatus `elem` userEventTypes
     in if ignoreChannel && ignorePrivate && ignoreNotice && ignoreCtcp &&
-          ignoreDcc && ignoreInvite
+          ignoreDcc && ignoreInvite && ignoreStatus
        then S.singleton UserEventAll
        else
          let userEventTypes =
@@ -454,7 +455,9 @@ normalizeUserEventTypes userEventTypes =
                condAppend ignoreCtcp userEventTypes'' UserEventCtcp
              userEventTypes'''' =
                condAppend ignoreDcc userEventTypes''' UserEventDcc
-         in condAppend ignoreInvite userEventTypes'''' UserEventInvite
+             userEventTypes''''' =
+               condAppend ignoreInvite userEventTypes'''' UserEventInvite
+         in condAppend ignoreStatus userEventTypes''''' UserEventStatus
   where condAppend cond xs x = if cond then xs |> x else xs
 
 -- | Get ignore type of bytestring.
@@ -466,6 +469,7 @@ userEventTypeOfByteString byteString
   | byteString == encodeUtf8 "CTCP" = Just UserEventCtcp
   | byteString == encodeUtf8 "DCC" = Just UserEventDcc
   | byteString == encodeUtf8 "INVI" = Just UserEventInvite
+  | byteString == encodeUtf8 "STAT" = Just UserEventStatus
   | byteString == encodeUtf8 "ALL" = Just UserEventAll
   | otherwise = Nothing
 
@@ -477,4 +481,5 @@ byteStringOfUserEventType UserEventNotice = encodeUtf8 "NOTI"
 byteStringOfUserEventType UserEventCtcp = encodeUtf8 "CTCP"
 byteStringOfUserEventType UserEventDcc = encodeUtf8 "DCC"
 byteStringOfUserEventType UserEventInvite = encodeUtf8 "INVI"
+byteStringOfUserEventType UserEventStatus = encodeUtf8 "STAT"
 byteStringOfUserEventType UserEventAll = encodeUtf8 "ALL"

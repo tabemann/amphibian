@@ -463,6 +463,7 @@ data UserEventType = UserEventChannel
                    | UserEventCtcp
                    | UserEventDcc
                    | UserEventInvite
+                   | UserEventStatus
                    | UserEventAll
                    deriving (Eq, Show)
 
