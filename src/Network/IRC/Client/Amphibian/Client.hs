@@ -2753,20 +2753,18 @@ handleIgnoreCommand client clientTab text =
                           (clientIgnoreList client) (encodeUtf8 mask) []
               handleIgnoreResponse response . T.pack $
                 printf "* Unignored %s" mask
-        _ ->
-          case parseUserEventTypes rest S.empty of
-            Just userEventTypes -> do
-              response <- atomically $ updateIgnoreList
-                          (clientIgnoreList client) (encodeUtf8 mask)
-                          userEventTypes
-              handleIgnoreResponse response . T.pack $
-                printf "* Ignored %s for %s"
-                (T.intercalate ", " . toList $
-                 fmap textOfUserEventType userEventTypes) mask
-            Nothing ->
-              displayMessage client clientTab
-              ("* Syntax: /ignore ([CHAN] [PRIV] [NOTI] [CTCP] [STAT] | " <>
-               "[ALL] | [NONE])")
+          | otherwise ->
+            case parseUserEventTypes rest S.empty of
+              Just userEventTypes -> do
+                response <- atomically $ updateIgnoreList
+                            (clientIgnoreList client) (encodeUtf8 mask)
+                            userEventTypes
+                handleIgnoreResponse response . T.pack $
+                  printf "* Ignored %s for %s"
+                  (T.intercalate ", " . toList $
+                   fmap textOfUserEventType userEventTypes) mask
+              Nothing -> displayIgnoreHelp
+        Nothing -> displayIgnoreHelp
     Nothing -> do
       response <- atomically . getIgnoreListEntries $ clientIgnoreList client
       result <- atomically $ getResponse response
@@ -2816,6 +2814,10 @@ handleIgnoreCommand client clientTab text =
             T.intercalate " " . toList $
             (T.pack $ printf "*   %s" (ourDecodeUtf8 mask)) <|
             fmap textOfUserEventType userEventTypes
+        displayIgnoreHelp = do
+          displayMessage client clientTab
+            ("* Syntax: /ignore mask ([CHAN] [PRIV] [NOTI] [CTCP] " <>
+             "[STAT] | [ALL] | [NONE])")
         textOfUserEventType UserEventChannel = "CHAN"
         textOfUserEventType UserEventPrivate = "PRIV"
         textOfUserEventType UserEventNotice = "NOTI"
