@@ -76,6 +76,9 @@ module Network.IRC.Client.Amphibian.Types
    LogAction(..),
    History(..),
    HistoryAction(..),
+   IgnoreList(..),
+   IgnoreListAction(..),
+   UserEventType(..),
    Style(..),
    StyleAndColor(..))
    
@@ -427,7 +430,7 @@ data History = History
   { historyRunning :: TVar Bool,
     historyActions :: TQueue HistoryAction }
 
--- | History action.
+-- | History action type
 data HistoryAction = LoadHistory NS.HostName NS.PortNumber (Maybe B.ByteString)
                      (Response ())
                    | AddHistory T.Text (Response ())
@@ -435,6 +438,33 @@ data HistoryAction = LoadHistory NS.HostName NS.PortNumber (Maybe B.ByteString)
                    | GetNextHistory (Response (Maybe T.Text))
                    | StopHistory (Response ())
                    | GetHistoryLoaded (Response Bool)
+
+-- | Ignore list type.
+data IgnoreList = IgnoreList
+  { ignoreListRunning :: TVar Bool,
+    ignoreListActions :: TQueue IgnoreListAction }
+
+-- | Ignore list action type
+data IgnoreListAction = LoadIgnoreList (Response ())
+                      | UpdateIgnoreList B.ByteString (S.Seq UserEventType)
+                        (Response ())
+                      | FilterWithIgnoreList B.ByteString
+                        (S.Seq UserEventType) (Response Bool)
+                      | GetIgnoreListEntries (Response
+                                              (S.Seq (B.ByteString,
+                                                      S.Seq UserEventType)))
+                      | GetIgnoreListLoaded (Response Bool)
+                      | StopIgnoreList (Response ())
+
+-- | Ignore types.
+data UserEventType = UserEventChannel
+                   | UserEventPrivate
+                   | UserEventNotice
+                   | UserEventCtcp
+                   | UserEventDcc
+                   | UserEventInvite
+                   | UserEventAll
+                   deriving (Eq, Show)
 
 -- | IRC channel type
 data Channel = Channel
@@ -513,7 +543,8 @@ data Client = Client
     clientUsers :: TVar (S.Seq User),
     clientWindows :: TVar (S.Seq ClientWindow),
     clientTabs :: TVar (S.Seq ClientTab),
-    clientSettings :: TVar Settings }
+    clientSettings :: TVar Settings,
+    clientIgnoreList :: IgnoreList }
 
 -- | Client tagged event type
 data ClientTaggedEvent = TaggedSessionEvent Session IRCConnectionEvent

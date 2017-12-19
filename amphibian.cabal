@@ -78,4 +78,5 @@ executable amphibian
                 Network.IRC.Client.Amphibian.IRCConnection
                 Network.IRC.Client.Amphibian.Log
                 Network.IRC.Client.Amphibian.History
+                Network.IRC.Client.Amphibian.IgnoreList
   ghc-options: -threaded -O2

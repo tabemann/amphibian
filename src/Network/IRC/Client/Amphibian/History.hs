@@ -52,6 +52,7 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 import qualified Data.Sequence as S
 import qualified Network.Socket as NS
+import Data.Text.Encoding (encodeUtf8)
 import Data.Functor ((<$>))
 import Data.Sequence ((|>),
                       (><))
@@ -65,7 +66,6 @@ import System.IO (stderr,
 import Data.Text.IO (hPutStr,
                      readFile)
 import Text.Printf (printf)
-import Data.Text.Encoding (encodeUtf8)
 import Control.Concurrent.Async (Async,
                                  async,
                                  cancel)

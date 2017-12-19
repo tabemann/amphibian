@@ -41,6 +41,7 @@ import Network.IRC.Client.Amphibian.IRCConnection
 import Network.IRC.Client.Amphibian.UI
 import Network.IRC.Client.Amphibian.Log
 import Network.IRC.Client.Amphibian.History
+import Network.IRC.Client.Amphibian.IgnoreList
 import Network.IRC.Client.Amphibian.ServerReplies
 import qualified Data.Text as T
 import qualified Data.ByteString as B
@@ -126,6 +127,7 @@ runClient = do
                            settingsPongWaitDelay = 20.0,
                            mentionForegroundColor = 7,
                            mentionBackgroundColor = 99 }
+    ignoreList <- atomically $ newIgnoreList
     let client =
           Client { clientRunning = running,
                    clientNextIndex = nextIndex,
@@ -136,26 +138,36 @@ runClient = do
                    clientUsers = users,
                    clientWindows = windows,
                    clientTabs = tabs,
-                   clientSettings = settings }
-    result <- openClientWindow client "Amphibian IRC" "<Not Connected>"
+                   clientSettings = settings,
+                   clientIgnoreList = ignoreList }
+    result <- startIgnoreList ignoreList
     case result of
       Right _ -> do
-        handleClientEvents client
-        channels <- atomically . readTVar $ clientChannels client
-        forM_ channels $ \channel -> do
-          response <- atomically . stopLog $ channelLog channel
-          syncHandleResponse response
-        users <- atomically . readTVar $ clientUsers client
-        forM_ users $ \user -> do
-          response <- atomically . stopLog $ userLog user
-          syncHandleResponse response
-        windows <- atomically . readTVar $ clientWindows client
-        forM_ windows $ \window -> do
-          response <- atomically . stopWindow $ clientWindowWindow window
-          result <- atomically $ getResponse response
-          case result of
-            Right () -> return ()
-            Left (Error errorText) -> displayError errorText
+        response <- atomically $ loadIgnoreList ignoreList
+        result <- atomically $ getResponse response
+        case result of
+          Right () -> return ()
+          Left (Error errorText) -> displayError errorText
+        result <- openClientWindow client "Amphibian IRC" "<Not Connected>"
+        case result of
+          Right _ -> do
+            handleClientEvents client
+            channels <- atomically . readTVar $ clientChannels client
+            forM_ channels $ \channel -> do
+              response <- atomically . stopLog $ channelLog channel
+              syncHandleResponse response
+            users <- atomically . readTVar $ clientUsers client
+            forM_ users $ \user -> do
+              response <- atomically . stopLog $ userLog user
+              syncHandleResponse response
+            windows <- atomically . readTVar $ clientWindows client
+            forM_ windows $ \window -> do
+              response <- atomically . stopWindow $ clientWindowWindow window
+              result <- atomically $ getResponse response
+              case result of
+                Right () -> return ()
+                Left (Error errorText) -> displayError errorText
+          Left (Error errorText) -> displayError errorText
       Left (Error errorText) -> displayError errorText
 
 -- | Get next client index.
@@ -1613,42 +1625,77 @@ handlePrivmsgMessage client session message = do
             else text'
       if target == ourNick
         then do
-          user <- atomically $ findOrCreateUserByNick client session source
           case parseCtcp text of
             Nothing -> do
-              tabs <- findOrCreateUserTabsForUser client user
-              forM_ tabs $ \tab -> do
-                updateTabTitleForUserMessage client tab text'
-                response <- atomically . addCompletion (clientTabTab tab) $
-                            ourDecodeUtf8 ourNick
-                asyncHandleResponse response
-                response <- atomically . addCompletion (clientTabTab tab) $
-                            ourDecodeUtf8 source
-                asyncHandleResponse response
-              updateNickForAllSessionTabs client session
-              displayMessageOnTabs client tabs . T.pack $
-                printf "<%s> %s" (stripText $ ourDecodeUtf8 source) text''
-            Just (command, param) ->
-              handleUserCtcp client user command param
+              response <- atomically $ filterWithIgnoreList
+                          (clientIgnoreList client) prefix [UserEventPrivate]
+              result <- atomically $ getResponse response
+              case result of
+                Right True -> do
+                  user <- atomically $ findOrCreateUserByNick client session
+                          source
+                  tabs <- findOrCreateUserTabsForUser client user
+                  forM_ tabs $ \tab -> do
+                    updateTabTitleForUserMessage client tab text'
+                    response <- atomically . addCompletion (clientTabTab tab) $
+                                ourDecodeUtf8 ourNick
+                    asyncHandleResponse response
+                    response <- atomically . addCompletion (clientTabTab tab) $
+                                ourDecodeUtf8 source
+                    asyncHandleResponse response
+                  updateNickForAllSessionTabs client session
+                  displayMessageOnTabs client tabs . T.pack $
+                    printf "<%s> %s" (stripText $ ourDecodeUtf8 source) text''
+                Right False -> return ()
+                Left (Error errorText) -> displayError errorText
+            Just (command, param) -> do
+              response <- atomically $ filterWithIgnoreList
+                          (clientIgnoreList client) prefix [UserEventCtcp]
+              result <- atomically $ getResponse response
+              case result of
+                Right True -> do
+                  user <- atomically $ findOrCreateUserByNick client session
+                          source
+                  handleUserCtcp client user command param
+                Right False -> return ()
+                Left (Error errorText) -> displayError errorText
         else do
           channel <- atomically $ findChannelByName session target
           case channel of
             Just channel -> do
-              user <- atomically $ findOrCreateUserByNick client
-                      (channelSession channel) source
-              userPrefix <-
-                userTypePrefix <$> (atomically $ getSingleUserType user channel)
               case parseCtcp text of
                 Nothing -> do
-                  tabs <- atomically $ findChannelTabsForChannel client channel
-                  forM_ tabs $ \tab -> do
-                    updateTabTitleForChannelMessage client tab $
-                      ourDecodeUtf8 text
-                  displayChannelMessage client channel . T.pack $
-                    printf "<%s%s> %s" (stripText $ userPrefix)
-                    (stripText $ ourDecodeUtf8 source) text''
-                Just (command, param) ->
-                  handleChannelCtcp client channel user command param
+                  response <- atomically $ filterWithIgnoreList
+                              (clientIgnoreList client) prefix
+                              [UserEventChannel]
+                  result <- atomically $ getResponse response
+                  case result of
+                    Right True -> do
+                      user <- atomically $ findOrCreateUserByNick client
+                              (channelSession channel) source
+                      userPrefix <-
+                        userTypePrefix <$> (atomically $ getSingleUserType user
+                                            channel)
+                      tabs <- atomically $ findChannelTabsForChannel client channel
+                      forM_ tabs $ \tab -> do
+                        updateTabTitleForChannelMessage client tab $
+                          ourDecodeUtf8 text
+                      displayChannelMessage client channel . T.pack $
+                        printf "<%s%s> %s" (stripText $ userPrefix)
+                        (stripText $ ourDecodeUtf8 source) text''
+                    Right False -> return ()
+                    Left (Error errorText) -> displayError errorText
+                Just (command, param) -> do
+                  response <- atomically $ filterWithIgnoreList
+                              (clientIgnoreList client) prefix [UserEventCtcp]
+                  result <- atomically $ getResponse response
+                  case result of
+                    Right True -> do
+                      user <- atomically $ findOrCreateUserByNick client
+                              (channelSession channel) source
+                      handleChannelCtcp client channel user command param
+                    Right False -> return ()
+                    Left (Error errorText) -> displayError errorText
             Nothing -> return ()
     _ -> return ()
 
@@ -1671,27 +1718,53 @@ handleNoticeMessage client session message = do
             else text'
       if target == ourNick
         then do
-          user <- atomically $ findOrCreateUserByNick client session source
           case parseCtcp text of
-            Just (command, rest) -> handleCtcpNotice client user command rest
+            Just (command, rest) -> do
+              response <- atomically $ filterWithIgnoreList
+                          (clientIgnoreList client) prefix [UserEventCtcp]
+              result <- atomically $ getResponse response
+              case result of
+                Right True -> do
+                  user <- atomically $ findOrCreateUserByNick client session
+                          source
+                  handleCtcpNotice client user command rest
+                Right False -> return ()
+                Left (Error errorText) -> displayError errorText
             Nothing -> do
-              tab <-
-                atomically $ findMostRecentTabForSession client session
-              case tab of
-                Just tab ->
-                  updateTabTitleForUserMessage client tab text'
-              displaySessionMessageOnMostRecentTab client session . T.pack $
-                printf "-%s- %s" (stripText $ ourDecodeUtf8 source) text''
+              response <- atomically $ filterWithIgnoreList
+                          (clientIgnoreList client) prefix [UserEventNotice,
+                                                            UserEventPrivate]
+              result <- atomically $ getResponse response
+              case result of
+                Right True -> do
+                  tab <-
+                    atomically $ findMostRecentTabForSession client session
+                  case tab of
+                    Just tab ->
+                      updateTabTitleForUserMessage client tab text'
+                  displaySessionMessageOnMostRecentTab client session . T.pack $
+                    printf "-%s- %s" (stripText $ ourDecodeUtf8 source) text''
+                Right False -> return ()
+                Left (Error errorText) -> displayError errorText
         else do
-          channel <- atomically $ findChannelByName session target
-          case channel of
-            Just channel -> do
-              tabs <- atomically $ findChannelTabsForChannel client channel
-              forM_ tabs $ \tab ->
-                updateTabTitleForChannelMessage client tab $ ourDecodeUtf8 text
-              displayChannelMessage client channel . T.pack $
-                printf "-%s- %s" (stripText $ ourDecodeUtf8 source) text''
-            Nothing -> return ()
+          response <- atomically $ filterWithIgnoreList
+                      (clientIgnoreList client) prefix [UserEventNotice,
+                                                        UserEventChannel]
+          result <- atomically $ getResponse response
+          case result of
+            Right True -> do
+              channel <- atomically $ findChannelByName session target
+              case channel of
+                Just channel -> do
+                  tabs <- atomically $ findChannelTabsForChannel client channel
+                  forM_ tabs $ \tab ->
+                    updateTabTitleForChannelMessage client tab $
+                    ourDecodeUtf8 text
+                  displayChannelMessage client channel . T.pack $
+                    printf "-%s- %s" (stripText $ ourDecodeUtf8 source) text''
+                Nothing -> return ()
+            Right False -> return ()
+            Left (Error errorText) -> displayError errorText
     _ -> return ()
 
 -- | Handle some other message.
@@ -2239,6 +2312,10 @@ handleCommand client clientTab command = do
         then handleWhoisCommand client clientTab rest
         else if command' == "whowas"
         then handleWhowasCommand client clientTab rest
+        else if command' == "ignore"
+        then handleIgnoreCommand client clientTab rest
+        else if command' == "unignore"
+        then handleUnignoreCommand client clientTab rest
         else handleUnrecognizedCommand client clientTab command
     Nothing -> return ()
 
@@ -2626,6 +2703,111 @@ handleWhowasCommand client clientTab text =
                                      ircMessageCoda = Nothing }
           in sendIRCMessageToSession session message
     _ -> displayMessage client clientTab "* Syntax: /whowas target"
+
+-- | Handle /ignore command
+handleIgnoreCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleIgnoreCommand client clientTab text =
+  case parseCommandField text of
+    Just (mask, rest) ->
+      case parseCommandField rest of
+        Just (field, rest')
+          | T.toLower field == "all" && rest' == "" -> do
+              response <- atomically $ updateIgnoreList
+                          (clientIgnoreList client) (encodeUtf8 mask)
+                          [UserEventAll]
+              handleIgnoreResponse response . T.pack $
+                printf "* Ignored ALL for %s" mask
+          | T.toLower field == "none" && rest' == "" -> do
+              response <- atomically $ updateIgnoreList
+                          (clientIgnoreList client) (encodeUtf8 mask) []
+              handleIgnoreResponse response . T.pack $
+                printf "* Unignored %s" mask
+        _ ->
+          case parseUserEventTypes rest S.empty of
+            Just userEventTypes -> do
+              response <- atomically $ updateIgnoreList
+                          (clientIgnoreList client) (encodeUtf8 mask)
+                          userEventTypes
+              handleIgnoreResponse response . T.pack $
+                printf "* Ignored %s for %s"
+                (T.intercalate ", " . toList $
+                 fmap textOfUserEventType userEventTypes) mask
+            Nothing ->
+              displayMessage client clientTab
+              "* Syntax: /ignore ([CHAN] [PRIV] [NOTI] [CTCP] | [ALL] | [NONE])"
+    Nothing -> do
+      response <- atomically . getIgnoreListEntries $ clientIgnoreList client
+      result <- atomically $ getResponse response
+      case result of
+        Right entries -> do
+          displayMessage client clientTab "* Ignore list:"
+          forM_ entries $ \entry -> displayIgnore entry
+        Left (Error errorText) -> displayError errorText
+  where handleIgnoreResponse response successMessage = do
+          result <- atomically $ getResponse response
+          case result of
+            Right () ->
+              displayMessage client clientTab successMessage
+            Left (Error errorText) ->
+              displayMessage client clientTab . T.pack $
+              printf "* Unable to update ignore list: %s" errorText
+        parseUserEventTypes text userEventTypes =
+          case parseCommandField text of
+            Just (field, rest) ->
+              case T.toLower field of
+                field
+                  | field == "chan" ->
+                    parseUserEventTypes rest
+                    (userEventTypes |> UserEventChannel)
+                  | field == "priv" ->
+                    parseUserEventTypes rest
+                    (userEventTypes |> UserEventPrivate)
+                  | field == "noti" ->
+                    parseUserEventTypes rest
+                    (userEventTypes |> UserEventNotice)
+                  | field == "ctcp" ->
+                    parseUserEventTypes rest
+                    (userEventTypes |> UserEventCtcp)
+                  | field == "dcc" ->
+                    parseUserEventTypes rest
+                    (userEventTypes |> UserEventDcc)
+                  | field == "invi" ->
+                    parseUserEventTypes rest
+                    (userEventTypes |> UserEventInvite)
+                  | otherwise -> Nothing
+            Nothing -> Just userEventTypes
+        displayIgnore (mask, userEventTypes) = do
+          displayMessage client clientTab $
+            T.intercalate " " . toList $
+            (T.pack $ printf "*   %s" (ourDecodeUtf8 mask)) <|
+            fmap textOfUserEventType userEventTypes
+        textOfUserEventType UserEventChannel = "CHAN"
+        textOfUserEventType UserEventPrivate = "PRIV"
+        textOfUserEventType UserEventNotice = "NOTI"
+        textOfUserEventType UserEventCtcp = "CTCP"
+        textOfUserEventType UserEventDcc = "DCC"
+        textOfUserEventType UserEventInvite = "INVI"
+        textOfUserEventType UserEventAll = "ALL"
+
+-- | Handle /unignore command.
+handleUnignoreCommand :: Client -> ClientTab -> T.Text -> IO ()
+handleUnignoreCommand client clientTab text =
+  case parseCommandField text of
+    Just (mask, rest)
+      | rest == "" -> do
+          response <- atomically $ updateIgnoreList
+                      (clientIgnoreList client) (encodeUtf8 mask) []
+          handleIgnoreResponse response . T.pack $
+            printf "* Unignored %s" mask
+    _ -> displayMessage client clientTab "* Syntax: /unignore mask"
+  where handleIgnoreResponse response successMessage = do
+          result <- atomically $ getResponse response
+          case result of
+            Right () ->
+              displayMessage client clientTab successMessage
+            Left (Error errorText) ->
+              displayMessage client clientTab . T.pack $
+              printf "* Unable to update ignore list: %s" errorText
 
 -- | Handle command for tab that requires a ready session.
 handleCommandWithReadySession :: Client -> ClientTab -> (Session -> IO ()) ->

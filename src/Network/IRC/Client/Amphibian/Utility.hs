@@ -42,13 +42,17 @@ module Network.IRC.Client.Amphibian.Utility
    asyncHandleResponse,
    syncHandleResponse,
    displayError,
-   filterMessageText)
+   filterMessageText,
+   matchByteStringGlob)
 
 where
 
 import Network.IRC.Client.Amphibian.Types
 import qualified Data.Text as T
 import qualified Data.ByteString as B
+import qualified Data.Sequence as S
+import Data.Sequence (ViewL(..),
+                      ViewR(..))
 import Data.Text.Encoding (encodeUtf8,
                            decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
@@ -136,3 +140,28 @@ filterMessageText nickOrName text =
             then T.concat [part0, part1', part2', part3', part4', "****"]
             else text
   else text
+
+-- | Match a bytestring against a glob.
+matchByteStringGlob :: B.ByteString -> B.ByteString -> Bool
+matchByteStringGlob glob matched =
+  let parts = S.fromList $ B.split (byteOfChar '*') glob
+  in case S.viewl parts of
+    first :< parts ->
+      case B.stripPrefix first matched of
+        Just matched ->
+          case S.viewr parts of
+            parts :> last ->
+              case B.stripSuffix last matched of
+                Just matched -> matchParts parts matched
+                Nothing -> False
+            EmptyR -> B.null matched
+        Nothing -> False
+    EmptyL -> error "impossible"
+  where matchParts parts matched =
+          case S.viewl parts of
+            first :< parts ->
+              let (_, matchedPart) = B.breakSubstring first matched
+              in case B.stripPrefix first matchedPart of
+                Just matched -> matchParts parts matched
+                Nothing -> False
+            EmptyL -> True
