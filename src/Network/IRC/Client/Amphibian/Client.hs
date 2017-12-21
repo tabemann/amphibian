@@ -168,6 +168,8 @@ runClient = do
               case result of
                 Right () -> return ()
                 Left (Error errorText) -> displayError errorText
+            response <- atomically . stopIgnoreList $ clientIgnoreList client
+            syncHandleResponse response
           Left (Error errorText) -> displayError errorText
       Left (Error errorText) -> displayError errorText
 
