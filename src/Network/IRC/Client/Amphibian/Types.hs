@@ -416,7 +416,8 @@ data SessionState = SessionInactive
 -- | Log type.
 data Log = Log
   { logRunning :: TVar Bool,
-    logActions :: TQueue LogAction }
+    logActions :: TQueue LogAction,
+    logInitialMaxLines :: Int }
 
 -- | Log action.
 data LogAction = LoadLog NS.HostName NS.PortNumber B.ByteString (Response ())
@@ -556,6 +557,7 @@ data ClientTaggedEvent = TaggedSessionEvent Session IRCConnectionEvent
 -- | Settings type
 data Settings = Settings { settingsReconnectDelay :: Double,
                            settingsPongWaitDelay :: Double,
+                           settingsInitialMaxLines :: Int,
                            mentionForegroundColor :: Int,
                            mentionBackgroundColor :: Int }
 

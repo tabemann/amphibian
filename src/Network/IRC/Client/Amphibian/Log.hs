@@ -95,13 +95,18 @@ data LogData = LogData
     logText :: S.Seq T.Text,
     logLoaded :: Bool }
 
+-- | Chunk size
+chunkSize :: Int
+chunkSize = 4096
+
 -- | Create a new log.
-newLog :: STM Log
-newLog = do
+newLog :: Int -> STM Log
+newLog initialMaxLines = do
   running <- newTVar False
   actions <- newTQueue
   return Log { logRunning = running,
-               logActions = actions }
+               logActions = actions,
+               logInitialMaxLines = initialMaxLines }
 
 -- | Start a log.
 startLog :: Log -> IO (Either Error ())
@@ -187,7 +192,8 @@ runLog outer log = do
   action <- atomically . readTQueue $ logActions outer
   case action of
     LoadLog hostname port nickOrName response -> do
-      log <- handleLoadLog log hostname port nickOrName
+      log <- handleLoadLog log hostname port nickOrName $
+             logInitialMaxLines outer
       runLog outer log
     WriteLog text response -> do
       log <- handleWriteLog log text response
@@ -203,8 +209,8 @@ runLog outer log = do
 
 -- | Load log from file.
 handleLoadLog :: LogData -> NS.HostName -> NS.PortNumber -> B.ByteString ->
-                 IO LogData
-handleLoadLog log hostname port nickOrName  =
+                 Int -> IO LogData
+handleLoadLog log hostname port nickOrName initialMaxLines =
   if not $ logLoaded log
   then loadLog' `catch` (\e -> return $ const log (e :: IOException))
   else return log
@@ -214,10 +220,27 @@ handleLoadLog log hostname port nickOrName  =
           let filePath = logDir </> (T.unpack . ourDecodeUtf8 $ nickOrName)
           text <- readFile filePath `catch`
                   (\e -> return $ const "" (e :: SomeException))
+          let text' = shortenText text initialMaxLines
           handle <- openFile filePath AppendMode
-          return $ log { logText = logText log |> text,
+          return $ log { logText = logText log |> text',
                          logHandle = Just handle,
                          logLoaded = True }
+        shortenText text initialMaxLines =
+          shortenText' (reverse $ T.chunksOf chunkSize text) initialMaxLines
+          [""] ""
+        shortenText' chunks count parts section =
+          if count > 0
+          then
+            let (prev, part) = T.breakOnEnd "\n" section
+            in if prev /= ""
+               then shortenText' chunks (count - 1) (part : parts)
+                    (T.dropEnd 1 prev)
+               else
+                 case chunks of
+                   chunk : rest -> shortenText' rest count parts $
+                                   T.append chunk part
+                   [] -> T.intercalate "\n" $ part : parts
+          else T.intercalate "\n" parts
 
 -- | Handle write log.
 handleWriteLog :: LogData -> T.Text -> Response () -> IO LogData

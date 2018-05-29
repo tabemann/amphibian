@@ -126,6 +126,7 @@ runClient = do
     settings <- atomically . newTVar $
                 Settings { settingsReconnectDelay = 20.0,
                            settingsPongWaitDelay = 60.0,
+                           settingsInitialMaxLines = 1000,
                            mentionForegroundColor = 7,
                            mentionBackgroundColor = 99 }
     ignoreList <- atomically $ newIgnoreList
@@ -3075,7 +3076,8 @@ createSession client hostname port nick username realName = do
         ourUserIndex <- getNextClientIndex client
         ourUserNick <- newTVar nick
         ourUserType <- newTVar []
-        ourUserLog <- newLog
+        settings <- readTVar $ clientSettings client
+        ourUserLog <- newLog $ settingsInitialMaxLines settings
         let user = User { userIndex = ourUserIndex,
                           userSession = session,
                           userNick = ourUserNick,
@@ -3361,7 +3363,8 @@ findOrCreateUserByNick client session nick = do
       type' <- newTVar S.empty
       hostname <- readTVar $ sessionOrigHostname session
       port <- readTVar $ sessionPort session
-      log <- newLog
+      settings <- readTVar $ clientSettings client
+      log <- newLog $ settingsInitialMaxLines settings
       let user = User { userIndex = index,
                         userSession = session,
                         userNick = nick',
@@ -3387,7 +3390,8 @@ findOrCreateChannelByName client session name = do
       mode <- newTVar S.empty
       hostname <- readTVar $ sessionOrigHostname session
       port <- readTVar $ sessionPort session
-      log <- newLog
+      settings <- readTVar $ clientSettings client
+      log <- newLog $ settingsInitialMaxLines settings
       let channel = Channel { channelIndex = index,
                               channelSession = session,
                               channelState = state,
