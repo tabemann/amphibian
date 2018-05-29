@@ -124,8 +124,8 @@ runClient = do
     windows <- atomically $ newTVar S.empty
     tabs <- atomically $ newTVar S.empty
     settings <- atomically . newTVar $
-                Settings { settingsReconnectDelay = 10.0,
-                           settingsPongWaitDelay = 20.0,
+                Settings { settingsReconnectDelay = 20.0,
+                           settingsPongWaitDelay = 60.0,
                            mentionForegroundColor = 7,
                            mentionBackgroundColor = 99 }
     ignoreList <- atomically $ newIgnoreList
